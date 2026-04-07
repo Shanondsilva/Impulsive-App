@@ -1,0 +1,15 @@
+appId: com.impulsive.app
+---
+- launchApp:
+    clearState: true
+- tapOn: "Build your baseline"
+- tapOn: "5"
+- tapOn: "Confirm Baseline"
+- tapOn: "Bored"
+- tapOn: "Confirm Triggers"
+- tapOn: "Mental Clarity"
+- tapOn: "Confirm Identity"
+- tapOn: "Psychological"
+- tapOn: "Confirm Profile"
+- tapOn: "Continue"
+- assertVisible: "HOME"

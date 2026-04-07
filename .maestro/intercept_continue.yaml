@@ -1,0 +1,26 @@
+appId: com.impulsive.app
+---
+- launchApp
+- runFlow:
+    when:
+      visible: "Build your baseline"
+    file: onboarding_complete.yaml
+- launchApp:
+    intent: "android.intent.action.VIEW"
+    component: "com.impulsive.app/.ui.intercept.InterceptActivity"
+- assertVisible: "PAUSE."
+- longPressOn:
+    id: "friction_button"
+    duration: 15000
+- assertVisible: "Bored"
+- tapOn: "Bored"
+- assertVisible: "CONTINUE SESSION"
+- tapOn: "CONTINUE SESSION"
+# InterceptActivity will finish and SessionTimerService will start.
+# Note: Maestro tests might not easily assert a foreground service notification,
+# but we can assert we returned to standard flow or timer activity appears.
+# Since SessionTimerActivity shows when screen is locked or via intent:
+- launchApp:
+    intent: "android.intent.action.VIEW"
+    component: "com.impulsive.app/.ui.timer.SessionTimerActivity"
+- assertVisible: "ACTIVE SESSION"

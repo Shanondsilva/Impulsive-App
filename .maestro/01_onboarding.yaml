@@ -1,0 +1,46 @@
+appId: com.impulsive.app
+name: Onboarding Flow
+---
+# Clear app state so onboarding shows fresh
+- clearState: true
+- launchApp:
+    appId: com.impulsive.app
+    clearState: true
+
+# ── Screen 1: Baseline picker ──────────────────────────────────────────────
+- assertVisible: "sessions per week"
+# Scroll the drum picker to select a value (swipe up = increase number)
+- swipe:
+    direction: UP
+    element:
+      id: "baseline_picker"
+    duration: 300
+- swipe:
+    direction: UP
+    element:
+      id: "baseline_picker"
+    duration: 300
+- tapOn: "Continue"
+
+# ── Screen 2: Triggers ─────────────────────────────────────────────────────
+- assertVisible: "What usually pulls you in?"
+- tapOn: "Bored"
+- tapOn: "Stressed"
+- tapOn: "Continue"
+
+# ── Screen 3: Identity anchors ─────────────────────────────────────────────
+- assertVisible: "What matters most to you?"
+- tapOn: "Mental Clarity"
+- tapOn: "Continue"
+
+# ── Screen 4: Path selection ────────────────────────────────────────────────
+- assertVisible: "Complete Setup"
+# Complete Setup should be disabled until a path is chosen
+- assertNotVisible:
+    enabled: true
+    text: "Complete Setup"
+- tapOn: "Psychological"
+- tapOn: "Complete Setup"
+
+# ── Post-onboarding: Home screen ───────────────────────────────────────────
+- assertVisible: "Home"

@@ -1,0 +1,39 @@
+appId: com.impulsive.app
+name: Intercept + Hold Flow
+---
+- launchApp:
+    appId: com.impulsive.app
+
+# Assumes onboarding complete, permissions granted, at least one app monitored.
+# The intercept screen is launched directly via its activity for test isolation.
+- startActivity:
+    appId: com.impulsive.app
+    activity: .ui.intercept.InterceptActivity
+
+# ── Intercept screen ────────────────────────────────────────────────────────
+- assertVisible: "Hold to continue"
+
+# Hold for less than 15s — should NOT advance
+- longPressOn:
+    text: "Hold to continue"
+    duration: 3000
+- assertVisible: "Hold to continue"
+
+# Hold the full 15s — should advance to trigger routing
+- longPressOn:
+    text: "Hold to continue"
+    duration: 16000
+
+# ── Trigger routing screen ──────────────────────────────────────────────────
+- assertVisible: "What brought you here?"
+- tapOn: "Stressed"
+
+# ── Box breathing intervention ──────────────────────────────────────────────
+- assertVisible: "Box Breathing"
+# Wait for one breath phase to pass
+- wait: 5000
+- tapOn: "Done"
+
+# ── Gateway screen ──────────────────────────────────────────────────────────
+- assertVisible: "Walk Away"
+- assertVisible: "Continue Anyway"

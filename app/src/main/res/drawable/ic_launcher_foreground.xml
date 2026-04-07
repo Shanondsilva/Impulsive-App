@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Impulsive — "Interrupt Point" launcher icon foreground
+  108×108dp canvas, safe zone 18–90 in both axes (72dp centred).
+
+  The curve is a cubic bezier M 19,76 C 32,64 76,44 89,32, split exactly
+  at t=0.5 (de Casteljau midpoint = 54,54) and broken 7dp either side of
+  centre to seat the glowing interrupt dot.
+
+  Left half bezier  : P0=(19,76) CP1=(25.5,70) CP2=(39.75,62) → stop at ~(47,57)
+  Right half bezier : start at ~(61,51) CP1=(68.25,46) CP2=(82.5,38) P3=(89,32)
+  Interrupt dot     : cx=54, cy=54
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ── Line aura glow (very wide, near-invisible — gives the line a lit feel) ── -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#0A7CD6CD"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:pathData="M 19,76 C 25.5,70 38,62.5 47,57" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#0A7CD6CD"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:pathData="M 61,51 C 68.25,46 82.5,38 89,32" />
+
+    <!-- ── Left line segment (entering — slightly muted) ── -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#3D9E97"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 19,76 C 25.5,70 38,62.5 47,57" />
+
+    <!-- ── Right line segment (leaving — slightly brighter, trending to primary) ── -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#5DC4BB"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 61,51 C 68.25,46 82.5,38 89,32" />
+
+    <!-- ── Interrupt dot glow — outermost ring ── -->
+    <path
+        android:fillColor="#0A7CD6CD"
+        android:pathData="M 38,54 A 16,16 0 1,0 70,54 A 16,16 0 1,0 38,54 Z" />
+
+    <!-- ── Interrupt dot glow — mid ring ── -->
+    <path
+        android:fillColor="#1A7CD6CD"
+        android:pathData="M 43,54 A 11,11 0 1,0 65,54 A 11,11 0 1,0 43,54 Z" />
+
+    <!-- ── Interrupt dot glow — inner halo ── -->
+    <path
+        android:fillColor="#354DA8A0"
+        android:pathData="M 47,54 A 7,7 0 1,0 61,54 A 7,7 0 1,0 47,54 Z" />
+
+    <!-- ── Interrupt dot — bright centre ── -->
+    <path
+        android:fillColor="#D9F5F3"
+        android:pathData="M 50,54 A 4,4 0 1,0 58,54 A 4,4 0 1,0 50,54 Z" />
+
+</vector>

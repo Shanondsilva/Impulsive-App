@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Usage stats for foreground app detection -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <!-- Foreground service for session timer -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- WorkManager / boot persistence -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Battery optimization exemption request -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Vibration for haptic feedback -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Post notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Full-screen intent for intercept overlay (like incoming calls) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Required on Android 11+ to query installed packages -->
+    <queries>
+        <package android:name="com.instagram.android" />
+        <package android:name="com.zhiliaoapp.musically" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.twitter.android" />
+        <package android:name="com.snapchat.android" />
+        <package android:name="com.reddit.frontpage" />
+        <package android:name="com.linkedin.android" />
+        <package android:name="com.pinterest" />
+        <package android:name="com.bereal.ft" />
+        <package android:name="com.discord" />
+        <package android:name="com.instagram.barcelona" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="tv.twitch.android.app" />
+        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.disney.disneyplus" />
+        <package android:name="com.amazon.avod.thirdpartyclient" />
+        <package android:name="com.android.chrome" />
+        <package android:name="com.sec.android.app.sbrowser" />
+        <package android:name="org.mozilla.firefox" />
+        <package android:name="com.brave.browser" />
+        <package android:name="com.opera.browser" />
+        <package android:name="com.microsoft.emmx" />
+        <package android:name="com.amazon.mShop.android.shopping" />
+        <package android:name="com.ebay.mobile" />
+    </queries>
+
+    <application
+        android:name=".ImpulsiveApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Impulsive">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Intercept screen: shown over flagged apps via full-screen notification intent -->
+        <activity
+            android:name=".ui.intercept.InterceptActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.impulsive.app.intercept"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
+        <activity
+            android:name=".ui.timer.SessionTimerActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
+        <!-- Relapse protocol: shown when permissions are revoked or on bypass recovery -->
+        <activity
+            android:name=".ui.relapse.RelapseActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
+        <!-- Session timer foreground service -->
+        <service
+            android:name=".service.SessionTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Session timer for impulse control" />
+        </service>
+
+        <!-- Usage stats polling service -->
+        <service
+            android:name=".service.AppMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="App usage monitoring for impulse control" />
+        </service>
+
+        <!-- FileProvider for sharing exported JSON files -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

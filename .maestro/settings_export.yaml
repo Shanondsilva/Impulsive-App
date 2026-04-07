@@ -1,0 +1,14 @@
+appId: com.impulsive.app
+---
+- launchApp
+- runFlow:
+    when:
+      visible: "Build your baseline"
+    file: onboarding_complete.yaml
+- tapOn: "⚙" # Tap settings icon in BottomNav
+- scrollUntilVisible:
+    element:
+      text: "Export Data"
+- tapOn: "Export Data"
+# It opens intent chooser which interrupts Maestro flow on some devices,
+# but we just assert we reached the action.
