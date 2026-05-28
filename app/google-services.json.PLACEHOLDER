@@ -1,0 +1,30 @@
+{
+  "_comment": "PLACEHOLDER — replace this entire file with the real google-services.json downloaded from your Firebase project (Project settings -> General -> Your apps -> Android). Then RENAME this file to 'google-services.json' (drop the .PLACEHOLDER suffix). The com.google.gms.google-services Gradle plugin will refuse to build without it.",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "impulsive-placeholder",
+    "storage_bucket": "impulsive-placeholder.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "android_client_info": {
+          "package_name": "com.impulsive.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "PLACEHOLDER_FIREBASE_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

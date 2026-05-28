@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Base theme required by manifest; actual theming done in Compose -->
-    <style name="Theme.Impulsive" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">#061423</item>
-        <item name="android:statusBarColor">#061423</item>
-        <item name="android:navigationBarColor">#061423</item>
-    </style>
-</resources>

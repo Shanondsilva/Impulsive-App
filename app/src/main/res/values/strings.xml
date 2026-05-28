@@ -1,4 +1,24 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Impulsive</string>
+
+    <!--
+         === Auth provider placeholders ===
+         These are read by the Facebook SDK and Google Identity Services.
+         Replace the PLACEHOLDER values before building a real APK.
+         See AUTH_SETUP.md at the repo root for step-by-step instructions.
+    -->
+
+    <!-- Facebook App ID from https://developers.facebook.com/apps/<your-app>/settings/basic/ -->
+    <string name="facebook_app_id">PLACEHOLDER_FACEBOOK_APP_ID</string>
+
+    <!-- Facebook Client Token from the same Basic Settings page. -->
+    <string name="facebook_client_token">PLACEHOLDER_FACEBOOK_CLIENT_TOKEN</string>
+
+    <!-- Login protocol scheme is literally "fb" + your Facebook App ID. -->
+    <string name="fb_login_protocol_scheme">fbPLACEHOLDER_FACEBOOK_APP_ID</string>
+
+    <!-- Google "Web client (auto created by Google Service)" OAuth client ID.
+         Find it in Firebase Console -> Project settings -> General -> SDK setup,
+         OR in Google Cloud Console -> APIs & Services -> Credentials. -->
+    <string name="default_web_client_id">PLACEHOLDER_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com</string>
 </resources>
