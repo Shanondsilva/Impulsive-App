@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.local.preferences.ReflexGameHistoryDataSource
+import com.impulsive.app.backend.data.repository.ScoreRepository
 import com.impulsive.app.backend.domain.game.Flash
 import com.impulsive.app.backend.domain.game.GameHistory
 import com.impulsive.app.backend.domain.game.GameResult
@@ -12,11 +13,16 @@ import com.impulsive.app.backend.domain.game.GameView
 import com.impulsive.app.backend.domain.game.ReflexGameConfig
 import com.impulsive.app.backend.domain.game.Target
 import com.impulsive.app.backend.domain.game.TargetType
+import com.impulsive.app.backend.domain.model.score.ScoreGameType
+import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
+import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
+import com.impulsive.app.backend.domain.model.score.newScoreSessionId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -41,6 +47,7 @@ data class ReflexGameUiState(
 
 class ReflexGameViewModel(application: Application) : AndroidViewModel(application) {
     private val dataSource = ReflexGameHistoryDataSource(application)
+    private val scoreRepository = ScoreRepository(application)
     private val _uiState = MutableStateFlow(ReflexGameUiState())
     val uiState: StateFlow<ReflexGameUiState> = _uiState
 
@@ -61,6 +68,9 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
     private var arenaW = 320
     private var arenaH = 420
     private var targets = emptyList<Target>()
+    private var resultRecorded = false
+    private var activeSessionId: Long = newScoreSessionId()
+    private var sessionStartedAt: LocalDateTime = LocalDateTime.now()
 
     init {
         viewModelScope.launch {
@@ -100,6 +110,9 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
     fun startGame() {
         score = 0
         combo = 0
+        resultRecorded = false
+        activeSessionId = newScoreSessionId()
+        sessionStartedAt = LocalDateTime.now()
         maxCombo = 0
         hits = 0
         misses = 0
@@ -358,12 +371,18 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
                 history = nextHistory,
             )
         }
+        val outcome = if (result.validCompletion) ScoreSessionOutcome.Completed else ScoreSessionOutcome.Abandoned
+        recordScoreSession(outcome = outcome, scoreValue = score, result = result)
     }
 
     fun walkAway() {
         val old = _uiState.value.history
         val base = _uiState.value.result?.score ?: score
         val total = base + ReflexGameConfig.WALK_AWAY_BONUS
+        recordCurrentResult(
+            outcome = ScoreSessionOutcome.WalkedAway,
+            scoreOverride = total,
+        )
         val nextHistory = old.copy(
             pb = max(old.pb, total),
             prev = total,
@@ -380,12 +399,45 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun recordCurrentResult(
+        outcome: ScoreSessionOutcome,
+        scoreOverride: Int? = null,
+    ) {
+        val result = _uiState.value.result ?: return
+        recordScoreSession(outcome = outcome, scoreValue = scoreOverride ?: result.score, result = result)
+    }
+
+    private fun recordScoreSession(
+        outcome: ScoreSessionOutcome,
+        scoreValue: Int,
+        result: GameResult,
+    ) {
+        viewModelScope.launch {
+            scoreRepository.recordSession(
+                ScoreSessionRecord(
+                    id = activeSessionId,
+                    gameType = ScoreGameType.ReflexOverride,
+                    score = scoreValue.coerceAtLeast(0),
+                    startedAt = sessionStartedAt,
+                    completedAt = LocalDateTime.now(),
+                    durationSec = result.durationSec.coerceAtLeast(0),
+                    outcome = outcome,
+                    validCompletion = when (outcome) {
+                        ScoreSessionOutcome.Abandoned -> false
+                        else -> result.validCompletion || outcome == ScoreSessionOutcome.WalkedAway
+                    },
+                ),
+            )
+        }
+    }
+
     fun playAgain() {
         startCountdown()
     }
 
     fun reset() {
         targets = emptyList()
+        resultRecorded = false
         _uiState.update {
             it.copy(
                 view = GameView.Ready,

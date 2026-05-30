@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.NightsStay
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
@@ -72,7 +74,6 @@ import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
-import com.impulsive.app.frontend.theme.ImpulsiveSurface
 import com.impulsive.app.frontend.theme.ImpulsiveText
 import java.time.LocalDateTime
 
@@ -83,10 +84,16 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    onOpenReflexGame: () -> Unit = {},
+    onOpenRecoveryGames: () -> Unit = {},
+    onOpenJournal: () -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenPatternBreakTask: () -> Unit = {},
+    onOpenBlockCascadeTask: () -> Unit = {},
+    onOpenMindLessonTask: () -> Unit = {},
+    onOpenResetReadTask: () -> Unit = {},
+    onOpenFutureSelfMessageTask: () -> Unit = {},
     onOpenTasks: () -> Unit = {},
+    onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
 ) {
     val state by onboardingViewModel.state.collectAsState()
@@ -95,10 +102,10 @@ fun HomeScreen(
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val themeMode by themeViewModel.themeMode.collectAsState()
     val systemInDark = isSystemInDarkTheme()
-    val currentNow by produceState(initialValue = LocalDateTime.now()) {
+    val currentNow by produceState(initialValue = LocalDateTime.now().withSecond(0).withNano(0)) {
         while (true) {
-            value = LocalDateTime.now()
-            kotlinx.coroutines.delay(60_000L)
+            value = LocalDateTime.now().withSecond(0).withNano(0)
+            kotlinx.coroutines.delay(30_000L)
         }
     }
     val currentHour = currentNow.hour
@@ -125,7 +132,7 @@ fun HomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
         Column(
@@ -170,16 +177,16 @@ fun HomeScreen(
                 releasePlan = displayReleasePlan,
                 taskRewardState = taskRewardState,
                 onStartTask = {
-                    if (taskRewardState.recommendedTaskType == PsychologyTaskType.ReflexOverride) {
-                        onOpenReflexOverrideTask()
-                    } else if (taskRewardState.recommendedTaskType == PsychologyTaskType.PatternBreak) {
-                        onOpenPatternBreakTask()
-                    } else {
-                        taskRewardViewModel.completeTask(
-                            taskType = taskRewardState.recommendedTaskType,
-                            releasePlan = displayReleasePlan,
-                            now = currentNow,
-                        )
+                    when (taskRewardState.recommendedTaskType) {
+                        PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+                        PsychologyTaskType.PatternBreak -> onOpenPatternBreakTask()
+                        PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+                        PsychologyTaskType.MindLesson -> onOpenMindLessonTask()
+                        PsychologyTaskType.ResetRead -> onOpenResetReadTask()
+                        PsychologyTaskType.FutureSelfMessage,
+                        PsychologyTaskType.TriggerDecoder,
+                        PsychologyTaskType.ThoughtCapture,
+                        PsychologyTaskType.ShortReadingBurst -> onOpenFutureSelfMessageTask()
                     }
                 },
                 onViewAllTasks = onOpenTasks,
@@ -187,13 +194,20 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            DashboardCards(onOpenReflexGame = onOpenReflexGame)
+            DashboardCards(
+                onOpenRecoveryGames = onOpenRecoveryGames,
+                onOpenJournal = onOpenJournal,
+            )
         }
 
         BottomNavBar(
             selected = BottomNavItem.Home,
             onSelect = { item ->
-                if (item == BottomNavItem.Settings) onOpenSettings()
+                when (item) {
+                    BottomNavItem.Progress -> onOpenScore()
+                    BottomNavItem.Settings -> onOpenSettings()
+                    else -> Unit
+                }
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -373,131 +387,153 @@ private fun TaskToCompletePreviewCard(
     val recommendedReward = taskRewardState.taskStatuses.first {
         it.taskType == taskRewardState.recommendedTaskType
     }
+    val hasWaitCut = recommendedReward.hasVisibleWaitCut()
 
     Surface(
-        color = Color(0xFFFFFAFF),
-        shape = RoundedCornerShape(34.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(30.dp),
         border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
             .shadow(
-                elevation = 10.dp,
-                shape = RoundedCornerShape(34.dp),
+                elevation = 8.dp,
+                shape = RoundedCornerShape(30.dp),
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.08f),
-                spotColor = ImpulsiveText.copy(alpha = 0.10f),
+                ambientColor = ImpulsiveText.copy(alpha = 0.06f),
+                spotColor = ImpulsiveText.copy(alpha = 0.08f),
             ),
     ) {
-        Column(modifier = Modifier.padding(22.dp)) {
-            Text(
-                text = "Task to Complete",
-                color = ImpulsiveText,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SoftChip("Psychology task", ImpulsivePsychological.copy(alpha = 0.72f))
-                SoftChip("Recommended", ImpulsivePhysical.copy(alpha = 0.74f))
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Surface(
-                color = Color(0xFFFFFCFF),
-                shape = RoundedCornerShape(28.dp),
-                border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f)),
-            ) {
-                Column(modifier = Modifier.padding(22.dp)) {
-                    Text(
-                        text = recommendedTask.title,
-                        color = ImpulsiveText,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = recommendedTask.description,
-                        color = ImpulsiveText.copy(alpha = 0.88f),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.AccessTime,
-                            contentDescription = null,
-                            tint = ImpulsiveText,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = recommendedReward.displayRewardLabel(),
-                            color = ImpulsiveText.copy(alpha = 0.86f),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(ImpulsiveText.copy(alpha = 0.06f)),
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = releasePlan.formattedTimeUntilNextWindow(),
-                        color = ImpulsiveText.copy(alpha = 0.80f),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        releasePlan.formattedPlannedWindows().forEach { plannedWindow ->
-                            SoftTimeChip(plannedWindow)
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
+        Column(modifier = Modifier.padding(20.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Task to Complete",
+                        color = ImpulsiveText,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = releasePlan.formattedTimeUntilNextWindow(),
+                        color = ImpulsiveMutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                SoftChip(
+                    text = if (recommendedReward.isFirstTimeBoostAvailable) "First-time boost" else "Reward ready",
+                    color = ImpulsivePsychological.copy(alpha = 0.72f),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(24.dp),
+                border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.055f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(
+                                color = ImpulsivePsychological.copy(alpha = 0.72f),
+                                shape = RoundedCornerShape(18.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = null,
+                            tint = ImpulsiveText.copy(alpha = 0.84f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = recommendedTask.title,
+                            color = ImpulsiveText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = recommendedTask.description,
+                            color = ImpulsiveText.copy(alpha = 0.80f),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (hasWaitCut) Icons.Outlined.AccessTime else Icons.Filled.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color(0xFF5C4A7D),
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = recommendedReward.displayRewardLabel(),
+                                color = Color(0xFF5C4A7D),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Surface(
                     color = Color(0xFF6C5A8F),
                     shape = RoundedCornerShape(50),
-                    modifier = Modifier.clickable { onStartTask() },
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onStartTask() },
                 ) {
                     Text(
                         text = "Start task",
                         color = Color.White.copy(alpha = 0.96f),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 26.dp, vertical = 14.dp),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 13.dp),
                     )
                 }
 
-                Text(
-                    text = "View all tasks ›",
-                    color = Color(0xFF5C4A7D),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
+                Surface(
+                    color = ImpulsivePsychological.copy(alpha = 0.36f),
+                    shape = RoundedCornerShape(50),
                     modifier = Modifier.clickable { onViewAllTasks() },
-                )
+                ) {
+                    Text(
+                        text = "All tasks",
+                        color = Color(0xFF5C4A7D),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
+                    )
+                }
             }
         }
     }
@@ -522,18 +558,17 @@ private fun SoftChip(
 }
 
 private fun TaskRewardStatus.displayRewardLabel(): String {
-    val points = if (currentWindowRewardAlreadyUsed) {
-        minOf(2, displayLevelPoints)
-    } else {
-        displayLevelPoints
-    }
+    val points = if (currentWindowRewardAlreadyUsed) minOf(2, displayLevelPoints) else displayLevelPoints
     val waitReduction = if (currentWindowRewardAlreadyUsed) 0 else displayWaitReductionMinutes
     return if (waitReduction > 0) {
-        "Cuts wait by ${waitReduction.formatMinutes()}  •  +$points LP"
+        "Cuts wait by ${waitReduction.formatMinutes()} • +$points LP"
     } else {
-        "+$points LP"
+        "Bonus only: +$points LP"
     }
 }
+
+private fun TaskRewardStatus.hasVisibleWaitCut(): Boolean =
+    !currentWindowRewardAlreadyUsed && displayWaitReductionMinutes > 0
 
 private fun Int.formatMinutes(): String =
     if (this >= 60 && this % 60 == 0) "${this / 60}h" else "$this min"
@@ -552,17 +587,27 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
         title = "Pattern Break",
         description = "Solve quick patterns to shift your attention.",
     )
-    PsychologyTaskType.TriggerDecoder -> HomeRecommendedTask(
-        title = "Trigger Decoder",
-        description = "Find what is driving the urge right now.",
+    PsychologyTaskType.BlockCascade -> HomeRecommendedTask(
+        title = "Block Cascade",
+        description = "Load visual focus with a calm falling-block challenge.",
     )
-    PsychologyTaskType.ThoughtCapture -> HomeRecommendedTask(
-        title = "Thought Capture",
-        description = "Write the thought that started the loop.",
+    PsychologyTaskType.MindLesson -> HomeRecommendedTask(
+        title = "Mind Lesson",
+        description = "Learn one useful idea, then choose the next action.",
     )
+    PsychologyTaskType.ResetRead -> HomeRecommendedTask(
+        title = "Reset Read",
+        description = "Read one focused reset and let the timer finish.",
+    )
+    PsychologyTaskType.FutureSelfMessage -> HomeRecommendedTask(
+        title = "Future-Self Message",
+        description = "Hear your own reason before the moment gets harder.",
+    )
+    PsychologyTaskType.TriggerDecoder,
+    PsychologyTaskType.ThoughtCapture,
     PsychologyTaskType.ShortReadingBurst -> HomeRecommendedTask(
-        title = "Short Reading Burst",
-        description = "Swipe through a short reset reading.",
+        title = "Future-Self Message",
+        description = "Use your saved reason as the next recovery action.",
     )
 }
 
@@ -582,45 +627,50 @@ private fun SoftTimeChip(text: String) {
 }
 
 @Composable
-private fun DashboardCards(onOpenReflexGame: () -> Unit) {
+private fun DashboardCards(
+    onOpenRecoveryGames: () -> Unit,
+    onOpenJournal: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         SmallActionCard(
             modifier = Modifier
                 .weight(1f)
-                .clickable { onOpenReflexGame() },
+                .clickable { onOpenRecoveryGames() },
             label = "RECOVERY GAME",
-            title = "Reflex\nOverride",
-            subtext = "60-second reset",
-            cta = "Play now ›",
+            title = "Recovery\nGames",
+            subtext = "Reflex and Block Cascade",
+            cta = "Open list ›",
             iconColor = ImpulsivePsychological.copy(alpha = 0.58f),
             icon = {
                 Icon(
                     imageVector = Icons.Filled.SportsEsports,
                     contentDescription = null,
                     tint = ImpulsiveText.copy(alpha = 0.82f),
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             },
         )
 
         SmallActionCard(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .clickable { onOpenJournal() },
             label = "JOURNAL",
-            title = "Thought\nCapture",
-            subtext = "Save what triggered the loop",
-            cta = "Write now ›",
+            title = "Private\nJournal",
+            subtext = "Notes, lists and future-self cues",
+            cta = "Open journal ›",
             iconColor = ImpulsiveSpiritual.copy(alpha = 0.78f),
             icon = {
                 Icon(
                     imageVector = Icons.AutoMirrored.Outlined.MenuBook,
                     contentDescription = null,
                     tint = ImpulsiveText.copy(alpha = 0.82f),
-                    modifier = Modifier.size(23.dp),
+                    modifier = Modifier.size(21.dp),
                 )
             },
         )
@@ -638,51 +688,51 @@ private fun SmallActionCard(
     icon: @Composable () -> Unit,
 ) {
     Surface(
-        color = ImpulsiveSurface,
-        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(24.dp),
         border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
         modifier = modifier
-            .heightIn(min = 220.dp)
+            .heightIn(min = 138.dp)
             .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(28.dp),
+                elevation = 6.dp,
+                shape = RoundedCornerShape(24.dp),
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.06f),
-                spotColor = ImpulsiveText.copy(alpha = 0.08f),
+                ambientColor = ImpulsiveText.copy(alpha = 0.045f),
+                spotColor = ImpulsiveText.copy(alpha = 0.06f),
             ),
     ) {
-        Column(modifier = Modifier.padding(22.dp)) {
-            Text(
-                text = label,
-                color = ImpulsiveText,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-            )
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .background(
-                        color = iconColor,
-                        shape = RoundedCornerShape(50),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                icon()
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(
+                            color = iconColor,
+                            shape = RoundedCornerShape(16.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    icon()
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = label,
+                    color = ImpulsiveMutedText,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
                 text = title,
                 color = ImpulsiveText,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = subtext,
@@ -690,13 +740,13 @@ private fun SmallActionCard(
                 style = MaterialTheme.typography.bodySmall,
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = cta,
                 color = Color(0xFF5C4A7D),
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Bold,
             )
         }
     }

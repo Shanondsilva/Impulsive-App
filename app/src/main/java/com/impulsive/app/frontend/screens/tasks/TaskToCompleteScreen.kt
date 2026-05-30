@@ -27,8 +27,7 @@ import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircleOutline
-import androidx.compose.material.icons.filled.Radar
-import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Info
@@ -50,6 +49,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
@@ -57,18 +57,20 @@ import com.impulsive.app.backend.domain.model.release.formattedPlannedWindows
 import com.impulsive.app.backend.domain.model.release.formattedTimeUntilNextWindow
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
+import com.impulsive.app.backend.domain.model.tasks.TaskCompletionResult
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardState
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardStatus
-import com.impulsive.app.backend.domain.model.tasks.TaskCompletionResult
 import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
+import com.impulsive.app.frontend.theme.ImpulsiveBackground
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSurface
 import com.impulsive.app.frontend.theme.ImpulsiveText
+import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import java.time.LocalDateTime
 
 private data class PsychologyTask(
@@ -80,46 +82,54 @@ private data class PsychologyTask(
     val iconBackground: Color,
 )
 
-private val PsychologyTasks = listOf(
+private val VisiblePsychologyTasks = listOf(
+    PsychologyTask(
+        taskType = PsychologyTaskType.BlockCascade,
+        title = "Block Cascade",
+        description = "A 90-second visual focus round with a real end state.",
+        chip = "Visual focus",
+        icon = Icons.Filled.AutoAwesome,
+        iconBackground = ImpulsivePsychological.copy(alpha = 0.70f),
+    ),
     PsychologyTask(
         taskType = PsychologyTaskType.ReflexOverride,
         title = "Reflex Override",
-        description = "Break autopilot with a fast control challenge.",
-        chip = "First-time boost",
-        icon = Icons.Filled.AutoAwesome,
-        iconBackground = ImpulsivePsychological.copy(alpha = 0.78f),
+        description = "Break autopilot with a fast reaction challenge.",
+        chip = "Fast control",
+        icon = Icons.Filled.SportsEsports,
+        iconBackground = ImpulsivePsychological.copy(alpha = 0.58f),
     ),
     PsychologyTask(
         taskType = PsychologyTaskType.PatternBreak,
         title = "Pattern Break",
-        description = "Solve quick patterns to shift your attention.",
+        description = "Solve quick patterns to pull attention into logic.",
         chip = "Logic",
         icon = Icons.Outlined.Pattern,
         iconBackground = ImpulsivePhysical.copy(alpha = 0.62f),
     ),
     PsychologyTask(
-        taskType = PsychologyTaskType.TriggerDecoder,
-        title = "Trigger Decoder",
-        description = "Find what is driving the urge right now.",
-        chip = "Pattern",
-        icon = Icons.Filled.Radar,
-        iconBackground = ImpulsivePhysical.copy(alpha = 0.62f),
-    ),
-    PsychologyTask(
-        taskType = PsychologyTaskType.ThoughtCapture,
-        title = "Thought Capture",
-        description = "Write the thought that started the loop.",
-        chip = "Journal",
-        icon = Icons.AutoMirrored.Outlined.MenuBook,
+        taskType = PsychologyTaskType.MindLesson,
+        title = "Mind Lesson",
+        description = "Finish one calm lesson and answer the final check.",
+        chip = "Lesson",
+        icon = Icons.AutoMirrored.Outlined.Article,
         iconBackground = ImpulsivePsychological.copy(alpha = 0.46f),
     ),
     PsychologyTask(
-        taskType = PsychologyTaskType.ShortReadingBurst,
-        title = "Short Reading Burst",
-        description = "Swipe through a short reset reading.",
-        chip = "Light task",
+        taskType = PsychologyTaskType.ResetRead,
+        title = "Reset Read",
+        description = "Read for the full timer before choosing the next move.",
+        chip = "Reader",
         icon = Icons.AutoMirrored.Outlined.Article,
         iconBackground = Color(0xFFE8E2EA),
+    ),
+    PsychologyTask(
+        taskType = PsychologyTaskType.FutureSelfMessage,
+        title = "Future-Self Message",
+        description = "Play your saved reason and make one clear choice.",
+        chip = "Your voice",
+        icon = Icons.AutoMirrored.Outlined.MenuBook,
+        iconBackground = ImpulsivePsychological.copy(alpha = 0.52f),
     ),
 )
 
@@ -128,15 +138,20 @@ fun TaskToCompleteScreen(
     onBack: () -> Unit,
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenPatternBreakTask: () -> Unit = {},
+    onOpenBlockCascadeTask: () -> Unit = {},
+    onOpenMindLessonTask: () -> Unit = {},
+    onOpenResetReadTask: () -> Unit = {},
+    onOpenFutureSelfMessageTask: () -> Unit = {},
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val state by onboardingViewModel.state.collectAsState()
-    val currentNow by produceState(initialValue = LocalDateTime.now()) {
+    val currentNow by produceState(initialValue = LocalDateTime.now().withSecond(0).withNano(0)) {
         while (true) {
-            value = LocalDateTime.now()
-            kotlinx.coroutines.delay(60_000L)
+            value = LocalDateTime.now().withSecond(0).withNano(0)
+            kotlinx.coroutines.delay(30_000L)
         }
     }
     val releasePlan = calculateReleasePlan(
@@ -157,7 +172,7 @@ fun TaskToCompleteScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(ImpulsiveBackground)
             .statusBarsPadding(),
     ) {
         Column(
@@ -175,56 +190,78 @@ fun TaskToCompleteScreen(
                 CompletionResultCard(result = completionResult!!)
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             TodayPlanCard(
                 releasePlan = displayReleasePlan,
                 taskRewardState = taskRewardState,
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
-            Text(
-                text = "Psychology tasks",
-                color = ImpulsiveText,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            val orderedTasks = PsychologyTasks.sortedBy { task ->
-                if (task.taskType == taskRewardState.recommendedTaskType) 0 else 1
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Choose one task",
+                    color = ImpulsiveText,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "One wait cut per window",
+                    color = ImpulsiveMutedText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                )
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val orderedTasks = orderedVisibleTasks(taskRewardState.recommendedTaskType)
             orderedTasks.forEachIndexed { index, task ->
+                val rewardStatus = taskRewardState.taskStatuses.first { it.taskType == task.taskType }
                 TaskChoiceCard(
                     task = task,
-                    rewardStatus = taskRewardState.taskStatuses.first { it.taskType == task.taskType },
+                    rewardStatus = rewardStatus,
                     recommended = task.taskType == taskRewardState.recommendedTaskType,
-                    onCompleteTask = {
-                        if (task.taskType == PsychologyTaskType.ReflexOverride) {
-                            onOpenReflexOverrideTask()
-                        } else if (task.taskType == PsychologyTaskType.PatternBreak) {
-                            onOpenPatternBreakTask()
-                        } else {
-                            taskRewardViewModel.completeTask(
-                                taskType = task.taskType,
-                                releasePlan = displayReleasePlan,
-                                now = currentNow,
-                            )
+                    recommendationReason = taskRewardState.recommendedTaskReason.takeIf {
+                        task.taskType == taskRewardState.recommendedTaskType
+                    },
+                    haptics = haptics,
+                    onStartTask = {
+                        when (task.taskType) {
+                            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+                            PsychologyTaskType.PatternBreak -> onOpenPatternBreakTask()
+                            PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+                            PsychologyTaskType.MindLesson -> onOpenMindLessonTask()
+                            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
+                            PsychologyTaskType.FutureSelfMessage -> onOpenFutureSelfMessageTask()
+                            PsychologyTaskType.TriggerDecoder,
+                            PsychologyTaskType.ThoughtCapture,
+                            PsychologyTaskType.ShortReadingBurst -> onOpenFutureSelfMessageTask()
                         }
                     },
                 )
                 if (index != orderedTasks.lastIndex) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
-
+            Spacer(modifier = Modifier.height(18.dp))
             BottomNoteCard()
         }
+    }
+}
+
+private fun orderedVisibleTasks(recommendedTaskType: PsychologyTaskType): List<PsychologyTask> {
+    val visibleRecommended = VisiblePsychologyTasks.firstOrNull { it.taskType == recommendedTaskType }
+    return if (visibleRecommended == null) {
+        VisiblePsychologyTasks
+    } else {
+        listOf(visibleRecommended) + VisiblePsychologyTasks.filterNot { it.taskType == recommendedTaskType }
     }
 }
 
@@ -255,7 +292,7 @@ private fun TaskHeader(onBack: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Choose one task to reduce the wait.",
+                text = "Complete one real action to reduce the wait.",
                 color = ImpulsiveText.copy(alpha = 0.78f),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -303,7 +340,7 @@ private fun TaskCompletionResult.waitReductionLabel(): String =
     if (waitReductionMinutes > 0) {
         "Wait reduced by ${waitReductionMinutes.formatMinutes()}"
     } else {
-        "Points added"
+        "LP only this time"
     }
 
 @Composable
@@ -312,19 +349,19 @@ private fun TodayPlanCard(
     taskRewardState: TaskRewardState,
 ) {
     Surface(
-        color = ImpulsivePsychological.copy(alpha = 0.88f),
-        shape = RoundedCornerShape(34.dp),
+        color = ImpulsivePsychological.copy(alpha = 0.82f),
+        shape = RoundedCornerShape(28.dp),
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 12.dp,
-                shape = RoundedCornerShape(34.dp),
+                elevation = 10.dp,
+                shape = RoundedCornerShape(28.dp),
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.08f),
-                spotColor = ImpulsiveText.copy(alpha = 0.10f),
+                ambientColor = ImpulsiveText.copy(alpha = 0.07f),
+                spotColor = ImpulsiveText.copy(alpha = 0.09f),
             ),
     ) {
-        Column(modifier = Modifier.padding(22.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -332,39 +369,57 @@ private fun TodayPlanCard(
             ) {
                 SoftChip(
                     text = "TODAY'S PLAN",
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = Color.White.copy(alpha = 0.42f),
                     textColor = Color(0xFF5B4B7E),
                 )
                 Text(
-                    text = "Level ${taskRewardState.currentLevel} • ${taskRewardState.currentLevelPoints} / ${taskRewardState.pointsNeededForNextLevel} LP",
+                    text = "Level ${taskRewardState.currentLevel} • ${taskRewardState.currentLevelPoints}/${taskRewardState.pointsNeededForNextLevel} LP",
                     color = ImpulsiveText.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                 )
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            Text(
-                text = "Next\nwindow in\n${releasePlan.formattedTimeUntilNextWindow().removePrefix("Next window in ")}",
-                color = Color(0xFF5B4B7E),
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Next window",
+                        color = Color(0xFF5B4B7E).copy(alpha = 0.76f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = releasePlan.formattedTimeUntilNextWindow().removePrefix("Next window in "),
+                        color = Color(0xFF5B4B7E),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "Planned",
+                        color = Color(0xFF5B4B7E).copy(alpha = 0.62f),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(modifier = Modifier.height(5.dp))
+                    Text(
+                        text = releasePlan.formattedPlannedWindows().joinToString("  "),
+                        color = Color(0xFF5B4B7E),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "Complete one task to bring it closer.",
-                color = Color(0xFF5B4B7E).copy(alpha = 0.78f),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-
-            Spacer(modifier = Modifier.height(26.dp))
-
-            PlannedMomentsRow(releasePlan = releasePlan)
-
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             LinearProgressIndicator(
                 progress = {
@@ -384,78 +439,15 @@ private fun TodayPlanCard(
 }
 
 @Composable
-private fun PlannedMomentsRow(releasePlan: ReleasePlanState) {
-    val plannedWindows = releasePlan.formattedPlannedWindows()
-    val nextWindowIndex = releasePlan.plannedWindowsToday.indexOf(releasePlan.nextReleaseWindow)
-    val activeIndex = releasePlan.currentWindowIndex ?: nextWindowIndex.takeIf { it >= 0 }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        plannedWindows.forEachIndexed { index, time ->
-            PlannedMoment(
-                icon = plannedMomentIcon(
-                    index = index,
-                    activeIndex = activeIndex,
-                ),
-                time = time,
-                active = index == activeIndex,
-            )
-            if (index != plannedWindows.lastIndex) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 10.dp)
-                        .height(1.dp)
-                        .background(Color(0xFF5B4B7E).copy(alpha = 0.20f)),
-                )
-            }
-        }
-    }
-}
-
-private fun plannedMomentIcon(
-    index: Int,
-    activeIndex: Int?,
-): ImageVector = when {
-    activeIndex != null && index < activeIndex -> Icons.Filled.CheckCircleOutline
-    activeIndex != null && index == activeIndex -> Icons.Filled.Schedule
-    else -> Icons.Filled.Timer
-}
-
-@Composable
-private fun PlannedMoment(
-    icon: ImageVector,
-    time: String,
-    active: Boolean,
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Color(0xFF5B4B7E).copy(alpha = if (active) 0.95f else 0.46f),
-            modifier = Modifier.size(17.dp),
-        )
-        Spacer(modifier = Modifier.height(5.dp))
-        Text(
-            text = time,
-            color = Color(0xFF5B4B7E).copy(alpha = if (active) 0.95f else 0.58f),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-        )
-    }
-}
-
-@Composable
 private fun TaskChoiceCard(
     task: PsychologyTask,
     rewardStatus: TaskRewardStatus,
     recommended: Boolean,
-    onCompleteTask: () -> Unit,
+    recommendationReason: String?,
+    haptics: com.impulsive.app.frontend.utils.ImpulsiveHaptics,
+    onStartTask: () -> Unit,
 ) {
-    val cardShape = RoundedCornerShape(30.dp)
+    val cardShape = RoundedCornerShape(24.dp)
     val cardColor = if (recommended) Color(0xFFFFFCFF) else ImpulsiveSurface
 
     Surface(
@@ -463,98 +455,143 @@ private fun TaskChoiceCard(
         shape = cardShape,
         border = BorderStroke(
             width = 1.dp,
-            color = if (recommended) Color(0xFF5B4B7E).copy(alpha = 0.16f) else ImpulsiveText.copy(alpha = 0.04f),
+            color = if (recommended) Color(0xFF5B4B7E).copy(alpha = 0.16f) else ImpulsiveText.copy(alpha = 0.05f),
         ),
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
-                elevation = if (recommended) 9.dp else 6.dp,
+                elevation = if (recommended) 8.dp else 5.dp,
                 shape = cardShape,
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = if (recommended) 0.08f else 0.045f),
-                spotColor = ImpulsiveText.copy(alpha = if (recommended) 0.10f else 0.06f),
+                ambientColor = ImpulsiveText.copy(alpha = if (recommended) 0.07f else 0.04f),
+                spotColor = ImpulsiveText.copy(alpha = if (recommended) 0.09f else 0.05f),
             )
-            .clickable { onCompleteTask() },
+            .clickable {
+                haptics.start()
+                onStartTask()
+            },
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (recommended) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SoftIconCircle(color = task.iconBackground, icon = task.icon)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    SoftIconCircle(color = task.iconBackground, icon = task.icon)
+                    if (recommended) {
                         SoftChip(
                             text = "Recommended",
                             color = Color(0xFF6C5A8F),
                             textColor = Color.White.copy(alpha = 0.96f),
                             leadingIcon = Icons.Filled.AutoAwesome,
                         )
+                    } else {
+                        SoftChip(
+                            text = task.chip,
+                            color = ImpulsiveText.copy(alpha = 0.055f),
+                            textColor = ImpulsiveMutedText,
+                        )
                     }
-                } else {
-                    SoftIconCircle(color = task.iconBackground, icon = task.icon)
                 }
-                SoftChip(
-                    text = rewardStatus.displayChip(task.chip),
-                    color = ImpulsiveText.copy(alpha = 0.055f),
-                    textColor = ImpulsiveMutedText,
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = ImpulsiveText.copy(alpha = 0.34f),
+                    modifier = Modifier.size(20.dp),
                 )
             }
 
-            if (recommended) {
-                Spacer(modifier = Modifier.height(14.dp))
-            } else {
-                Spacer(modifier = Modifier.height(18.dp))
-            }
+            Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = task.title,
                 color = ImpulsiveText,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = task.description,
-                color = ImpulsiveText.copy(alpha = 0.82f),
+                text = recommendationReason ?: task.description,
+                color = ImpulsiveText.copy(alpha = 0.80f),
                 style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.AccessTime,
-                    contentDescription = null,
-                    tint = ImpulsiveText.copy(alpha = 0.88f),
-                    modifier = Modifier.size(17.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = rewardStatus.displayRewardLabel(),
-                    color = ImpulsiveText.copy(alpha = 0.86f),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
-                )
-                if (!recommended) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = ImpulsiveText.copy(alpha = 0.38f),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
+            RewardPillRow(rewardStatus = rewardStatus)
+        }
+    }
+}
+
+@Composable
+private fun RewardPillRow(rewardStatus: TaskRewardStatus) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (rewardStatus.visibleWaitCutMinutes() > 0) {
+            RewardPill(
+                icon = Icons.Outlined.AccessTime,
+                text = "Cuts ${rewardStatus.visibleWaitCutMinutes().formatMinutes()}",
+                background = ImpulsivePsychological.copy(alpha = 0.34f),
+                content = Color(0xFF5B4B7E),
+            )
+        } else {
+            RewardPill(
+                icon = Icons.Filled.Timer,
+                text = "Wait cut used",
+                background = ImpulsiveText.copy(alpha = 0.055f),
+                content = ImpulsiveMutedText,
+            )
+        }
+        RewardPill(
+            icon = Icons.Filled.AutoAwesome,
+            text = "+${rewardStatus.visibleLevelPoints()} LP",
+            background = Color(0xFFFFF9D8),
+            content = Color(0xFF5B4B7E),
+        )
+    }
+}
+
+@Composable
+private fun RewardPill(
+    icon: ImageVector,
+    text: String,
+    background: Color,
+    content: Color,
+) {
+    Surface(
+        color = background,
+        shape = RoundedCornerShape(50),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = content,
+                modifier = Modifier.size(13.dp),
+            )
+            Text(
+                text = text,
+                color = content,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
@@ -579,29 +616,6 @@ private fun SoftIconCircle(
         )
     }
 }
-
-private fun TaskRewardStatus.displayChip(defaultChip: String): String = when {
-    completedTodayCount > 0 -> "Today reward"
-    !isFirstTimeBoostAvailable && defaultChip == "First-time boost" -> "Repeat reward"
-    else -> defaultChip
-}
-
-private fun TaskRewardStatus.displayRewardLabel(): String {
-    val points = if (currentWindowRewardAlreadyUsed) {
-        minOf(2, displayLevelPoints)
-    } else {
-        displayLevelPoints
-    }
-    val waitReduction = if (currentWindowRewardAlreadyUsed) 0 else displayWaitReductionMinutes
-    return if (waitReduction > 0) {
-        "Cuts wait by ${waitReduction.formatMinutes()} • +$points LP"
-    } else {
-        "+$points LP"
-    }
-}
-
-private fun Int.formatMinutes(): String =
-    if (this >= 60 && this % 60 == 0) "${this / 60}h" else "$this min"
 
 @Composable
 private fun SoftChip(
@@ -641,20 +655,20 @@ private fun SoftChip(
 private fun BottomNoteCard() {
     Surface(
         color = Color(0xFFFFFAFF),
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(24.dp),
         border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 5.dp,
-                shape = RoundedCornerShape(28.dp),
+                elevation = 4.dp,
+                shape = RoundedCornerShape(24.dp),
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.04f),
-                spotColor = ImpulsiveText.copy(alpha = 0.06f),
+                ambientColor = ImpulsiveText.copy(alpha = 0.035f),
+                spotColor = ImpulsiveText.copy(alpha = 0.05f),
             ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.Top,
         ) {
             Icon(
@@ -663,12 +677,21 @@ private fun BottomNoteCard() {
                 tint = Color(0xFF5B4B7E),
                 modifier = Modifier.size(18.dp),
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "One main task can reduce the wait for this window. Extra tasks may still give smaller points.",
+                text = "Rewards only apply after the task validates completion. Opening a task or tapping through does not count.",
                 color = ImpulsiveText.copy(alpha = 0.82f),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
     }
 }
+
+private fun TaskRewardStatus.visibleWaitCutMinutes(): Int =
+    if (currentWindowRewardAlreadyUsed) 0 else displayWaitReductionMinutes
+
+private fun TaskRewardStatus.visibleLevelPoints(): Int =
+    if (currentWindowRewardAlreadyUsed) minOf(2, displayLevelPoints) else displayLevelPoints
+
+private fun Int.formatMinutes(): String =
+    if (this >= 60 && this % 60 == 0) "${this / 60}h" else "$this min"

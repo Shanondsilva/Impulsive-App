@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
+import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import kotlinx.coroutines.delay
 
 @Composable
@@ -70,6 +71,7 @@ fun WelcomePrivacyScreen(
     var name by remember(initialName) { mutableStateOf(initialName) }
     var selectedAvatarId by remember(initialAvatarId) { mutableStateOf(AvatarStyle.fromId(initialAvatarId).id) }
     val reducedMotion = rememberReducedMotion()
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val canBegin = name.trim().isNotEmpty()
 
     OnboardingScreenShell(
@@ -85,6 +87,7 @@ fun WelcomePrivacyScreen(
             BeginSetupButton(
                 enabled = canBegin,
                 onClick = {
+                    haptics.confirm()
                     onBeginSetup(
                         name.trim(),
                         selectedAvatarId,
@@ -315,6 +318,7 @@ private fun AvatarPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedAvatar = AvatarStyle.fromId(selectedAvatarId)
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(durationMillis = if (reducedMotion) 0 else 240, easing = FastOutSlowInEasing),
@@ -346,7 +350,10 @@ private fun AvatarPicker(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     role = Role.Button,
-                    onClick = { expanded = !expanded },
+                    onClick = {
+                        haptics.light()
+                        expanded = !expanded
+                    },
                 )
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -409,7 +416,12 @@ private fun AvatarPicker(
                                 AvatarOption(
                                     avatar = avatar,
                                     selected = selectedAvatar.id == avatar.id,
-                                    onClick = { onAvatarSelected(avatar) },
+                                    onClick = {
+                                        if (selectedAvatar.id != avatar.id) {
+                                            haptics.light()
+                                            onAvatarSelected(avatar)
+                                        }
+                                    },
                                 )
                             }
                         }
@@ -546,6 +558,7 @@ private fun BeginSetupButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val glowAlpha by animateFloatAsState(
         targetValue = if (enabled) 0.10f else 0.045f,
         animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
@@ -567,7 +580,10 @@ private fun BeginSetupButton(
         )
 
         Button(
-            onClick = onClick,
+            onClick = {
+                haptics.confirm()
+                onClick()
+            },
             enabled = enabled,
             modifier = Modifier
                 .fillMaxWidth()

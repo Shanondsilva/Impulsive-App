@@ -1,10 +1,25 @@
 package com.impulsive.app.frontend.screens.settings
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,67 +38,113 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.sin
+import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.progress.LevelViewModel
+import com.impulsive.app.backend.session.settings.AppSettingsViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.core.util.ThemeMode
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.components.BottomNavBar
 import com.impulsive.app.frontend.components.BottomNavItem
-import com.impulsive.app.frontend.theme.ImpulsiveOverallTheme
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
+import com.impulsive.app.frontend.utils.ImpulsiveHaptics
+import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBackHome: () -> Unit,
     onOpenHome: () -> Unit = onBackHome,
+    onOpenScore: () -> Unit = {},
+    onOpenFutureSelfRecord: () -> Unit = {},
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    futureSelfViewModel: com.impulsive.app.backend.session.tasks.FutureSelfMessageViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
+    val futureSelfRecordState by futureSelfViewModel.recordState.collectAsState()
     val onboardingState by onboardingViewModel.state.collectAsState()
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val levelViewModel: LevelViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val appSettingsState by appSettingsViewModel.state.collectAsState()
+    val currentLevel by levelViewModel.currentLevel.collectAsState()
     val storedMode by themeViewModel.themeMode.collectAsState()
     val selectedMode = if (storedMode == ThemeMode.System) ThemeMode.AsPerTime else storedMode
     val displayName = onboardingState.answers.name.takeIf { it.isNotBlank() } ?: "Shanon"
     val avatar = AvatarStyle.fromId(onboardingState.answers.avatarId)
-    val background = if (isSystemInDarkTheme()) {
-        MaterialTheme.colorScheme.background
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
+    val context = LocalContext.current
+    val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
+    var showPlusSheet by remember { mutableStateOf(false) }
+    var notificationsAllowed by remember { mutableStateOf(isNotificationPermissionAllowed(context)) }
+    val notificationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) {
+        notificationsAllowed = isNotificationPermissionAllowed(context)
     }
+    val background = MaterialTheme.colorScheme.background
 
     Box(
         modifier = Modifier
@@ -96,33 +157,106 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(top = 18.dp, bottom = 112.dp),
+                .padding(top = 18.dp, bottom = 144.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             SettingsHeader(onBackHome = onBackHome)
-            ProfileCard(displayName = displayName, avatar = avatar)
-            PlusCard()
-            AppearanceCard(
+            ProfileGroup(
+                displayName = displayName,
+                avatar = avatar,
+                currentLevel = currentLevel,
+                answers = onboardingState.answers,
+                haptics = haptics,
+                onSaveProfile = { name, avatarId, onSaved ->
+                    onboardingViewModel.savePersonalization(name, avatarId) {
+                        haptics.confirm()
+                        onSaved()
+                    }
+                },
+            )
+            PlusGroup(
+                haptics = haptics,
+                onViewPlus = { showPlusSheet = true },
+            )
+            AppearanceGroup(
                 selectedMode = selectedMode,
                 onModeSelected = themeViewModel::setThemeMode,
+                haptics = haptics,
+                hapticsEnabled = appSettingsState.hapticsEnabled,
+                onHapticsChanged = appSettingsViewModel::setHapticsEnabled,
+                soundEffectsEnabled = appSettingsState.soundEffectsEnabled,
+                onSoundEffectsChanged = appSettingsViewModel::setSoundEffectsEnabled,
             )
-            RecoverySetupCard()
-            ProtectionFocusCard()
-            PrivacyAccountCard()
-            SupportPlusCard()
+            RecoverySetupGroup(answers = onboardingState.answers)
+            FutureSelfMessageGroup(
+                hasMessage = futureSelfRecordState.message != null,
+                kind = futureSelfRecordState.message?.kind,
+                onRecordOrManage = onOpenFutureSelfRecord,
+                onDelete = futureSelfViewModel::deleteSavedMessage,
+            )
+            ProtectionFocusGroup()
+            PrivacyAccountGroup(
+                hideSensitiveNotifications = appSettingsState.hideSensitiveNotifications,
+                onHideSensitiveNotificationsChanged = appSettingsViewModel::setHideSensitiveNotifications,
+                notificationsAllowed = notificationsAllowed,
+                haptics = haptics,
+                onRequestNotifications = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                },
+            )
+            SupportGroup()
         }
 
         BottomNavBar(
             selected = BottomNavItem.Settings,
             onSelect = { item ->
-                if (item == BottomNavItem.Home) onOpenHome()
+                when (item) {
+                    BottomNavItem.Home -> onOpenHome()
+                    BottomNavItem.Progress -> onOpenScore()
+                    else -> Unit
+                }
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 12.dp)
                 .fillMaxWidth(),
+            hapticsEnabled = appSettingsState.hapticsEnabled,
         )
+
+        if (showPlusSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showPlusSheet = false },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "Impulsive Plus",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Impulsive Plus will unlock stronger recovery tools when payments are connected.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedButton(
+                        onClick = { showPlusSheet = false },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = "Close")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -137,7 +271,7 @@ private fun SettingsHeader(onBackHome: () -> Unit) {
             modifier = Modifier.size(44.dp),
         ) {
             Icon(
-                imageVector = Icons.Filled.ArrowBack,
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",
                 tint = MaterialTheme.colorScheme.onSurface,
             )
@@ -159,46 +293,74 @@ private fun SettingsHeader(onBackHome: () -> Unit) {
 }
 
 @Composable
-private fun ProfileCard(displayName: String, avatar: AvatarStyle) {
-    SettingsCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(avatar.backgroundColor),
-                contentAlignment = Alignment.Center,
-            ) {
-                Image(
-                    painter = painterResource(id = avatar.drawableResId),
-                    contentDescription = avatar.contentDescription,
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .padding(start = 14.dp)
-                    .weight(1f),
-            ) {
-                Text(
-                    text = displayName,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    ProfileMetric(label = "Level", value = "4")
-                    ProfileMetric(label = "Active", value = "Psychological Core")
-                }
-            }
+private fun ProfileGroup(
+    displayName: String,
+    avatar: AvatarStyle,
+    currentLevel: Int,
+    answers: OnboardingAnswers,
+    haptics: ImpulsiveHaptics,
+    onSaveProfile: (String, String, () -> Unit) -> Unit,
+) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var draftName by rememberSaveable(displayName) { mutableStateOf(displayName) }
+    var draftAvatarId by rememberSaveable(avatar.id) { mutableStateOf(avatar.id) }
+
+    AccordionGroup(
+        title = "Profile",
+        summary = "$displayName • Psychological Core",
+        icon = Icons.Filled.Person,
+        haptics = haptics,
+        glowSpec = SettingsGlowSpec.single(ProfileGlow),
+        leadingContent = {
+            AvatarCircle(avatar = avatar, size = 38.dp, imageSize = 32.dp)
+        },
+    ) {
+        Text(
+            text = displayName,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            ProfileMetric(label = "Level", value = "$currentLevel")
+            ProfileMetric(label = "Path", value = "Psychological Core")
         }
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         PillLabel(text = "Private on this device")
         SettingsDivider()
-        SettingsRow(title = "Edit profile", trailingIcon = Icons.Filled.KeyboardArrowRight)
+        SettingsRow(
+            title = "Edit profile",
+            subtext = "Name and avatar",
+            onClick = {
+                draftName = displayName
+                draftAvatarId = avatar.id
+                editing = true
+            },
+        )
+        AnimatedVisibility(visible = editing) {
+            ProfileEditPanel(
+                draftName = draftName,
+                onDraftNameChanged = { draftName = it },
+                draftAvatarId = draftAvatarId,
+                onAvatarSelected = {
+                    if (it.id != draftAvatarId) {
+                        haptics.light()
+                        draftAvatarId = it.id
+                    }
+                },
+                onSave = {
+                    onSaveProfile(draftName, draftAvatarId) {
+                        editing = false
+                    }
+                },
+                onCancel = {
+                    draftName = displayName
+                    draftAvatarId = AvatarStyle.fromId(answers.avatarId).id
+                    editing = false
+                },
+            )
+        }
     }
 }
 
@@ -220,47 +382,140 @@ private fun ProfileMetric(label: String, value: String) {
 }
 
 @Composable
-private fun PlusCard() {
-    SettingsCard {
-        Row(verticalAlignment = Alignment.Top) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Impulsive Plus",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+private fun ProfileEditPanel(
+    draftName: String,
+    onDraftNameChanged: (String) -> Unit,
+    draftAvatarId: String,
+    onAvatarSelected: (AvatarStyle) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        TextField(
+            value = draftName,
+            onValueChange = onDraftNameChanged,
+            singleLine = true,
+            label = { Text("Name") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            ),
+        )
+        Text(
+            text = "Avatar",
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        AvatarStyle.entries.chunked(3).forEach { rowAvatars ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                rowAvatars.forEach { avatar ->
+                    AvatarPickerItem(
+                        avatar = avatar,
+                        selected = avatar.id == draftAvatarId,
+                        onClick = { onAvatarSelected(avatar) },
                     )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    PlusBadge()
                 }
-                Text(
-                    text = "Unlock stronger recovery tools",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
             }
-            Icon(
-                imageVector = Icons.Filled.AutoAwesome,
-                contentDescription = null,
-                tint = ImpulsivePsychological,
-                modifier = Modifier.size(22.dp),
-            )
         }
-        SettingsDivider()
-        SettingsRow(title = "Referral unlock progress", trailingIcon = Icons.Filled.KeyboardArrowRight)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp),
+                shape = RoundedCornerShape(23.dp),
+            ) {
+                Text(text = "Cancel")
+            }
+            Button(
+                onClick = onSave,
+                enabled = draftName.trim().isNotBlank(),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp),
+                shape = RoundedCornerShape(23.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+            ) {
+                Text(text = "Save")
+            }
+        }
     }
 }
 
 @Composable
-private fun AppearanceCard(
+private fun AvatarPickerItem(
+    avatar: AvatarStyle,
+    selected: Boolean,
+    haptics: ImpulsiveHaptics? = null,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(72.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = {
+                    if (!selected) {
+                        haptics?.light()
+                    }
+                    onClick()
+                },
+            )
+            .background(if (selected) ImpulsivePsychological.copy(alpha = 0.32f) else Color.Transparent)
+            .border(
+                width = if (selected) 2.dp else 0.dp,
+                color = if (selected) ImpulsivePsychological else Color.Transparent,
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        AvatarCircle(avatar = avatar, size = 58.dp, imageSize = 50.dp)
+    }
+}
+
+@Composable
+private fun AppearanceGroup(
     selectedMode: ThemeMode,
     onModeSelected: (ThemeMode) -> Unit,
+    haptics: ImpulsiveHaptics,
+    hapticsEnabled: Boolean,
+    onHapticsChanged: (Boolean) -> Unit,
+    soundEffectsEnabled: Boolean,
+    onSoundEffectsChanged: (Boolean) -> Unit,
 ) {
-    var hapticsEnabled by remember { mutableStateOf(true) }
-    var soundEnabled by remember { mutableStateOf(false) }
-
-    SettingsCard(title = "APPEARANCE") {
+    AccordionGroup(
+        title = "Appearance",
+        summary = "Theme, haptics, and sound",
+        icon = Icons.Filled.Palette,
+        haptics = haptics,
+        glowSpec = SettingsGlowSpec.single(AppearanceGlow),
+    ) {
         Text(
             text = "Theme",
             color = MaterialTheme.colorScheme.onSurface,
@@ -269,6 +524,7 @@ private fun AppearanceCard(
         Spacer(modifier = Modifier.height(10.dp))
         ThemeSegmentedSelector(
             selectedMode = selectedMode,
+            haptics = haptics,
             onModeSelected = onModeSelected,
         )
         SettingsDivider()
@@ -277,7 +533,8 @@ private fun AppearanceCard(
             trailing = {
                 SettingsSwitch(
                     checked = hapticsEnabled,
-                    onCheckedChange = { hapticsEnabled = it },
+                    haptics = haptics,
+                    onCheckedChange = onHapticsChanged,
                 )
             },
         )
@@ -286,8 +543,9 @@ private fun AppearanceCard(
             title = "Sound effects",
             trailing = {
                 SettingsSwitch(
-                    checked = soundEnabled,
-                    onCheckedChange = { soundEnabled = it },
+                    checked = soundEffectsEnabled,
+                    haptics = haptics,
+                    onCheckedChange = onSoundEffectsChanged,
                 )
             },
         )
@@ -297,6 +555,7 @@ private fun AppearanceCard(
 @Composable
 private fun ThemeSegmentedSelector(
     selectedMode: ThemeMode,
+    haptics: ImpulsiveHaptics,
     onModeSelected: (ThemeMode) -> Unit,
 ) {
     val options = listOf(
@@ -315,24 +574,20 @@ private fun ThemeSegmentedSelector(
     ) {
         options.forEach { (mode, label) ->
             val selected = selectedMode == mode
-            val interactionSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(34.dp)
                     .clip(RoundedCornerShape(50))
-                    .background(
-                        if (selected) {
-                            MaterialTheme.colorScheme.surface
-                        } else {
-                            Color.Transparent
-                        },
-                    )
+                    .background(if (selected) MaterialTheme.colorScheme.surface else Color.Transparent)
                     .clickable(
-                        interactionSource = interactionSource,
+                        interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                     ) {
-                        onModeSelected(mode)
+                        if (selectedMode != mode) {
+                            haptics.light()
+                            onModeSelected(mode)
+                        }
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -354,149 +609,260 @@ private fun ThemeSegmentedSelector(
 }
 
 @Composable
-private fun RecoverySetupCard() {
-    SettingsCard(title = "RECOVERY SETUP", leadingIcon = Icons.Filled.AutoAwesome) {
-        SettingsRow(title = "Onboarding answers", trailingIcon = Icons.Filled.KeyboardArrowRight)
-        SettingsDivider()
-        SettingsRow(
-            title = "Triggers",
-            trailing = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    PillLabel(text = "3 Active")
-                    Icon(
-                        imageVector = Icons.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            },
-        )
-        SettingsDivider()
-        SettingsRow(title = "Weekly target", value = "Maintain")
-    }
-}
-
-@Composable
-private fun ProtectionFocusCard() {
-    SettingsCard(title = "PROTECTION & FOCUS") {
-        SettingsRow(title = "Monitored apps", value = "12")
-        SettingsDivider()
-        SettingsRow(title = "Blocked websites", value = "45")
-        SettingsDivider()
-        SettingsRow(title = "Browser protection", value = "Active", valueColor = ImpulsiveOverallTheme)
-        SettingsDivider()
-        SettingsRow(title = "Default focus", value = "25 min")
-        Spacer(modifier = Modifier.height(12.dp))
-        LockedPlusPanel()
-    }
-}
-
-@Composable
-private fun LockedPlusPanel() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        shape = RoundedCornerShape(20.dp),
+private fun RecoverySetupGroup(answers: OnboardingAnswers) {
+    AccordionGroup(
+        title = "Recovery setup",
+        summary = recoverySummary(answers),
+        icon = Icons.Filled.Spa,
+        haptics = null,
+        glowSpec = SettingsGlowSpec.single(RecoverySetupGlow),
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Lock,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .padding(start = 12.dp)
-                    .weight(1f),
-            ) {
-                Text(
-                    text = "Temperature Focus",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Adjusts to your stress level",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            PlusBadge()
+        SettingsRow(title = "Onboarding answers", subtext = "Read-only summary")
+        SettingsDivider()
+        SettingsRow(title = "Triggers", value = answerListSummary(answers.triggers, TriggerLabels, "Not configured"))
+        SettingsDivider()
+        SettingsRow(title = "Timing pattern", value = answerListSummary(answers.timing, TimingLabels, "Not configured"))
+        SettingsDivider()
+        SettingsRow(title = "Weekly target", value = answerLabel(answers.weekOneGoal, WeekOneLabels, "Not configured"))
+        SettingsDivider()
+        SettingsRow(title = "Daily urge count", value = "${answers.dailyRelapseUrgeCount} per day")
+    }
+}
+
+@Composable
+private fun FutureSelfMessageGroup(
+    hasMessage: Boolean,
+    kind: com.impulsive.app.backend.data.local.preferences.FutureSelfMessageKind?,
+    onRecordOrManage: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val summary = when {
+        !hasMessage -> "Not recorded yet"
+        kind == com.impulsive.app.backend.data.local.preferences.FutureSelfMessageKind.Voice -> "Voice note saved"
+        else -> "Text note saved"
+    }
+    AccordionGroup(
+        title = "Future-self message",
+        summary = summary,
+        icon = Icons.Filled.ChatBubbleOutline,
+        glowSpec = SettingsGlowSpec.single(FutureSelfGlow),
+    ) {
+        SettingsRow(
+            title = if (hasMessage) "Replace or re-record" else "Record a future-self message",
+            subtext = "A short voice note or text you'll hear during an urge.",
+            onClick = onRecordOrManage,
+        )
+        if (hasMessage) {
+            SettingsDivider()
+            SettingsRow(
+                title = "Delete saved message",
+                subtext = "Removes the file from this device.",
+                trailingIcon = Icons.Filled.DeleteOutline,
+                onClick = onDelete,
+            )
         }
     }
 }
 
 @Composable
-private fun PrivacyAccountCard() {
-    var hideNotifications by remember { mutableStateOf(false) }
+private fun ProtectionFocusGroup() {
+    AccordionGroup(
+        title = "Protection & Focus",
+        summary = "Protection tools and focus defaults",
+        icon = Icons.Filled.Security,
+        haptics = null,
+        glowSpec = SettingsGlowSpec.split(ProtectionGlow, FocusGlow),
+    ) {
+        SettingsRow(title = "Default focus", value = "25 min")
+        SettingsDivider()
+        SettingsRow(title = "Monitored apps", subtext = "Not configured")
+        SettingsDivider()
+        SettingsRow(title = "Blocked websites", subtext = "Coming soon")
+        SettingsDivider()
+        SettingsRow(title = "Browser protection", subtext = "Coming soon")
+    }
+}
 
-    SettingsCard(title = "PRIVACY & ACCOUNT", leadingIcon = Icons.Filled.Lock) {
-        SettingsRow(
-            title = "App lock",
-            subtext = "PIN or biometric",
-            trailingIcon = Icons.Filled.KeyboardArrowRight,
-        )
+@Composable
+private fun PrivacyAccountGroup(
+    hideSensitiveNotifications: Boolean,
+    onHideSensitiveNotificationsChanged: (Boolean) -> Unit,
+    notificationsAllowed: Boolean,
+    haptics: ImpulsiveHaptics,
+    onRequestNotifications: () -> Unit,
+) {
+    val notificationValue = when {
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> "Allowed by system"
+        notificationsAllowed -> "Allowed"
+        else -> "Not allowed"
+    }
+
+    AccordionGroup(
+        title = "Privacy & account",
+        summary = "Permissions, local data, and account links",
+        icon = Icons.Filled.PrivacyTip,
+        haptics = haptics,
+        glowSpec = SettingsGlowSpec.single(PrivacyGlow),
+    ) {
+        SettingsRow(title = "App lock", subtext = "Coming soon")
         SettingsDivider()
         SettingsRow(
             title = "Hide sensitive notifications",
             trailing = {
                 SettingsSwitch(
-                    checked = hideNotifications,
-                    onCheckedChange = { hideNotifications = it },
+                    checked = hideSensitiveNotifications,
+                    haptics = haptics,
+                    onCheckedChange = onHideSensitiveNotificationsChanged,
                 )
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Notifications",
+            value = notificationValue,
+            trailing = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !notificationsAllowed) {
+                {
+                    TextButtonPill(
+                        text = "Allow",
+                        haptics = haptics,
+                        onClick = onRequestNotifications,
+                    )
+                }
+            } else {
+                null
             },
         )
         SettingsDivider()
         SettingsRow(title = "Local data", subtext = "Stored privately on this device")
         SettingsDivider()
-        SettingsRow(title = "Export data", trailingIcon = Icons.Filled.KeyboardArrowRight)
+        SettingsRow(title = "Export data", subtext = "Coming soon")
         SettingsDivider()
-        SettingsRow(title = "Delete data", trailingIcon = Icons.Filled.DeleteOutline)
+        SettingsRow(title = "Delete data", subtext = "Coming soon", trailingIcon = Icons.Filled.DeleteOutline)
         SettingsDivider()
-        SettingsRow(title = "Link Google account", trailingIcon = Icons.Filled.KeyboardArrowRight)
+        SettingsRow(title = "Link Google account", subtext = "Not connected")
         SettingsDivider()
-        SettingsRow(title = "Link Apple account", trailingIcon = Icons.Filled.KeyboardArrowRight)
+        SettingsRow(title = "Link Facebook account", subtext = "Not connected")
         SettingsDivider()
         SettingsRow(title = "Backup & sync", subtext = "Not connected")
         SettingsDivider()
-        SettingsRow(title = "Restore purchases", trailingIcon = Icons.Filled.Refresh)
+        SettingsRow(title = "Restore purchases", subtext = "Coming soon", trailingIcon = Icons.Filled.Refresh)
     }
 }
 
 @Composable
-private fun SupportPlusCard() {
-    SettingsCard(title = "SUPPORT & PLUS") {
-        SettingsRow(title = "Help centre", trailingIcon = Icons.Filled.HelpOutline)
+private fun SupportGroup() {
+    AccordionGroup(
+        title = "Support",
+        summary = "Help, feedback, and about",
+        icon = Icons.Filled.AutoAwesome,
+        haptics = null,
+        glowSpec = SettingsGlowSpec.single(SupportGlow),
+    ) {
+        SettingsRow(title = "Help centre", subtext = "Coming soon", trailingIcon = Icons.AutoMirrored.Filled.HelpOutline)
         SettingsDivider()
-        SettingsRow(title = "Contact support", trailingIcon = Icons.Filled.MailOutline)
+        SettingsRow(title = "Contact support", subtext = "Coming soon", trailingIcon = Icons.Filled.MailOutline)
         SettingsDivider()
-        SettingsRow(title = "Send feedback", trailingIcon = Icons.Filled.ChatBubbleOutline)
+        SettingsRow(title = "Send feedback", subtext = "Coming soon", trailingIcon = Icons.Filled.ChatBubbleOutline)
         SettingsDivider()
-        SettingsRow(title = "Report a bug", trailingIcon = Icons.Filled.BugReport)
+        SettingsRow(title = "Report a bug", subtext = "Coming soon", trailingIcon = Icons.Filled.BugReport)
         SettingsDivider()
-        SettingsRow(title = "About Impulsive", trailingIcon = Icons.Filled.Info)
+        SettingsRow(title = "About Impulsive", subtext = "Version details", trailingIcon = Icons.Filled.Info)
     }
 }
 
 @Composable
-private fun SettingsCard(
-    title: String? = null,
-    leadingIcon: ImageVector? = null,
+private fun PlusGroup(
+    haptics: ImpulsiveHaptics,
+    onViewPlus: () -> Unit,
+) {
+    AccordionGroup(
+        title = "Impulsive Plus",
+        summary = "Unlock stronger recovery tools",
+        icon = Icons.Filled.AutoAwesome,
+        haptics = haptics,
+        headerExtra = { PlusBadge() },
+        glowSpec = SettingsGlowSpec.rainbow(PlusRainbowGlow),
+    ) {
+        Text(
+            text = "Includes",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        PlusFeatureRow(title = "Advanced Nexus routing")
+        SettingsDivider()
+        PlusFeatureRow(title = "Physical and Spiritual paths")
+        SettingsDivider()
+        PlusFeatureRow(title = "Temperature Focus")
+        SettingsDivider()
+        PlusFeatureRow(title = "Premium recovery games")
+        SettingsDivider()
+        PlusFeatureRow(title = "Deeper weekly insights")
+        SettingsDivider()
+        PlusFeatureRow(title = "Advanced protection tools")
+        SettingsDivider()
+        PlusFeatureRow(title = "Restore purchases", note = "Available when billing is connected")
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Button(
+            onClick = {
+                haptics.confirm()
+                onViewPlus()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+        ) {
+            Text(text = "View Plus")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Calm upgrade only. Never during a trigger.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
+@Composable
+private fun AccordionGroup(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    haptics: ImpulsiveHaptics? = null,
+    leadingContent: (@Composable () -> Unit)? = null,
+    headerExtra: (@Composable () -> Unit)? = null,
+    glowSpec: SettingsGlowSpec? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val borderFlowRotation = if (isDarkTheme && glowSpec?.animated == true) {
+        val infiniteTransition = rememberInfiniteTransition(label = "$title-border-flow")
+        val rotation by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 7000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "$title-border-rotation",
+        )
+        rotation
+    } else {
+        0f
+    }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "$title-arrow-rotation",
+    )
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -506,46 +872,206 @@ private fun SettingsCard(
                 clip = false,
                 ambientColor = Color.Black.copy(alpha = 0.06f),
                 spotColor = Color.Black.copy(alpha = 0.08f),
-            ),
+            )
+            .settingsDarkGlowBorder(
+                isDarkTheme = isDarkTheme,
+                glowSpec = glowSpec,
+                borderFlowRotation = borderFlowRotation,
+            )
+            .animateContentSize(),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(22.dp),
         tonalElevation = 2.dp,
     ) {
-        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
-            if (title != null) {
-                Row(
-                    modifier = Modifier.padding(bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (leadingIcon != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.42f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = leadingIcon,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                        Spacer(modifier = Modifier.size(10.dp))
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Button,
+                    ) {
+                        haptics?.light()
+                        expanded = !expanded
                     }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (leadingContent != null) {
+                    leadingContent()
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(ImpulsivePsychological.copy(alpha = 0.28f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .weight(1f),
+                ) {
                     Text(
                         text = title,
                         color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.sp,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = summary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        lineHeight = 17.sp,
                     )
                 }
+                headerExtra?.invoke()
+                Icon(
+                    imageVector = Icons.Filled.ExpandMore,
+                    contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(24.dp)
+                        .graphicsLayer { rotationZ = arrowRotation },
+                )
             }
-            content()
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier.padding(top = 14.dp),
+                    content = content,
+                )
+            }
         }
     }
+}
+
+private data class SettingsGlowSpec(
+    val colors: List<Color>,
+    val animated: Boolean = false,
+    val split: Boolean = false,
+) {
+    companion object {
+        fun single(color: Color): SettingsGlowSpec = SettingsGlowSpec(colors = listOf(color))
+        fun split(left: Color, right: Color): SettingsGlowSpec = SettingsGlowSpec(
+            colors = listOf(left, right),
+            split = true,
+        )
+        fun rainbow(colors: List<Color>): SettingsGlowSpec = SettingsGlowSpec(
+            colors = colors,
+            animated = true,
+        )
+    }
+}
+
+private fun Modifier.settingsDarkGlowBorder(
+    isDarkTheme: Boolean,
+    glowSpec: SettingsGlowSpec?,
+    borderFlowRotation: Float,
+): Modifier {
+    if (!isDarkTheme || glowSpec == null) return this
+
+    return drawWithContent {
+        drawContent()
+
+        val cornerRadius = CornerRadius(22.dp.toPx(), 22.dp.toPx())
+        val glowWidth = 7.dp.toPx()
+        val borderWidth = 1.35.dp.toPx()
+        val borderInset = borderWidth / 2f
+        val borderSize = Size(
+            width = size.width - borderWidth,
+            height = size.height - borderWidth,
+        )
+        val glowInset = glowWidth / 2f
+        val glowSize = Size(
+            width = size.width - glowWidth,
+            height = size.height - glowWidth,
+        )
+
+        val glowBrush = settingsGlowBrush(
+            spec = glowSpec,
+            width = size.width,
+            height = size.height,
+            rotationDegrees = borderFlowRotation,
+            alpha = 0.20f,
+        )
+        val borderBrush = settingsGlowBrush(
+            spec = glowSpec,
+            width = size.width,
+            height = size.height,
+            rotationDegrees = borderFlowRotation,
+            alpha = if (glowSpec.animated) 0.95f else 0.78f,
+        )
+
+        drawRoundRect(
+            brush = glowBrush,
+            topLeft = Offset(glowInset, glowInset),
+            size = glowSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = glowWidth),
+        )
+        drawRoundRect(
+            brush = borderBrush,
+            topLeft = Offset(borderInset, borderInset),
+            size = borderSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = borderWidth),
+        )
+    }
+}
+
+private fun settingsGlowBrush(
+    spec: SettingsGlowSpec,
+    width: Float,
+    height: Float,
+    rotationDegrees: Float,
+    alpha: Float,
+): Brush {
+    val colours = spec.colors.map { it.copy(alpha = alpha) }
+
+    if (spec.animated) {
+        val radians = rotationDegrees / 180f * PI.toFloat()
+        val radius = max(width, height)
+        val center = Offset(width / 2f, height / 2f)
+        val direction = Offset(
+            x = cos(radians) * radius,
+            y = sin(radians) * radius,
+        )
+        return Brush.linearGradient(
+            colors = colours,
+            start = center - direction,
+            end = center + direction,
+        )
+    }
+
+    if (spec.split && colours.size >= 2) {
+        return Brush.horizontalGradient(
+            colors = listOf(colours[0], colours[0], colours[1], colours[1]),
+            startX = 0f,
+            endX = width,
+        )
+    }
+
+    val colour = colours.first()
+    return Brush.linearGradient(
+        colors = listOf(
+            colour.copy(alpha = alpha),
+            colour.copy(alpha = alpha * 0.52f),
+            colour.copy(alpha = alpha),
+        ),
+        start = Offset.Zero,
+        end = Offset(width, height),
+    )
 }
 
 @Composable
@@ -556,11 +1082,28 @@ private fun SettingsRow(
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
     trailingIcon: ImageVector? = null,
     trailing: (@Composable () -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
 ) {
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .height(if (subtext == null) 42.dp else 58.dp)
+        .then(
+            if (onClick != null) {
+                Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Button,
+                        onClick = onClick,
+                    )
+            } else {
+                Modifier
+            },
+        )
+
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (subtext == null) 42.dp else 54.dp),
+        modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -585,18 +1128,23 @@ private fun SettingsRow(
                 color = valueColor,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(start = 10.dp),
             )
         }
         if (trailingIcon != null) {
             Icon(
                 imageVector = trailingIcon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(20.dp),
             )
         }
         if (trailing != null) {
-            trailing()
+            Box(modifier = Modifier.padding(start = 10.dp)) {
+                trailing()
+            }
         }
     }
 }
@@ -646,13 +1194,85 @@ private fun PlusBadge() {
 }
 
 @Composable
+private fun PlusFeatureRow(
+    title: String,
+    note: String = "Included in Plus",
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Lock,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .padding(start = 10.dp)
+                .weight(1f),
+        ) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = note,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TextButtonPill(
+    text: String,
+    haptics: ImpulsiveHaptics? = null,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = ImpulsivePsychological.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(50),
+        modifier = Modifier.clickable {
+            haptics?.light()
+            onClick()
+        },
+    ) {
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@Composable
 private fun SettingsSwitch(
     checked: Boolean,
+    haptics: ImpulsiveHaptics,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Switch(
         checked = checked,
-        onCheckedChange = onCheckedChange,
+        onCheckedChange = { next ->
+            if (next != checked) {
+                haptics.light()
+                onCheckedChange(next)
+            }
+        },
         modifier = Modifier.size(width = 48.dp, height = 28.dp),
         colors = SwitchDefaults.colors(
             checkedThumbColor = MaterialTheme.colorScheme.surface,
@@ -664,3 +1284,105 @@ private fun SettingsSwitch(
         ),
     )
 }
+
+@Composable
+private fun AvatarCircle(
+    avatar: AvatarStyle,
+    size: androidx.compose.ui.unit.Dp,
+    imageSize: androidx.compose.ui.unit.Dp,
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(avatar.backgroundColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(id = avatar.drawableResId),
+            contentDescription = avatar.contentDescription,
+            modifier = Modifier
+                .size(imageSize)
+                .clip(CircleShape),
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+private fun isNotificationPermissionAllowed(context: Context): Boolean {
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun recoverySummary(answers: OnboardingAnswers): String {
+    val triggerCount = answers.triggers.size
+    val timingCount = answers.timing.size
+    return when {
+        triggerCount > 0 && timingCount > 0 -> "$triggerCount triggers • $timingCount timing cues"
+        triggerCount > 0 -> "$triggerCount triggers saved"
+        timingCount > 0 -> "$timingCount timing cues saved"
+        else -> "Setup answers and targets"
+    }
+}
+
+private fun answerListSummary(
+    selectedIds: List<String>,
+    labels: Map<String, String>,
+    emptyText: String,
+): String {
+    val selected = selectedIds.mapNotNull { labels[it] }
+    return when {
+        selected.isEmpty() -> emptyText
+        selected.size == 1 -> selected.first()
+        else -> "${selected.size} saved"
+    }
+}
+
+private fun answerLabel(
+    selectedId: String?,
+    labels: Map<String, String>,
+    emptyText: String,
+): String = selectedId?.let { labels[it] } ?: emptyText
+
+private val ProfileGlow = Color(0xFFD0C3F1)
+private val AppearanceGlow = Color(0xFFD8B0EB)
+private val RecoverySetupGlow = Color(0xFFB8A5E8)
+private val FutureSelfGlow = Color(0xFF7B4AF7)
+private val ProtectionGlow = Color(0xFFF5A7A6)
+private val FocusGlow = Color(0xFFBAE1FF)
+private val PrivacyGlow = Color(0xFFBAFFC9)
+private val SupportGlow = Color(0xFFFFFFBA)
+private val PlusRainbowGlow = listOf(
+    Color(0xFFD0C3F1),
+    Color(0xFFBDE0FE),
+    Color(0xFFBAFFC9),
+    Color(0xFFFFFFBA),
+    Color(0xFFF5A7A6),
+    Color(0xFFD8B0EB),
+    Color(0xFFD0C3F1),
+)
+
+private val TriggerLabels = mapOf(
+    "social_media" to "Social media",
+    "browser_search" to "A browser search",
+    "memory_or_thought" to "A memory or thought",
+    "boredom" to "Boredom",
+    "being_alone" to "Being alone",
+    "stress" to "Stress",
+)
+
+private val TimingLabels = mapOf(
+    "late_at_night" to "Late at night",
+    "right_after_waking" to "Right after waking",
+    "alone_on_phone" to "Alone on my phone",
+    "when_bored" to "When bored",
+    "when_stressed" to "When stressed",
+    "trouble_sleeping" to "Trouble sleeping",
+)
+
+private val WeekOneLabels = mapOf(
+    "notice_triggers" to "Just notice my triggers",
+    "cut_down_a_little" to "Cut down a little",
+    "daily_reset_habit" to "Build one daily reset habit",
+    "cut_down_by_half" to "Cut down by half",
+)

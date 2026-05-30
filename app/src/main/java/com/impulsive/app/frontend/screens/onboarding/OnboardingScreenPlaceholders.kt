@@ -61,9 +61,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -79,6 +77,7 @@ import com.impulsive.app.backend.session.onboarding.OnboardingState
 import com.impulsive.app.frontend.theme.ImpulsiveOverallTheme
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSurface
+import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import kotlin.math.abs
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -642,7 +641,7 @@ private fun DailyRelapseCountWheelPicker(
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = selectedCount.coerceIn(1, 10) - 1,
     )
-    val haptic = LocalHapticFeedback.current
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     var lastHapticCount by remember { mutableStateOf(selectedCount.coerceIn(1, 10)) }
     val centeredIndex by remember {
         derivedStateOf {
@@ -664,7 +663,7 @@ private fun DailyRelapseCountWheelPicker(
             onSelectedCountChange(nextCount)
         }
         if (nextCount != lastHapticCount) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptics.light()
             lastHapticCount = nextCount
         }
     }
@@ -1217,6 +1216,7 @@ private fun ReduceOptionChip(
     onClick: () -> Unit,
     onTokenLaunch: ((Offset) -> Unit)? = null,
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) OnboardingSelectedOptionSurface else Color.White,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -1241,6 +1241,7 @@ private fun ReduceOptionChip(
                 indication = null,
                 onClick = {
                     if (!selected) {
+                        haptics.light()
                         chipCenter?.let { onTokenLaunch?.invoke(it) }
                     }
                     onClick()
@@ -1276,6 +1277,7 @@ private fun TriggerOptionChip(
     onClick: () -> Unit,
     onTokenLaunch: ((Offset) -> Unit)? = null,
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) OnboardingSelectedOptionSurface else Color.White,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -1302,6 +1304,7 @@ private fun TriggerOptionChip(
                 indication = null,
                 onClick = {
                     if (!selected) {
+                        haptics.light()
                         chipCenter?.let { onTokenLaunch?.invoke(it) }
                     }
                     onClick()
@@ -1649,6 +1652,7 @@ private fun TimingOptionChip(
     onClick: () -> Unit,
     onTokenLaunch: ((Offset) -> Unit)? = null,
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) OnboardingSelectedOptionSurface else Color.White,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -1675,6 +1679,7 @@ private fun TimingOptionChip(
                 indication = null,
                 onClick = {
                     if (!selected) {
+                        haptics.light()
                         chipCenter?.let { onTokenLaunch?.invoke(it) }
                     }
                     onClick()
@@ -1763,6 +1768,7 @@ private fun ContinueButton(
     modifier: Modifier = Modifier,
     label: String = "Continue",
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     val shadowAlpha by animateFloatAsState(
         targetValue = if (enabled) 0.10f else 0.045f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -1784,7 +1790,10 @@ private fun ContinueButton(
         )
 
         Button(
-            onClick = onClick,
+            onClick = {
+                haptics.confirm()
+                onClick()
+            },
             enabled = enabled,
             modifier = Modifier
                 .fillMaxWidth()

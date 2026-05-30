@@ -59,6 +59,7 @@ import com.impulsive.app.backend.domain.model.tasks.TaskCompletionResult
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardStatus
 import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
+import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.tasks.PatternBreakViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
@@ -89,6 +90,7 @@ private data class PatternPuzzle(
 @Composable
 fun PatternBreakScreen(
     onExit: () -> Unit,
+    launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -153,7 +155,9 @@ fun PatternBreakScreen(
     }
 
     LaunchedEffect(view, validCompletion, score) {
-        if (view == PatternBreakView.Result && validCompletion && rewardAppliedForScore != score) {
+        if (view == PatternBreakView.Result && validCompletion && rewardAppliedForScore != score &&
+            launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
+        ) {
             rewardAppliedForScore = score
             taskRewardViewModel.completeTask(
                 taskType = PsychologyTaskType.PatternBreak,

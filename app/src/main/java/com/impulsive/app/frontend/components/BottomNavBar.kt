@@ -21,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,8 +42,10 @@ enum class BottomNavItem {
 fun BottomNavBar(
     selected: BottomNavItem,
     onSelect: (BottomNavItem) -> Unit,
+    hapticsEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberImpulsiveHaptics(hapticsEnabled)
     Surface(
         modifier = modifier
             .shadow(
@@ -73,30 +76,35 @@ fun BottomNavBar(
                 icon = Icons.Filled.Home,
                 selected = selected == BottomNavItem.Home,
                 onSelect = onSelect,
+                haptics = haptics,
             )
             BottomNavButton(
                 item = BottomNavItem.Progress,
                 icon = Icons.Filled.ShowChart,
                 selected = selected == BottomNavItem.Progress,
                 onSelect = onSelect,
+                haptics = haptics,
             )
             BottomNavButton(
                 item = BottomNavItem.Trigger,
                 icon = Icons.Filled.TrackChanges,
                 selected = selected == BottomNavItem.Trigger,
                 onSelect = onSelect,
+                haptics = haptics,
             )
             BottomNavButton(
                 item = BottomNavItem.Focus,
                 icon = Icons.Filled.CenterFocusStrong,
                 selected = selected == BottomNavItem.Focus,
                 onSelect = onSelect,
+                haptics = haptics,
             )
             BottomNavButton(
                 item = BottomNavItem.Settings,
                 icon = Icons.Filled.Settings,
                 selected = selected == BottomNavItem.Settings,
                 onSelect = onSelect,
+                haptics = haptics,
             )
         }
     }
@@ -108,8 +116,12 @@ private fun BottomNavButton(
     icon: ImageVector,
     selected: Boolean,
     onSelect: (BottomNavItem) -> Unit,
+    haptics: com.impulsive.app.frontend.utils.ImpulsiveHaptics,
 ) {
-    IconButton(onClick = { onSelect(item) }) {
+    IconButton(onClick = {
+        haptics.light()
+        onSelect(item)
+    }) {
         Box(
             modifier = Modifier.size(48.dp),
             contentAlignment = Alignment.Center,

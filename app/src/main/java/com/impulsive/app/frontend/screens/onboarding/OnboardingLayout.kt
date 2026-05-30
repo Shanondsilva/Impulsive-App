@@ -58,12 +58,13 @@ internal enum class OnboardingFlowStep(
     val stepNumber: Int,
 ) {
     Personalization(stepNumber = 1),
-    Reduction(stepNumber = 2),
-    Triggers(stepNumber = 3),
-    Timing(stepNumber = 4),
-    WeekOne(stepNumber = 5),
-    DailyRelapseCount(stepNumber = 6),
-    StartingPoint(stepNumber = 7),
+    Notifications(stepNumber = 2),
+    Reduction(stepNumber = 3),
+    Triggers(stepNumber = 4),
+    Timing(stepNumber = 5),
+    WeekOne(stepNumber = 6),
+    DailyRelapseCount(stepNumber = 7),
+    StartingPoint(stepNumber = 8),
 }
 
 internal fun OnboardingFlowStep.toStepUi(
@@ -364,7 +365,7 @@ private fun OnboardingQuestionScaffoldShell(
     }
 }
 
-private const val OnboardingTotalSteps = 7
+private const val OnboardingTotalSteps = 8
 private val OnboardingActiveDot = Color(0xFF635880)
 private val OnboardingInactiveDot = Color(0xFFE6E1E5)
 private val OnboardingHeaderText = Color(0xFF635880)

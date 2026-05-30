@@ -63,6 +63,7 @@ import com.impulsive.app.backend.domain.game.Target
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.formattedTimeUntilNextWindow
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
+import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
 import com.impulsive.app.backend.domain.model.tasks.TaskCompletionResult
 import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
@@ -149,7 +150,24 @@ fun ReflexGameScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onExit) {
+            IconButton(
+                onClick = {
+                    if (uiState.view == GameView.Result) {
+                        viewModel.recordCurrentResult(
+                            outcome = if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {
+                                if (uiState.result?.validCompletion == true) {
+                                    ScoreSessionOutcome.Completed
+                                } else {
+                                    ScoreSessionOutcome.Abandoned
+                                }
+                            } else {
+                                ScoreSessionOutcome.ContinuedWithIntention
+                            },
+                        )
+                    }
+                    onExit()
+                },
+            ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -176,8 +194,24 @@ fun ReflexGameScreen(
                 taskCompletionResult = taskCompletionResult,
                 nextWindowText = releasePlan.formattedTimeUntilNextWindow(),
                 onWalkAway = viewModel::walkAway,
-                onPlayAgain = viewModel::startCountdown,
-                onExit = onExit,
+                onPlayAgain = {
+                    viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
+                    viewModel.startCountdown()
+                },
+                onExit = {
+                    viewModel.recordCurrentResult(
+                        outcome = if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {
+                            if (uiState.result?.validCompletion == true) {
+                                ScoreSessionOutcome.Completed
+                            } else {
+                                ScoreSessionOutcome.Abandoned
+                            }
+                        } else {
+                            ScoreSessionOutcome.ContinuedWithIntention
+                        },
+                    )
+                    onExit()
+                },
             )
             GameView.Walked -> WalkedView(score = uiState.walkScore, onExit = onExit)
         }

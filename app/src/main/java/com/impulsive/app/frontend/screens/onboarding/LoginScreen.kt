@@ -59,6 +59,7 @@ import com.impulsive.app.R
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.session.auth.AuthState
 import com.impulsive.app.backend.session.auth.AuthViewModel
+import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -536,8 +537,12 @@ private fun LoginPrimaryButton(
     height: Dp,
     onClick: () -> Unit,
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     Button(
-        onClick = onClick,
+        onClick = {
+            haptics.confirm()
+            onClick()
+        },
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
@@ -565,8 +570,12 @@ private fun LoginOutlinedButton(
     height: Dp,
     onClick: () -> Unit,
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     Button(
-        onClick = onClick,
+        onClick = {
+            haptics.light()
+            onClick()
+        },
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
@@ -601,8 +610,12 @@ private fun LoginNeutralButton(
     height: Dp,
     onClick: () -> Unit,
 ) {
+    val haptics = rememberImpulsiveHaptics(enabled = true)
     Button(
-        onClick = onClick,
+        onClick = {
+            haptics.light()
+            onClick()
+        },
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()

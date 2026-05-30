@@ -44,6 +44,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.6")
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation(platform("androidx.compose:compose-bom:2025.01.00"))
@@ -69,4 +70,6 @@ dependencies {
 
     // Lets us .await() Firebase / Google Play Services Tasks from coroutines.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
+    testImplementation("junit:junit:4.13.2")
 }
