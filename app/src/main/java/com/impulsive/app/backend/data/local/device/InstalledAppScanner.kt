@@ -2,6 +2,7 @@ package com.impulsive.app.backend.data.local.device
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import com.impulsive.app.backend.domain.model.protection.ProtectedAppCandidate
@@ -82,11 +83,32 @@ class InstalledAppScanner(
                 packageName, label, ProtectedAppCategory.Games, ProtectedAppRiskBand.Review,
                 "Games are not automatically risky, but you can protect this if it leads to the loop.",
             )
+            !isSystemPackage(packageName) -> ProtectedAppCandidate(
+                packageName, label, ProtectedAppCategory.Unknown, ProtectedAppRiskBand.Review,
+                "Not automatically risky, but you can protect this if it leads to the loop.",
+            )
             else -> ProtectedAppCandidate(
                 packageName, label, ProtectedAppCategory.Unknown, ProtectedAppRiskBand.HiddenSafe,
                 "Not suggested by default.",
             )
         }
+    }
+
+    private fun isSystemPackage(packageName: String): Boolean {
+        val appInfo = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getApplicationInfo(
+                    packageName,
+                    PackageManager.ApplicationInfoFlags.of(0),
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getApplicationInfo(packageName, 0)
+            }
+        } catch (_: PackageManager.NameNotFoundException) {
+            return false
+        }
+        return appInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
     }
 
     private data class KnownRule(
@@ -113,6 +135,19 @@ class InstalledAppScanner(
             KnownRule("com.pinterest", "pinterest", ProtectedAppCategory.SocialFeed, "Pinterest can become a visual search loop."),
             KnownRule("com.discord", "discord", ProtectedAppCategory.MessagingDating, "Discord can contain image-heavy communities."),
             KnownRule("org.telegram.messenger", "telegram", ProtectedAppCategory.MessagingDating, "Telegram can contain adult channels and image-heavy content."),
+            KnownRule("com.google.android.googlequicksearchbox", "google", ProtectedAppCategory.BrowserSearch, "Google Search can open blocked content directly."),
+            KnownRule("com.opera.browser", "opera", ProtectedAppCategory.BrowserSearch, "Opera can open blocked websites directly."),
+            KnownRule("com.duckduckgo.mobile.android", "duckduckgo", ProtectedAppCategory.BrowserSearch, "DuckDuckGo can open blocked websites directly."),
+            KnownRule("com.kiwibrowser.browser", "kiwi", ProtectedAppCategory.BrowserSearch, "Kiwi Browser can open blocked websites directly."),
+            KnownRule("org.torproject.torbrowser", "tor browser", ProtectedAppCategory.BrowserSearch, "Tor Browser can open blocked websites directly."),
+            KnownRule("com.UCMobile.intl", "uc browser", ProtectedAppCategory.BrowserSearch, "UC Browser can open blocked websites directly."),
+            KnownRule("com.yandex.browser", "yandex", ProtectedAppCategory.BrowserSearch, "Yandex Browser can open blocked websites directly."),
+            KnownRule("com.tumblr", "tumblr", ProtectedAppCategory.SocialFeed, "Tumblr can become a visual search loop."),
+            KnownRule("tv.twitch.android.app", "twitch", ProtectedAppCategory.VideoMedia, "Twitch can become a visual or search trigger."),
+            KnownRule("com.tinder", "tinder", ProtectedAppCategory.MessagingDating, "Tinder can involve image-heavy trigger loops."),
+            KnownRule("com.bumble.app", "bumble", ProtectedAppCategory.MessagingDating, "Bumble can involve image-heavy trigger loops."),
+            KnownRule("co.hinge.app", "hinge", ProtectedAppCategory.MessagingDating, "Hinge can involve image-heavy trigger loops."),
+            KnownRule("com.grindrapp.android", "grindr", ProtectedAppCategory.MessagingDating, "Grindr can involve image-heavy trigger loops."),
         )
 
         val SafeUtilityPackageNames = listOf(

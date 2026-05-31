@@ -30,7 +30,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
-import java.util.UUID
 import kotlin.coroutines.resume
 
 /**
@@ -207,14 +206,12 @@ class FirebaseAuthRepository(
         }
     }
 
-    override suspend fun continueAsGuest(): AuthResult {
-        val guest = AuthUser(
-            uid = "guest-" + UUID.randomUUID().toString(),
-            displayName = null,
-            email = null,
-            provider = AuthProvider.Guest,
-        )
-        return AuthResult.Success(guest)
+    override suspend fun continueAsGuest(): AuthResult = try {
+        val result = firebaseAuth.signInAnonymously().await()
+        val user = result.user ?: return AuthResult.Error("Guest sign-in returned no user.")
+        AuthResult.Success(user.toAuthUser(forced = AuthProvider.Guest))
+    } catch (e: Exception) {
+        e.toAuthError(providerName = "Guest")
     }
 
     override suspend fun signOut() {
@@ -239,6 +236,7 @@ class FirebaseAuthRepository(
     }
 
     private fun inferProvider(user: FirebaseUser): AuthProvider {
+        if (user.isAnonymous) return AuthProvider.Guest
         for (info in user.providerData) {
             when (info.providerId) {
                 GoogleAuthProvider.PROVIDER_ID -> return AuthProvider.Google

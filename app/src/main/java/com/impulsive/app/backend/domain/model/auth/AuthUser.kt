@@ -5,7 +5,7 @@ package com.impulsive.app.backend.domain.model.auth
  * without depending on Firebase types directly.
  *
  * [uid] is the stable identifier we'd use for keying remote/local data.
- * For [AuthProvider.Guest], [uid] is a locally generated id and [email] is null.
+ * For [AuthProvider.Guest], [uid] is a Firebase anonymous-auth uid and [email] is null.
  */
 data class AuthUser(
     val uid: String,

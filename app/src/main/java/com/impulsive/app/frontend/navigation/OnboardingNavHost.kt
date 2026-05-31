@@ -1,7 +1,11 @@
 package com.impulsive.app.frontend.navigation
 
+import android.content.Intent
 import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -9,6 +13,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -16,6 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.ui.platform.LocalContext
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
@@ -103,7 +110,37 @@ fun OnboardingNavHost(
 ) {
     val state by onboardingViewModel.state.collectAsState()
     val protectionSetupState by protectionSetupViewModel.state.collectAsState()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var pendingDailyRelapseCount by remember { mutableStateOf<Int?>(null) }
+
+    fun syncInterruptionPermission() {
+        protectionSetupViewModel.setInterruptionPermissionEnabled(Settings.canDrawOverlays(context))
+    }
+
+    fun isIgnoringBatteryOptimizations(): Boolean {
+        val powerManager = context.getSystemService(PowerManager::class.java) ?: return false
+        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    fun syncBackgroundActivityPermission() {
+        protectionSetupViewModel.setBackgroundActivityEnabled(isIgnoringBatteryOptimizations())
+    }
+
+    DisposableEffect(context, lifecycleOwner) {
+        syncInterruptionPermission()
+        syncBackgroundActivityPermission()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                syncInterruptionPermission()
+                syncBackgroundActivityPermission()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     if (state.isLoading) {
         return
@@ -259,6 +296,27 @@ fun OnboardingNavHost(
                 state = protectionSetupState,
                 onBack = navController::navigateBack,
                 onChooseApps = { navController.navigateForward(OnboardingRoutes.ProtectionBlockedApps) },
+                onOpenInterruptionPermission = {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}"),
+                    )
+                    context.startActivity(intent)
+                },
+                onOpenBackgroundActivityPermission = {
+                    val intent = if (isIgnoringBatteryOptimizations()) {
+                        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    } else {
+                        Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}"),
+                        )
+                    }
+                    runCatching { context.startActivity(intent) }
+                        .onFailure {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                },
                 onOpenUninstallProtection = {
                     navController.navigate(OnboardingRoutes.UninstallProtection) {
                         launchSingleTop = true

@@ -57,10 +57,11 @@ fun List<ProtectedAppCandidate>.toSuggestionGroups(
             it.packageName !in selectedPackageNames &&
             (!hasSearch || it.matchesQuery(normalizedQuery))
     }.sortedBy { it.appLabel.lowercase() }
+    val shouldShowReview = showMoreApps || hasSearch || recommended.isEmpty()
     val review = filter {
         it.riskBand == ProtectedAppRiskBand.Review &&
             it.packageName !in selectedPackageNames &&
-            (showMoreApps || hasSearch) &&
+            shouldShowReview &&
             (!hasSearch || it.matchesQuery(normalizedQuery))
     }.sortedBy { it.appLabel.lowercase() }
     val hiddenSafe = filter {

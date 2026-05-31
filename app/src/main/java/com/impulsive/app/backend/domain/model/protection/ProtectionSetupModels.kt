@@ -35,7 +35,12 @@ enum class ProtectionSetupItem(
     InterruptionPermission(
         storageValue = "interruption_permission",
         title = "Allow Impulsive to step in",
-        isCoreProtection = false,
+        isCoreProtection = true,
+    ),
+    BackgroundActivity(
+        storageValue = "background_activity",
+        title = "Allow background protection",
+        isCoreProtection = true,
     ),
     WebsiteProtection(
         storageValue = "website_protection",
@@ -54,6 +59,7 @@ data class ProtectionSetupState(
     val selectedBlockedAppPackageNames: Set<String> = emptySet(),
     val websiteProtectionEnabled: Boolean = false,
     val interruptionPermissionEnabled: Boolean = false,
+    val backgroundActivityEnabled: Boolean = false,
     val uninstallProtectionEnabled: Boolean = false,
     val notificationPermissionEnabled: Boolean = false,
     val skippedSetupItems: Set<ProtectionSetupItem> = emptySet(),
@@ -65,6 +71,8 @@ data class ProtectionSetupState(
         get() = buildList {
             if (!blockedAppsSelected) add(ProtectionSetupItem.BlockedApps)
             if (!usageAccessEnabled) add(ProtectionSetupItem.UsageAccess)
+            if (!interruptionPermissionEnabled) add(ProtectionSetupItem.InterruptionPermission)
+            if (!backgroundActivityEnabled) add(ProtectionSetupItem.BackgroundActivity)
             if (!notificationPermissionEnabled) add(ProtectionSetupItem.Notifications)
             if (!uninstallProtectionEnabled) add(ProtectionSetupItem.UninstallProtection)
         }
@@ -83,6 +91,7 @@ data class ProtectionSetupState(
         ProtectionSetupItem.Notifications -> notificationPermissionEnabled
         ProtectionSetupItem.UninstallProtection -> uninstallProtectionEnabled
         ProtectionSetupItem.InterruptionPermission -> interruptionPermissionEnabled
+        ProtectionSetupItem.BackgroundActivity -> backgroundActivityEnabled
         ProtectionSetupItem.WebsiteProtection -> websiteProtectionEnabled
     }
 }

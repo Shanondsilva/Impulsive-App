@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import androidx.core.app.ServiceCompat
 import com.impulsive.app.MainActivity
 import com.impulsive.app.backend.data.local.device.ForegroundAppReader
@@ -164,11 +165,20 @@ class AppMonitorService : Service() {
             sourcePackageName = sourcePackageName,
             sourceLabel = sourceLabel,
         )
-        runCatching { startActivity(blockIntent) }
-        notificationHelper.showBlockedAttemptNotification(
-            sourcePackageName = sourcePackageName,
-            sourceLabel = sourceLabel,
-        )
+        if (Settings.canDrawOverlays(this)) {
+            runCatching { startActivity(blockIntent) }
+                .onFailure {
+                    notificationHelper.showBlockFullScreen(
+                        sourcePackageName = sourcePackageName,
+                        sourceLabel = sourceLabel,
+                    )
+                }
+        } else {
+            notificationHelper.showBlockFullScreen(
+                sourcePackageName = sourcePackageName,
+                sourceLabel = sourceLabel,
+            )
+        }
     }
 
     private fun stopSelfSafely() {

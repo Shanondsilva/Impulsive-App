@@ -38,6 +38,10 @@ class ProtectionSetupViewModel(
         viewModelScope.launch { repository.setInterruptionPermissionEnabled(enabled) }
     }
 
+    fun setBackgroundActivityEnabled(enabled: Boolean) {
+        viewModelScope.launch { repository.setBackgroundActivityEnabled(enabled) }
+    }
+
     fun setUninstallProtectionEnabled(enabled: Boolean) {
         viewModelScope.launch { repository.setUninstallProtectionEnabled(enabled) }
     }

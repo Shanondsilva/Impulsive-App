@@ -26,6 +26,7 @@ class ProtectionSetupPreferencesDataSource(
                 preferences[SelectedBlockedAppPackageNamesKey].toStringSet(),
             websiteProtectionEnabled = preferences[WebsiteProtectionEnabledKey] ?: false,
             interruptionPermissionEnabled = preferences[InterruptionPermissionEnabledKey] ?: false,
+            backgroundActivityEnabled = preferences[BackgroundActivityEnabledKey] ?: false,
             uninstallProtectionEnabled = preferences[UninstallProtectionEnabledKey] ?: false,
             notificationPermissionEnabled = preferences[NotificationPermissionEnabledKey] ?: false,
             skippedSetupItems = preferences[SkippedSetupItemsKey].toProtectionSetupItemSet(),
@@ -65,6 +66,13 @@ class ProtectionSetupPreferencesDataSource(
         dataStore.edit { preferences ->
             preferences[InterruptionPermissionEnabledKey] = enabled
             if (enabled) preferences.removeSkippedItem(ProtectionSetupItem.InterruptionPermission)
+        }
+    }
+
+    suspend fun setBackgroundActivityEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[BackgroundActivityEnabledKey] = enabled
+            if (enabled) preferences.removeSkippedItem(ProtectionSetupItem.BackgroundActivity)
         }
     }
 
@@ -141,6 +149,7 @@ class ProtectionSetupPreferencesDataSource(
             stringPreferencesKey("selected_blocked_app_package_names")
         val WebsiteProtectionEnabledKey = booleanPreferencesKey("website_protection_enabled")
         val InterruptionPermissionEnabledKey = booleanPreferencesKey("interruption_permission_enabled")
+        val BackgroundActivityEnabledKey = booleanPreferencesKey("background_activity_enabled")
         val UninstallProtectionEnabledKey = booleanPreferencesKey("uninstall_protection_enabled")
         val NotificationPermissionEnabledKey = booleanPreferencesKey("notification_permission_enabled")
         val SkippedSetupItemsKey = stringPreferencesKey("skipped_setup_items")

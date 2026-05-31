@@ -312,7 +312,7 @@ private fun ProtectionSetupIncompleteCard(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
-        border = BorderStroke(1.dp, Color(0xFFE5484D).copy(alpha = 0.35f)),
+        border = BorderStroke(1.dp, SettingsBoxBorder.copy(alpha = 0.55f)),
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
@@ -379,6 +379,8 @@ private fun ProtectionSetupItem.protectionReasonText(): String = when (this) {
         "Adds friction before uninstalling during weak moments. You stay in control."
     ProtectionSetupItem.InterruptionPermission ->
         "Allows stronger interruption tools later when you explicitly enable them."
+    ProtectionSetupItem.BackgroundActivity ->
+        "Helps Impulsive restart after reboot and avoid being stopped by battery optimization."
     ProtectionSetupItem.WebsiteProtection ->
         "Lets Impulsive protect risky domains when website blocking is added."
 }
@@ -834,6 +836,12 @@ private fun ProtectionFocusGroup(
             },
             onClick = onOpenUninstallProtection,
         )
+        SettingsDivider()
+        SettingsRow(
+            title = "Background protection",
+            value = if (protectionState.backgroundActivityEnabled) "Allowed" else "Needs review",
+            subtext = "Helps protection survive reboot and battery optimization.",
+        )
         if (protectionState.usageAccessEnabled && protectionState.selectedBlockedAppPackageNames.isNotEmpty()) {
             SettingsDivider()
             SettingsRow(
@@ -1053,6 +1061,11 @@ private fun AccordionGroup(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(22.dp),
         tonalElevation = 2.dp,
+        border = if (glowSpec?.animated == true || glowSpec == null) {
+            null
+        } else {
+            BorderStroke(1.2.dp, glowSpec.colors.first().copy(alpha = 0.55f))
+        },
     ) {
         Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
             Row(
@@ -1547,14 +1560,15 @@ private const val SettingsFadeOutMillis = 85
 private const val SettingsArrowExpandMillis = 180
 private const val SettingsArrowCollapseMillis = 140
 
-private val ProfileGlow = Color(0xFFD0C3F1)
-private val AppearanceGlow = Color(0xFFD8B0EB)
-private val RecoverySetupGlow = Color(0xFFB8A5E8)
-private val FutureSelfGlow = Color(0xFF7B4AF7)
-private val ProtectionGlow = Color(0xFFF5A7A6)
-private val FocusGlow = Color(0xFFBAE1FF)
-private val PrivacyGlow = Color(0xFFBAFFC9)
-private val SupportGlow = Color(0xFFFFFFBA)
+private val SettingsBoxBorder = Color(0xFFD0C3F1)
+private val ProfileGlow = SettingsBoxBorder
+private val AppearanceGlow = SettingsBoxBorder
+private val RecoverySetupGlow = SettingsBoxBorder
+private val FutureSelfGlow = SettingsBoxBorder
+private val ProtectionGlow = SettingsBoxBorder
+private val FocusGlow = SettingsBoxBorder
+private val PrivacyGlow = SettingsBoxBorder
+private val SupportGlow = SettingsBoxBorder
 private val PlusRainbowGlow = listOf(
     Color(0xFFD0C3F1),
     Color(0xFFBDE0FE),

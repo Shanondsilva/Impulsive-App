@@ -43,6 +43,8 @@ fun ProtectionSetupOnboardingScreen(
     state: ProtectionSetupState,
     onBack: () -> Unit,
     onChooseApps: () -> Unit,
+    onOpenInterruptionPermission: () -> Unit,
+    onOpenBackgroundActivityPermission: () -> Unit,
     onOpenUninstallProtection: () -> Unit,
     onSkipItem: (ProtectionSetupItem) -> Unit,
     onContinue: () -> Unit,
@@ -138,6 +140,26 @@ fun ProtectionSetupOnboardingScreen(
             )
             ProtectionSetupCard(
                 badge = "3",
+                title = "Allow Impulsive to step in",
+                body = "This Android setting lets Impulsive show your pause screen over protected apps.",
+                completed = state.isComplete(ProtectionSetupItem.InterruptionPermission),
+                skipped = ProtectionSetupItem.InterruptionPermission in state.skippedSetupItems,
+                actionLabel = "Allow",
+                onAction = onOpenInterruptionPermission,
+                onSkip = { onSkipItem(ProtectionSetupItem.InterruptionPermission) },
+            )
+            ProtectionSetupCard(
+                badge = "4",
+                title = "Allow background protection",
+                body = "This helps Impulsive restart after reboot and stay active when phone makers limit background apps.",
+                completed = state.isComplete(ProtectionSetupItem.BackgroundActivity),
+                skipped = ProtectionSetupItem.BackgroundActivity in state.skippedSetupItems,
+                actionLabel = "Allow",
+                onAction = onOpenBackgroundActivityPermission,
+                onSkip = { onSkipItem(ProtectionSetupItem.BackgroundActivity) },
+            )
+            ProtectionSetupCard(
+                badge = "5",
                 title = "Keep notifications active",
                 body = "Notifications tell you when a planned window opens and when protection turns back on.",
                 completed = state.isComplete(ProtectionSetupItem.Notifications),
@@ -147,7 +169,7 @@ fun ProtectionSetupOnboardingScreen(
                 onSkip = { onSkipItem(ProtectionSetupItem.Notifications) },
             )
             ProtectionSetupCard(
-                badge = "4",
+                badge = "6",
                 title = "Add uninstall friction",
                 body = "This adds friction before removing Impulsive during weak moments, while keeping you in control.",
                 completed = state.isComplete(ProtectionSetupItem.UninstallProtection),

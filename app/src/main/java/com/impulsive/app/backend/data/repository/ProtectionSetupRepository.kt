@@ -29,6 +29,10 @@ class ProtectionSetupRepository(
         dataSource.setInterruptionPermissionEnabled(enabled)
     }
 
+    suspend fun setBackgroundActivityEnabled(enabled: Boolean) {
+        dataSource.setBackgroundActivityEnabled(enabled)
+    }
+
     suspend fun setUninstallProtectionEnabled(enabled: Boolean) {
         dataSource.setUninstallProtectionEnabled(enabled)
     }

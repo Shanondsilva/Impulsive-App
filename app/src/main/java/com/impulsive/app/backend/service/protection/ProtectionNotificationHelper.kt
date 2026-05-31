@@ -93,6 +93,35 @@ class ProtectionNotificationHelper(
         }
     }
 
+    fun showBlockFullScreen(
+        sourcePackageName: String,
+        sourceLabel: String,
+    ) {
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            sourcePackageName.hashCode(),
+            MainActivity.createBlockIntent(
+                context = context,
+                sourcePackageName = sourcePackageName,
+                sourceLabel = sourceLabel,
+            ),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Pause before $sourceLabel")
+            .setContentText("Tap to take a moment with Impulsive.")
+            .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        runCatching {
+            NotificationManagerCompat.from(context).notify(BlockFullScreenNotificationId, notification)
+        }
+    }
+
     fun showReleaseWindowPausedNotification(
         windowEnd: LocalDateTime,
     ) {
@@ -141,5 +170,6 @@ class ProtectionNotificationHelper(
         const val BlockedAttemptNotificationId = 4202
         const val ReleaseWindowPausedNotificationId = 4203
         const val ProtectionResumedNotificationId = 4204
+        const val BlockFullScreenNotificationId = 4205
     }
 }
