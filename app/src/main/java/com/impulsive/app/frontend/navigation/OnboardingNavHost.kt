@@ -1,5 +1,6 @@
 package com.impulsive.app.frontend.navigation
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -28,12 +29,19 @@ import com.impulsive.app.frontend.screens.intro.IntroScreen
 import com.impulsive.app.frontend.screens.journal.JournalEditorScreen
 import com.impulsive.app.frontend.screens.journal.JournalHubScreen
 import com.impulsive.app.frontend.screens.journal.JournalListScreen
+import com.impulsive.app.backend.domain.model.protection.BlockRequest
+import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
+import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.frontend.screens.onboarding.LoginSignupGuestScreen
 import com.impulsive.app.frontend.screens.onboarding.NotificationPermissionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingDailyRelapseCountScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingQuestionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingStartingPointScreen
+import com.impulsive.app.frontend.screens.onboarding.ProtectionSetupOnboardingScreen
 import com.impulsive.app.frontend.screens.onboarding.WelcomePrivacyScreen
+import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
+import com.impulsive.app.frontend.screens.protection.ImpulsiveBlockScreen
+import com.impulsive.app.frontend.screens.protection.UninstallProtectionScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
 import com.impulsive.app.frontend.screens.tasks.FutureSelfMessageScreen
@@ -53,7 +61,14 @@ object OnboardingRoutes {
     const val QuestionTriggers = "question_triggers"
     const val QuestionWeekOne = "question_week_one"
     const val QuestionDailyRelapseCount = "question_daily_relapse_count"
+    const val ProtectionSetup = "protection_setup"
+    const val ProtectionBlockedApps = "protection_blocked_apps"
+    const val UninstallProtection = "uninstall_protection"
     const val StartingPoint = "starting_point"
+    const val ImpulsiveBlock = "impulsive_block/{sourcePackageName}/{sourceLabel}"
+
+    fun impulsiveBlock(sourcePackageName: String, sourceLabel: String): String =
+        "impulsive_block/${Uri.encode(sourcePackageName)}/${Uri.encode(sourceLabel)}"
     const val LevelOneReveal = "level_one_reveal"
     const val Settings = "settings"
     const val Score = "score"
@@ -81,20 +96,39 @@ object OnboardingRoutes {
 fun OnboardingNavHost(
     navController: NavHostController = rememberNavController(),
     onboardingViewModel: OnboardingViewModel = viewModel(),
+    protectionSetupViewModel: ProtectionSetupViewModel = viewModel(),
     authViewModel: AuthViewModel,
+    initialBlockRequest: BlockRequest? = null,
+    onBlockRequestConsumed: () -> Unit = {},
 ) {
     val state by onboardingViewModel.state.collectAsState()
+    val protectionSetupState by protectionSetupViewModel.state.collectAsState()
     var pendingDailyRelapseCount by remember { mutableStateOf<Int?>(null) }
 
     if (state.isLoading) {
         return
     }
 
+    LaunchedEffect(initialBlockRequest, state.isCompleted) {
+        val request = initialBlockRequest
+        if (request != null && state.isCompleted) {
+            navController.navigate(
+                OnboardingRoutes.impulsiveBlock(
+                    sourcePackageName = request.sourcePackageName,
+                    sourceLabel = request.sourceLabel,
+                ),
+            ) {
+                launchSingleTop = true
+            }
+            onBlockRequestConsumed()
+        }
+    }
+
     LaunchedEffect(pendingDailyRelapseCount, state.answers.dailyRelapseUrgeCount) {
         val pendingCount = pendingDailyRelapseCount
         if (pendingCount != null && state.answers.dailyRelapseUrgeCount == pendingCount) {
             pendingDailyRelapseCount = null
-            navController.navigateForward(OnboardingRoutes.StartingPoint)
+            navController.navigateForward(OnboardingRoutes.ProtectionSetup)
         }
     }
 
@@ -142,6 +176,12 @@ fun OnboardingNavHost(
             NotificationPermissionScreen(
                 onContinue = {
                     navController.navigateForward(OnboardingRoutes.QuestionInterrupting)
+                },
+                onPermissionResult = { granted ->
+                    protectionSetupViewModel.setNotificationPermissionEnabled(granted)
+                    if (!granted) {
+                        protectionSetupViewModel.markSkipped(ProtectionSetupItem.Notifications)
+                    }
                 },
             )
         }
@@ -211,6 +251,46 @@ fun OnboardingNavHost(
                     onboardingViewModel.setDailyRelapseUrgeCount(selectedCount)
                     pendingDailyRelapseCount = selectedCount
                 },
+            )
+        }
+
+        composable(OnboardingRoutes.ProtectionSetup) {
+            ProtectionSetupOnboardingScreen(
+                state = protectionSetupState,
+                onBack = navController::navigateBack,
+                onChooseApps = { navController.navigateForward(OnboardingRoutes.ProtectionBlockedApps) },
+                onOpenUninstallProtection = {
+                    navController.navigate(OnboardingRoutes.UninstallProtection) {
+                        launchSingleTop = true
+                    }
+                },
+                onSkipItem = protectionSetupViewModel::markSkipped,
+                onContinue = {
+                    protectionSetupState.incompleteCoreProtectionItems.forEach { item ->
+                        protectionSetupViewModel.markSkipped(item)
+                    }
+                    navController.navigateForward(OnboardingRoutes.StartingPoint)
+                },
+            )
+        }
+
+        composable(OnboardingRoutes.UninstallProtection) {
+            UninstallProtectionScreen(
+                state = protectionSetupState,
+                onBack = { navController.safePopBackStack() },
+                onEnabledSynced = protectionSetupViewModel::setUninstallProtectionEnabled,
+                onSkip = {
+                    protectionSetupViewModel.markSkipped(ProtectionSetupItem.UninstallProtection)
+                    navController.safePopBackStack()
+                },
+            )
+        }
+
+        composable(OnboardingRoutes.ProtectionBlockedApps) {
+            BlockedAppsSelectionContent(
+                selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
+                onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
+                onDone = { navController.navigateBack() },
             )
         }
 
@@ -288,6 +368,11 @@ fun OnboardingNavHost(
                 },
                 onOpenFutureSelfRecord = {
                     navController.navigate(OnboardingRoutes.FutureSelfRecord)
+                },
+                onOpenUninstallProtection = {
+                    navController.navigate(OnboardingRoutes.UninstallProtection) {
+                        launchSingleTop = true
+                    }
                 },
                 onBackHome = {
                     val isResumed = navController.currentBackStackEntry
@@ -401,6 +486,29 @@ fun OnboardingNavHost(
                 noteId = backStackEntry.arguments?.getLong("noteId") ?: 0L,
                 initialType = JournalNoteType.Text,
                 onBack = { navController.safePopBackStack() },
+            )
+        }
+
+        composable(
+            route = OnboardingRoutes.ImpulsiveBlock,
+            arguments = listOf(
+                navArgument("sourcePackageName") { type = NavType.StringType },
+                navArgument("sourceLabel") { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val sourcePackageName =
+                Uri.decode(backStackEntry.arguments?.getString("sourcePackageName").orEmpty())
+            val sourceLabel =
+                Uri.decode(backStackEntry.arguments?.getString("sourceLabel").orEmpty())
+            ImpulsiveBlockScreen(
+                sourcePackageName = sourcePackageName,
+                sourceLabel = sourceLabel.ifBlank { sourcePackageName },
+                onStartControlTask = {
+                    navController.navigate(OnboardingRoutes.TaskToComplete) { launchSingleTop = true }
+                },
+                onReturnHome = {
+                    navController.navigateBackToMain()
+                },
             )
         }
 

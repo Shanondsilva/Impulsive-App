@@ -197,7 +197,7 @@ private fun rememberScoreColors(): ScoreScreenColors {
             text = darkText,
             muted = darkMuted,
             faintLine = darkText.copy(alpha = 0.14f),
-            mainCard = darkElevatedSurface,
+            mainCard = Color(0xFF183127),
             mainCardText = darkText,
             selectedPill = Color(0xFF6E5A96),
             unselectedPill = Color(0xFF1D2526),
@@ -219,8 +219,8 @@ private fun rememberScoreColors(): ScoreScreenColors {
             text = Color(0xFF2F2637),
             muted = Color(0xFF706777),
             faintLine = Color(0xFF2F2637).copy(alpha = 0.10f),
-            mainCard = ImpulsivePsychological,
-            mainCardText = Color(0xFF3D3350),
+            mainCard = Color(0xFFDFF4E8),
+            mainCardText = Color(0xFF24392F),
             selectedPill = ImpulsivePsychological,
             unselectedPill = Color(0xFFF2ECF3),
             safeExitCard = ImpulsiveOverallTheme,
@@ -270,11 +270,7 @@ private fun MainControlScoreCard(
         .takeLast(7)
     val hasTrendData = trendScores.isNotEmpty()
     val trendIsImproving = trendScores.size >= 2 && trendScores.last() >= trendScores.first()
-    val trendAccent = when {
-        !hasTrendData -> colors.lavenderGlow
-        trendIsImproving -> colors.greenGlow
-        else -> colors.coralGlow
-    }
+    val trendAccent = colors.coralGlow
     val trendLabel = when {
         !hasTrendData -> "No trend yet"
         trendScores.size == 1 -> "First session logged"
@@ -287,7 +283,7 @@ private fun MainControlScoreCard(
         shape = RoundedCornerShape(34.dp),
         border = BorderStroke(
             width = 1.dp,
-            color = if (isDark) colors.lavenderGlow.copy(alpha = 0.42f) else Color.Transparent,
+            color = if (isDark) colors.greenGlow.copy(alpha = 0.42f) else colors.greenGlow.copy(alpha = 0.30f),
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -295,8 +291,8 @@ private fun MainControlScoreCard(
                 elevation = if (isDark) 18.dp else 10.dp,
                 shape = RoundedCornerShape(34.dp),
                 clip = false,
-                ambientColor = if (isDark) colors.lavenderGlow.copy(alpha = 0.18f) else colors.shadow.copy(alpha = 0.08f),
-                spotColor = if (isDark) colors.greenGlow.copy(alpha = 0.10f) else colors.shadow.copy(alpha = 0.12f),
+                ambientColor = colors.greenGlow.copy(alpha = if (isDark) 0.18f else 0.12f),
+                spotColor = colors.greenGlow.copy(alpha = if (isDark) 0.10f else 0.10f),
             ),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -443,7 +439,7 @@ private fun ScoreFilter(
             modifier = Modifier.padding(5.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            ScoreRange.entries.forEach { range ->
+            listOf(ScoreRange.Week, ScoreRange.AllTime).forEach { range ->
                 val selected = selectedRange == range
                 Box(
                     modifier = Modifier
@@ -631,7 +627,7 @@ private fun ScoreRecordsCard(
                     )
                 }
                 Text(
-                    text = "Recent played",
+                    text = "Recent session",
                     color = colors.muted,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
@@ -651,7 +647,7 @@ private fun ScoreRecordsCard(
                     modifier = Modifier.weight(1.08f),
                 )
                 RecentPlayedPanel(
-                    items = recentSessions.take(3),
+                    item = recentSessions.firstOrNull(),
                     colors = colors,
                     modifier = Modifier.weight(0.92f),
                 )
@@ -731,7 +727,7 @@ private fun MainPersonalBestPanel(
 
 @Composable
 private fun RecentPlayedPanel(
-    items: List<ScoreTimelineItem>,
+    item: ScoreTimelineItem?,
     colors: ScoreScreenColors,
     modifier: Modifier = Modifier,
 ) {
@@ -742,25 +738,13 @@ private fun RecentPlayedPanel(
         modifier = modifier,
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            if (items.isEmpty()) {
+            if (item == null) {
                 EmptyRecentPlayedState(colors = colors)
             } else {
-                items.forEachIndexed { index, item ->
-                    RecentPlayedMiniRow(
-                        item = item,
-                        colors = colors,
-                    )
-                    if (index != items.lastIndex) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(colors.faintLine.copy(alpha = 0.38f)),
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                    }
-                }
+                RecentPlayedMiniRow(
+                    item = item,
+                    colors = colors,
+                )
             }
         }
     }
@@ -838,7 +822,7 @@ private fun EmptyRecentPlayedState(colors: ScoreScreenColors) {
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Recent games appear here.",
+            text = "Your latest session appears here.",
             color = colors.muted,
             style = MaterialTheme.typography.labelSmall,
         )

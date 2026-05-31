@@ -36,11 +36,13 @@ import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 @Composable
 fun NotificationPermissionScreen(
     onContinue: () -> Unit,
+    onPermissionResult: (Boolean) -> Unit = {},
 ) {
     val haptics = rememberImpulsiveHaptics(enabled = true)
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-    ) {
+    ) { granted ->
+        onPermissionResult(granted)
         onContinue()
     }
 
@@ -62,6 +64,7 @@ fun NotificationPermissionScreen(
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
+                            onPermissionResult(true)
                             onContinue()
                         }
                     },
@@ -84,7 +87,10 @@ fun NotificationPermissionScreen(
                 }
 
                 OutlinedButton(
-                    onClick = onContinue,
+                    onClick = {
+                        onPermissionResult(false)
+                        onContinue()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),

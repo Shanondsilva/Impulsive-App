@@ -7,8 +7,12 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,7 +42,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
@@ -58,7 +61,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
@@ -101,10 +103,14 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
+import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.progress.LevelViewModel
+import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.settings.AppSettingsViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
+import com.impulsive.app.backend.service.protection.ProtectionServiceController
+import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.core.util.ThemeMode
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.components.BottomNavBar
@@ -120,6 +126,7 @@ fun SettingsScreen(
     onOpenHome: () -> Unit = onBackHome,
     onOpenScore: () -> Unit = {},
     onOpenFutureSelfRecord: () -> Unit = {},
+    onOpenUninstallProtection: () -> Unit = {},
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     futureSelfViewModel: com.impulsive.app.backend.session.tasks.FutureSelfMessageViewModel =
         androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -136,8 +143,11 @@ fun SettingsScreen(
     val displayName = onboardingState.answers.name.takeIf { it.isNotBlank() } ?: "Shanon"
     val avatar = AvatarStyle.fromId(onboardingState.answers.avatarId)
     val context = LocalContext.current
+    val protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val protectionSetupState by protectionSetupViewModel.state.collectAsState()
     val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
     var showPlusSheet by remember { mutableStateOf(false) }
+    var showBlockedAppsSheet by remember { mutableStateOf(false) }
     var notificationsAllowed by remember { mutableStateOf(isNotificationPermissionAllowed(context)) }
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -160,7 +170,7 @@ fun SettingsScreen(
                 .padding(top = 18.dp, bottom = 144.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            SettingsHeader(onBackHome = onBackHome)
+            SettingsHeader()
             ProfileGroup(
                 displayName = displayName,
                 avatar = avatar,
@@ -194,7 +204,11 @@ fun SettingsScreen(
                 onRecordOrManage = onOpenFutureSelfRecord,
                 onDelete = futureSelfViewModel::deleteSavedMessage,
             )
-            ProtectionFocusGroup()
+            ProtectionFocusGroup(
+                protectionState = protectionSetupState,
+                onOpenBlockedApps = { showBlockedAppsSheet = true },
+                onOpenUninstallProtection = onOpenUninstallProtection,
+            )
             PrivacyAccountGroup(
                 hideSensitiveNotifications = appSettingsState.hideSensitiveNotifications,
                 onHideSensitiveNotificationsChanged = appSettingsViewModel::setHideSensitiveNotifications,
@@ -225,6 +239,18 @@ fun SettingsScreen(
                 .fillMaxWidth(),
             hapticsEnabled = appSettingsState.hapticsEnabled,
         )
+
+        if (showBlockedAppsSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showBlockedAppsSheet = false },
+            ) {
+                BlockedAppsSelectionContent(
+                    selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
+                    onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
+                    onDone = { showBlockedAppsSheet = false },
+                )
+            }
+        }
 
         if (showPlusSheet) {
             ModalBottomSheet(
@@ -261,22 +287,12 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsHeader(onBackHome: () -> Unit) {
+private fun SettingsHeader() {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = onBackHome,
-            modifier = Modifier.size(44.dp),
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        Column(modifier = Modifier.padding(start = 4.dp)) {
+        Column {
             Text(
                 text = "Settings",
                 color = MaterialTheme.colorScheme.onSurface,
@@ -338,7 +354,11 @@ private fun ProfileGroup(
                 editing = true
             },
         )
-        AnimatedVisibility(visible = editing) {
+        AnimatedVisibility(
+            visible = editing,
+            enter = settingsExpandEnter(),
+            exit = settingsCollapseExit(),
+        ) {
             ProfileEditPanel(
                 draftName = draftName,
                 onDraftNameChanged = { draftName = it },
@@ -665,21 +685,72 @@ private fun FutureSelfMessageGroup(
 }
 
 @Composable
-private fun ProtectionFocusGroup() {
+private fun ProtectionFocusGroup(
+    protectionState: ProtectionSetupState,
+    onOpenBlockedApps: () -> Unit,
+    onOpenUninstallProtection: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val selectedCount = protectionState.selectedBlockedAppPackageNames.size
+    val monitoredAppsValue = if (selectedCount == 0) "Not configured" else "$selectedCount selected"
+    val monitoredAppsSubtext = if (selectedCount == 0) {
+        "Let Impulsive suggest apps that often lead into the loop."
+    } else {
+        "Tap to review or change protected apps."
+    }
+
     AccordionGroup(
         title = "Protection & Focus",
-        summary = "Protection tools and focus defaults",
+        summary = "Protected apps, website protection, and focus defaults",
         icon = Icons.Filled.Security,
         haptics = null,
         glowSpec = SettingsGlowSpec.split(ProtectionGlow, FocusGlow),
     ) {
         SettingsRow(title = "Default focus", value = "25 min")
         SettingsDivider()
-        SettingsRow(title = "Monitored apps", subtext = "Not configured")
+        SettingsRow(
+            title = "Protected apps",
+            value = monitoredAppsValue,
+            subtext = monitoredAppsSubtext,
+            onClick = onOpenBlockedApps,
+        )
         SettingsDivider()
-        SettingsRow(title = "Blocked websites", subtext = "Coming soon")
+        SettingsRow(
+            title = "Website protection",
+            value = "Browser apps first",
+            subtext = "V1 protects selected browsers. Domain-level VPN or DNS filtering comes later.",
+        )
         SettingsDivider()
-        SettingsRow(title = "Browser protection", subtext = "Coming soon")
+        SettingsRow(
+            title = "Usage Access",
+            value = if (protectionState.usageAccessEnabled) "Enabled" else "Not enabled",
+            subtext = "Needed later so Impulsive can detect protected apps.",
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Uninstall protection",
+            value = if (protectionState.uninstallProtectionEnabled) "Active" else "Off",
+            subtext = if (protectionState.uninstallProtectionEnabled) {
+                "Extra removal step is active."
+            } else {
+                "Add friction before removing Impulsive during weak moments."
+            },
+            onClick = onOpenUninstallProtection,
+        )
+        if (protectionState.usageAccessEnabled && protectionState.selectedBlockedAppPackageNames.isNotEmpty()) {
+            SettingsDivider()
+            SettingsRow(
+                title = "Protection monitor",
+                subtext = "Checks protected apps during protected time.",
+                onClick = { ProtectionServiceController.start(context) },
+            )
+            SettingsDivider()
+            SettingsRow(
+                title = "Pause protection monitor",
+                subtext = "Stops the monitor until you start it again.",
+                onClick = { ProtectionServiceController.stop(context) },
+            )
+        }
     }
 }
 
@@ -860,6 +931,10 @@ private fun AccordionGroup(
     }
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(
+            durationMillis = if (expanded) SettingsArrowExpandMillis else SettingsArrowCollapseMillis,
+            easing = FastOutSlowInEasing,
+        ),
         label = "$title-arrow-rotation",
     )
 
@@ -877,8 +952,7 @@ private fun AccordionGroup(
                 isDarkTheme = isDarkTheme,
                 glowSpec = glowSpec,
                 borderFlowRotation = borderFlowRotation,
-            )
-            .animateContentSize(),
+            ),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(22.dp),
         tonalElevation = 2.dp,
@@ -946,7 +1020,11 @@ private fun AccordionGroup(
                         .graphicsLayer { rotationZ = arrowRotation },
                 )
             }
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = settingsExpandEnter(),
+                exit = settingsCollapseExit(),
+            ) {
                 Column(
                     modifier = Modifier.padding(top = 14.dp),
                     content = content,
@@ -955,6 +1033,26 @@ private fun AccordionGroup(
         }
     }
 }
+
+private fun settingsExpandEnter() =
+    expandVertically(
+        expandFrom = Alignment.Top,
+        animationSpec = tween(durationMillis = SettingsExpandMillis, easing = FastOutSlowInEasing),
+    ) + fadeIn(
+        animationSpec = tween(
+            durationMillis = SettingsFadeInMillis,
+            delayMillis = SettingsFadeInDelayMillis,
+            easing = FastOutSlowInEasing,
+        ),
+    )
+
+private fun settingsCollapseExit() =
+    fadeOut(
+        animationSpec = tween(durationMillis = SettingsFadeOutMillis, easing = FastOutSlowInEasing),
+    ) + shrinkVertically(
+        shrinkTowards = Alignment.Top,
+        animationSpec = tween(durationMillis = SettingsCollapseMillis, easing = FastOutSlowInEasing),
+    )
 
 private data class SettingsGlowSpec(
     val colors: List<Color>,
@@ -1343,6 +1441,14 @@ private fun answerLabel(
     labels: Map<String, String>,
     emptyText: String,
 ): String = selectedId?.let { labels[it] } ?: emptyText
+
+private const val SettingsExpandMillis = 220
+private const val SettingsCollapseMillis = 170
+private const val SettingsFadeInMillis = 120
+private const val SettingsFadeInDelayMillis = 35
+private const val SettingsFadeOutMillis = 85
+private const val SettingsArrowExpandMillis = 180
+private const val SettingsArrowCollapseMillis = 140
 
 private val ProfileGlow = Color(0xFFD0C3F1)
 private val AppearanceGlow = Color(0xFFD8B0EB)

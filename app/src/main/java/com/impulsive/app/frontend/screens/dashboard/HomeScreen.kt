@@ -65,11 +65,14 @@ import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.core.util.ThemeMode
 import com.impulsive.app.core.util.greetingForHour
 import com.impulsive.app.core.util.resolveSceneTime
+import com.impulsive.app.core.util.shouldUseDarkTheme
 import com.impulsive.app.core.util.timeOfDayForHour
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.components.BottomNavBar
 import com.impulsive.app.frontend.components.BottomNavItem
 import com.impulsive.app.frontend.components.MindCoreScene
+import com.impulsive.app.frontend.components.impulsiveGlowBorderStroke
+import com.impulsive.app.frontend.components.impulsiveGlowShadow
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
@@ -78,7 +81,47 @@ import com.impulsive.app.frontend.theme.ImpulsiveText
 import java.time.LocalDateTime
 
 private const val DAY_COUNT = 1
-private const val CURRENT_LEVEL = 1
+
+private val HomeLavenderGlow = Color(0xFFD0C3F1)
+private val HomeGreenGlow = Color(0xFF93E9BE)
+private val HomeYellowGlow = Color(0xFFFEF1AB)
+
+private data class HomeReadablePalette(
+    val cardSurface: Color,
+    val innerCardSurface: Color,
+    val primaryText: Color,
+    val secondaryText: Color,
+    val mutedText: Color,
+    val actionText: Color,
+    val subtleBorder: Color,
+    val softShadow: Color,
+)
+
+private fun homeReadablePalette(useDarkUi: Boolean): HomeReadablePalette = if (useDarkUi) {
+    val accent = Color(0xFFD0C3F1)
+    HomeReadablePalette(
+        cardSurface = Color(0xFF171D22),
+        innerCardSurface = Color(0xFF202832),
+        primaryText = Color(0xFFF7F2FF),
+        secondaryText = Color(0xFFD9D2E8),
+        mutedText = Color(0xFFB9B1C7),
+        actionText = accent,
+        subtleBorder = accent.copy(alpha = 0.22f),
+        softShadow = accent.copy(alpha = 0.14f),
+    )
+} else {
+    HomeReadablePalette(
+        cardSurface = Color.Unspecified,
+        innerCardSurface = Color.Unspecified,
+        primaryText = ImpulsiveText,
+        secondaryText = ImpulsiveText.copy(alpha = 0.80f),
+        mutedText = ImpulsiveMutedText,
+        actionText = Color(0xFF5C4A7D),
+        subtleBorder = ImpulsiveText.copy(alpha = 0.06f),
+        softShadow = ImpulsiveText.copy(alpha = 0.08f),
+    )
+}
+
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
@@ -95,6 +138,7 @@ fun HomeScreen(
     onOpenTasks: () -> Unit = {},
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenReading: () -> Unit = onOpenResetReadTask,
 ) {
     val state by onboardingViewModel.state.collectAsState()
     val displayName = state.answers.name.takeIf { it.isNotBlank() } ?: "friend"
@@ -115,6 +159,8 @@ fun HomeScreen(
     } else {
         resolveSceneTime(themeMode, systemInDark)
     }
+    val useDarkUi = shouldUseDarkTheme(themeMode, systemInDark)
+    val palette = homeReadablePalette(useDarkUi)
     val releasePlan = calculateReleasePlan(
         selectedDailyUrgeCount = state.answers.dailyRelapseUrgeCount,
         now = currentNow,
@@ -152,12 +198,13 @@ fun HomeScreen(
             LevelCard(
                 releasePlan = displayReleasePlan,
                 taskRewardState = taskRewardState,
+                palette = palette,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             MindCoreScene(
-                level = CURRENT_LEVEL,
+                level = taskRewardState.currentLevel,
                 timeOfDay = sceneTime,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -173,30 +220,42 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            TaskToCompletePreviewCard(
-                releasePlan = displayReleasePlan,
-                taskRewardState = taskRewardState,
-                onStartTask = {
-                    when (taskRewardState.recommendedTaskType) {
-                        PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
-                        PsychologyTaskType.PatternBreak -> onOpenPatternBreakTask()
-                        PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
-                        PsychologyTaskType.MindLesson -> onOpenMindLessonTask()
-                        PsychologyTaskType.ResetRead -> onOpenResetReadTask()
-                        PsychologyTaskType.FutureSelfMessage,
-                        PsychologyTaskType.TriggerDecoder,
-                        PsychologyTaskType.ThoughtCapture,
-                        PsychologyTaskType.ShortReadingBurst -> onOpenFutureSelfMessageTask()
-                    }
-                },
-                onViewAllTasks = onOpenTasks,
-            )
+            if (taskRewardState.currentWindowRewardAlreadyUsed) {
+                TaskCompletedPreviewCard(
+                    releasePlan = displayReleasePlan,
+                    completedTaskName = taskRewardState.lastCompletedTaskType?.taskTitle ?: "Recovery task",
+                    onViewAllTasks = onOpenTasks,
+                    palette = palette,
+                )
+            } else {
+                TaskToCompletePreviewCard(
+                    releasePlan = displayReleasePlan,
+                    taskRewardState = taskRewardState,
+                    onStartTask = {
+                        when (taskRewardState.recommendedTaskType) {
+                            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+                            PsychologyTaskType.PatternBreak -> onOpenPatternBreakTask()
+                            PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+                            PsychologyTaskType.MindLesson -> onOpenMindLessonTask()
+                            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
+                            PsychologyTaskType.FutureSelfMessage,
+                            PsychologyTaskType.TriggerDecoder,
+                            PsychologyTaskType.ThoughtCapture,
+                            PsychologyTaskType.ShortReadingBurst -> onOpenFutureSelfMessageTask()
+                        }
+                    },
+                    onViewAllTasks = onOpenTasks,
+                    palette = palette,
+                )
+            }
 
             Spacer(modifier = Modifier.height(18.dp))
 
             DashboardCards(
                 onOpenRecoveryGames = onOpenRecoveryGames,
                 onOpenJournal = onOpenJournal,
+                onOpenReading = onOpenReading,
+                palette = palette,
             )
         }
 
@@ -294,19 +353,37 @@ private fun HeaderBlock(
 private fun LevelCard(
     releasePlan: ReleasePlanState,
     taskRewardState: TaskRewardState,
+    palette: HomeReadablePalette,
 ) {
+    val isDark = palette.cardSurface != Color.Unspecified
+    val cardShape = RoundedCornerShape(28.dp)
     Surface(
         color = ImpulsivePsychological.copy(alpha = 0.66f),
-        shape = RoundedCornerShape(28.dp),
+        shape = cardShape,
+        border = if (isDark) {
+            impulsiveGlowBorderStroke(
+                enabled = true,
+                glowColor = HomeLavenderGlow,
+                fallbackColor = Color.Transparent,
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
             .shadow(
                 elevation = 8.dp,
-                shape = RoundedCornerShape(28.dp),
+                shape = cardShape,
                 clip = false,
                 ambientColor = ImpulsiveText.copy(alpha = 0.08f),
                 spotColor = ImpulsiveText.copy(alpha = 0.10f),
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = HomeLavenderGlow,
+                elevation = 18.dp,
             ),
     ) {
         Column(modifier = Modifier.padding(22.dp)) {
@@ -382,6 +459,7 @@ private fun TaskToCompletePreviewCard(
     taskRewardState: TaskRewardState,
     onStartTask: () -> Unit,
     onViewAllTasks: () -> Unit,
+    palette: HomeReadablePalette,
 ) {
     val recommendedTask = taskRewardState.recommendedTaskType.homePreview()
     val recommendedReward = taskRewardState.taskStatuses.first {
@@ -389,19 +467,36 @@ private fun TaskToCompletePreviewCard(
     }
     val hasWaitCut = recommendedReward.hasVisibleWaitCut()
 
+    val surfaceColor = if (palette.cardSurface == Color.Unspecified)
+        MaterialTheme.colorScheme.surface else palette.cardSurface
+    val innerSurfaceColor = if (palette.innerCardSurface == Color.Unspecified)
+        MaterialTheme.colorScheme.surfaceVariant else palette.innerCardSurface
+    val isDark = palette.cardSurface != Color.Unspecified
+    val cardShape = RoundedCornerShape(30.dp)
+
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(30.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+        color = surfaceColor,
+        shape = cardShape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeLavenderGlow,
+            fallbackColor = palette.subtleBorder,
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
             .shadow(
                 elevation = 8.dp,
-                shape = RoundedCornerShape(30.dp),
+                shape = cardShape,
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.06f),
-                spotColor = ImpulsiveText.copy(alpha = 0.08f),
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = HomeLavenderGlow,
+                elevation = 18.dp,
             ),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -413,14 +508,14 @@ private fun TaskToCompletePreviewCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Task to Complete",
-                        color = ImpulsiveText,
+                        color = palette.primaryText,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = releasePlan.formattedTimeUntilNextWindow(),
-                        color = ImpulsiveMutedText,
+                        color = palette.mutedText,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -434,9 +529,9 @@ private fun TaskToCompletePreviewCard(
             Spacer(modifier = Modifier.height(16.dp))
 
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = innerSurfaceColor,
                 shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.055f)),
+                border = BorderStroke(1.dp, palette.subtleBorder),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
@@ -455,7 +550,7 @@ private fun TaskToCompletePreviewCard(
                         Icon(
                             imageVector = Icons.Filled.AutoAwesome,
                             contentDescription = null,
-                            tint = ImpulsiveText.copy(alpha = 0.84f),
+                            tint = palette.primaryText.copy(alpha = 0.84f),
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -465,14 +560,14 @@ private fun TaskToCompletePreviewCard(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = recommendedTask.title,
-                            color = ImpulsiveText,
+                            color = palette.primaryText,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = recommendedTask.description,
-                            color = ImpulsiveText.copy(alpha = 0.80f),
+                            color = palette.secondaryText,
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -480,13 +575,13 @@ private fun TaskToCompletePreviewCard(
                             Icon(
                                 imageVector = if (hasWaitCut) Icons.Outlined.AccessTime else Icons.Filled.AutoAwesome,
                                 contentDescription = null,
-                                tint = Color(0xFF5C4A7D),
+                                tint = palette.actionText,
                                 modifier = Modifier.size(15.dp),
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = recommendedReward.displayRewardLabel(),
-                                color = Color(0xFF5C4A7D),
+                                color = palette.actionText,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                             )
@@ -528,12 +623,113 @@ private fun TaskToCompletePreviewCard(
                 ) {
                     Text(
                         text = "All tasks",
-                        color = Color(0xFF5C4A7D),
+                        color = palette.actionText,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskCompletedPreviewCard(
+    releasePlan: ReleasePlanState,
+    completedTaskName: String,
+    onViewAllTasks: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val surfaceColor = if (palette.cardSurface == Color.Unspecified)
+        Color(0xFFFFFCFF) else palette.cardSurface
+    val isDark = palette.cardSurface != Color.Unspecified
+    val cardShape = RoundedCornerShape(30.dp)
+
+    Surface(
+        color = surfaceColor,
+        shape = cardShape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeGreenGlow,
+            fallbackColor = ImpulsivePsychological.copy(alpha = 0.28f),
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .shadow(
+                elevation = 8.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = HomeGreenGlow,
+                elevation = 18.dp,
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(
+                        color = ImpulsivePsychological.copy(alpha = 0.72f),
+                        shape = RoundedCornerShape(18.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = null,
+                    tint = palette.primaryText.copy(alpha = 0.86f),
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Task complete",
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "$completedTaskName is logged for this window.",
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = releasePlan.formattedTimeUntilNextWindow(),
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Surface(
+                color = ImpulsivePsychological.copy(alpha = 0.30f),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.clickable { onViewAllTasks() },
+            ) {
+                Text(
+                    text = "All tasks",
+                    color = palette.actionText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                )
             }
         }
     }
@@ -630,46 +826,80 @@ private fun SoftTimeChip(text: String) {
 private fun DashboardCards(
     onOpenRecoveryGames: () -> Unit,
     onOpenJournal: () -> Unit,
+    onOpenReading: () -> Unit,
+    palette: HomeReadablePalette,
 ) {
-    Row(
+    val isDark = palette.cardSurface != Color.Unspecified
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SmallActionCard(
-            modifier = Modifier
-                .weight(1f)
-                .clickable { onOpenRecoveryGames() },
-            label = "RECOVERY GAME",
-            title = "Recovery\nGames",
-            subtext = "Reflex and Block Cascade",
-            cta = "Open list ›",
-            iconColor = ImpulsivePsychological.copy(alpha = 0.58f),
-            icon = {
-                Icon(
-                    imageVector = Icons.Filled.SportsEsports,
-                    contentDescription = null,
-                    tint = ImpulsiveText.copy(alpha = 0.82f),
-                    modifier = Modifier.size(20.dp),
-                )
-            },
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SmallActionCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onOpenRecoveryGames() },
+                label = "RECOVERY GAME",
+                title = "Recovery\nGames",
+                subtext = "Reflex, Pattern and Mind games",
+                cta = "Open list ›",
+                iconColor = ImpulsivePsychological.copy(alpha = 0.58f),
+                glowColor = HomeLavenderGlow,
+                palette = palette,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Filled.SportsEsports,
+                        contentDescription = null,
+                        tint = palette.primaryText.copy(alpha = 0.82f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+            )
+
+            SmallActionCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onOpenJournal() },
+                label = "NOTES",
+                title = "Private\nNotes",
+                subtext = "Notes, lists and future-self cues",
+                cta = "Open notes ›",
+                iconColor = ImpulsiveSpiritual.copy(alpha = 0.78f),
+                glowColor = HomeYellowGlow,
+                palette = palette,
+                icon = {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.MenuBook,
+                        contentDescription = null,
+                        tint = palette.primaryText.copy(alpha = 0.82f),
+                        modifier = Modifier.size(21.dp),
+                    )
+                },
+            )
+        }
 
         SmallActionCard(
             modifier = Modifier
-                .weight(1f)
-                .clickable { onOpenJournal() },
-            label = "JOURNAL",
-            title = "Private\nJournal",
-            subtext = "Notes, lists and future-self cues",
-            cta = "Open journal ›",
-            iconColor = ImpulsiveSpiritual.copy(alpha = 0.78f),
+                .fillMaxWidth()
+                .clickable { onOpenReading() },
+            label = "READING",
+            title = "Reset Reading",
+            subtext = "Short calm cards for low-energy recovery moments",
+            cta = "Open reading ›",
+            iconColor = Color(0xFFFEF1AB).copy(alpha = if (isDark) 0.34f else 0.78f),
+            glowColor = HomeGreenGlow,
+            palette = palette,
             icon = {
                 Icon(
                     imageVector = Icons.AutoMirrored.Outlined.MenuBook,
                     contentDescription = null,
-                    tint = ImpulsiveText.copy(alpha = 0.82f),
+                    tint = palette.primaryText.copy(alpha = 0.82f),
                     modifier = Modifier.size(21.dp),
                 )
             },
@@ -685,20 +915,39 @@ private fun SmallActionCard(
     subtext: String,
     cta: String,
     iconColor: Color,
+    glowColor: Color,
+    palette: HomeReadablePalette,
     icon: @Composable () -> Unit,
 ) {
+    val surfaceColor = if (palette.cardSurface == Color.Unspecified)
+        MaterialTheme.colorScheme.surface else palette.cardSurface
+    val isDark = palette.cardSurface != Color.Unspecified
+    val cardShape = RoundedCornerShape(24.dp)
+
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+        color = surfaceColor,
+        shape = cardShape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = glowColor,
+            fallbackColor = palette.subtleBorder,
+        ),
         modifier = modifier
             .heightIn(min = 138.dp)
             .shadow(
                 elevation = 6.dp,
-                shape = RoundedCornerShape(24.dp),
+                shape = cardShape,
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.045f),
-                spotColor = ImpulsiveText.copy(alpha = 0.06f),
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = glowColor,
+                elevation = 16.dp,
+                ambientAlpha = 0.14f,
+                spotAlpha = 0.18f,
             ),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -717,7 +966,7 @@ private fun SmallActionCard(
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = label,
-                    color = ImpulsiveMutedText,
+                    color = palette.mutedText,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                 )
@@ -727,7 +976,7 @@ private fun SmallActionCard(
 
             Text(
                 text = title,
-                color = ImpulsiveText,
+                color = palette.primaryText,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -736,7 +985,7 @@ private fun SmallActionCard(
 
             Text(
                 text = subtext,
-                color = ImpulsiveMutedText,
+                color = palette.mutedText,
                 style = MaterialTheme.typography.bodySmall,
             )
 
@@ -744,7 +993,7 @@ private fun SmallActionCard(
 
             Text(
                 text = cta,
-                color = Color(0xFF5C4A7D),
+                color = palette.actionText,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
             )

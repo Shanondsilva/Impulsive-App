@@ -64,7 +64,8 @@ internal enum class OnboardingFlowStep(
     Timing(stepNumber = 5),
     WeekOne(stepNumber = 6),
     DailyRelapseCount(stepNumber = 7),
-    StartingPoint(stepNumber = 8),
+    ProtectionSetup(stepNumber = 8),
+    StartingPoint(stepNumber = 9),
 }
 
 internal fun OnboardingFlowStep.toStepUi(
@@ -365,7 +366,7 @@ private fun OnboardingQuestionScaffoldShell(
     }
 }
 
-private const val OnboardingTotalSteps = 8
+private const val OnboardingTotalSteps = 9
 private val OnboardingActiveDot = Color(0xFF635880)
 private val OnboardingInactiveDot = Color(0xFFE6E1E5)
 private val OnboardingHeaderText = Color(0xFF635880)

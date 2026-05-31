@@ -1,7 +1,7 @@
 package com.impulsive.app.frontend.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -25,10 +25,10 @@ import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.impulsive.app.frontend.theme.ImpulsiveText
 
 enum class BottomNavItem {
     Home,
@@ -46,22 +46,28 @@ fun BottomNavBar(
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberImpulsiveHaptics(hapticsEnabled)
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val navGlow = Color(0xFF93E9BE)
+    val selectedGlow = Color(0xFFD0C3F1)
+    val navShape = RoundedCornerShape(50)
     Surface(
         modifier = modifier
-            .shadow(
-                elevation = 10.dp,
-                shape = RoundedCornerShape(50),
-                clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.10f),
-                spotColor = ImpulsiveText.copy(alpha = 0.14f),
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = navShape,
+                glowColor = navGlow,
+                elevation = 18.dp,
+                ambientAlpha = 0.18f,
+                spotAlpha = 0.24f,
             )
             .height(64.dp),
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(50),
+        shape = navShape,
         tonalElevation = 4.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = navGlow,
+            fallbackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
         ),
     ) {
         Row(
@@ -77,6 +83,8 @@ fun BottomNavBar(
                 selected = selected == BottomNavItem.Home,
                 onSelect = onSelect,
                 haptics = haptics,
+                isDark = isDark,
+                selectedGlow = selectedGlow,
             )
             BottomNavButton(
                 item = BottomNavItem.Progress,
@@ -84,6 +92,8 @@ fun BottomNavBar(
                 selected = selected == BottomNavItem.Progress,
                 onSelect = onSelect,
                 haptics = haptics,
+                isDark = isDark,
+                selectedGlow = selectedGlow,
             )
             BottomNavButton(
                 item = BottomNavItem.Trigger,
@@ -91,6 +101,8 @@ fun BottomNavBar(
                 selected = selected == BottomNavItem.Trigger,
                 onSelect = onSelect,
                 haptics = haptics,
+                isDark = isDark,
+                selectedGlow = selectedGlow,
             )
             BottomNavButton(
                 item = BottomNavItem.Focus,
@@ -98,6 +110,8 @@ fun BottomNavBar(
                 selected = selected == BottomNavItem.Focus,
                 onSelect = onSelect,
                 haptics = haptics,
+                isDark = isDark,
+                selectedGlow = selectedGlow,
             )
             BottomNavButton(
                 item = BottomNavItem.Settings,
@@ -105,6 +119,8 @@ fun BottomNavBar(
                 selected = selected == BottomNavItem.Settings,
                 onSelect = onSelect,
                 haptics = haptics,
+                isDark = isDark,
+                selectedGlow = selectedGlow,
             )
         }
     }
@@ -117,6 +133,8 @@ private fun BottomNavButton(
     selected: Boolean,
     onSelect: (BottomNavItem) -> Unit,
     haptics: com.impulsive.app.frontend.utils.ImpulsiveHaptics,
+    isDark: Boolean,
+    selectedGlow: Color,
 ) {
     IconButton(onClick = {
         haptics.light()
@@ -127,11 +145,25 @@ private fun BottomNavButton(
             contentAlignment = Alignment.Center,
         ) {
             if (selected) {
+                val selectedShape = RoundedCornerShape(50)
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.42f)),
+                        .impulsiveGlowShadow(
+                            enabled = isDark,
+                            shape = selectedShape,
+                            glowColor = selectedGlow,
+                            elevation = 10.dp,
+                            ambientAlpha = 0.18f,
+                            spotAlpha = 0.24f,
+                        )
+                        .clip(selectedShape)
+                        .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.42f))
+                        .border(
+                            width = 1.dp,
+                            color = if (isDark) selectedGlow.copy(alpha = 0.62f) else Color.Transparent,
+                            shape = selectedShape,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(

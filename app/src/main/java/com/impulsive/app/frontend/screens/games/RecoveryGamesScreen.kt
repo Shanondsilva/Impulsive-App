@@ -35,15 +35,52 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.impulsive.app.frontend.theme.ImpulsiveBackground
-import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
-import com.impulsive.app.frontend.theme.ImpulsiveSurface
-import com.impulsive.app.frontend.theme.ImpulsiveText
+
+private data class RecoveryGamesColors(
+    val background: Color,
+    val surface: Color,
+    val text: Color,
+    val mutedText: Color,
+    val accentText: Color,
+    val border: Color,
+    val shadow: Color,
+    val chipBackground: Color,
+)
+
+@Composable
+private fun rememberRecoveryGamesColors(): RecoveryGamesColors {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    return if (isDark) {
+        RecoveryGamesColors(
+            background = scheme.background,
+            surface = Color(0xFF171D22),
+            text = Color(0xFFF7F2FF),
+            mutedText = Color(0xFFC9C0D8),
+            accentText = Color(0xFFD0C3F1),
+            border = Color(0xFFD0C3F1).copy(alpha = 0.22f),
+            shadow = Color(0xFFD0C3F1).copy(alpha = 0.12f),
+            chipBackground = Color(0xFFD0C3F1).copy(alpha = 0.18f),
+        )
+    } else {
+        RecoveryGamesColors(
+            background = Color(0xFFFFF8FC),
+            surface = Color(0xFFFFFCFF),
+            text = Color(0xFF2F2637),
+            mutedText = Color(0xFF706777),
+            accentText = Color(0xFF5C4A7D),
+            border = Color(0xFF2F2637).copy(alpha = 0.06f),
+            shadow = Color(0xFF2F2637).copy(alpha = 0.08f),
+            chipBackground = ImpulsivePsychological.copy(alpha = 0.34f),
+        )
+    }
+}
 
 private data class RecoveryGameCardModel(
     val title: String,
@@ -64,6 +101,7 @@ fun RecoveryGamesScreen(
     onOpenMindLesson: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val colors = rememberRecoveryGamesColors()
     val games = listOf(
         RecoveryGameCardModel(
             title = "Reflex Override",
@@ -106,7 +144,7 @@ fun RecoveryGamesScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(ImpulsiveBackground)
+            .background(colors.background)
             .statusBarsPadding()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
@@ -118,13 +156,13 @@ fun RecoveryGamesScreen(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = ImpulsiveText,
+                    tint = colors.text,
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "Recovery Games",
-                color = ImpulsiveText,
+                color = colors.text,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -134,14 +172,14 @@ fun RecoveryGamesScreen(
 
         Text(
             text = "Choose a short, time-boxed game. The goal is to interrupt the loop and return to control.",
-            color = ImpulsiveMutedText,
+            color = colors.mutedText,
             style = MaterialTheme.typography.bodyLarge,
         )
 
         Spacer(modifier = Modifier.height(22.dp))
 
         games.forEach { game ->
-            RecoveryGameCard(game = game)
+            RecoveryGameCard(game = game, colors = colors)
             Spacer(modifier = Modifier.height(14.dp))
         }
     }
@@ -150,19 +188,21 @@ fun RecoveryGamesScreen(
 @Composable
 private fun RecoveryGameCard(
     game: RecoveryGameCardModel,
+    colors: RecoveryGamesColors,
 ) {
+    val cardShape = RoundedCornerShape(28.dp)
     Surface(
-        color = ImpulsiveSurface,
-        shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+        color = colors.surface,
+        shape = cardShape,
+        border = BorderStroke(1.dp, colors.border),
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
                 elevation = 7.dp,
-                shape = RoundedCornerShape(28.dp),
+                shape = cardShape,
                 clip = false,
-                ambientColor = ImpulsiveText.copy(alpha = 0.05f),
-                spotColor = ImpulsiveText.copy(alpha = 0.07f),
+                ambientColor = colors.shadow,
+                spotColor = colors.shadow,
             )
             .clickable { game.onOpen() },
     ) {
@@ -182,7 +222,7 @@ private fun RecoveryGameCard(
                 Icon(
                     imageVector = game.icon,
                     contentDescription = null,
-                    tint = ImpulsiveText.copy(alpha = 0.84f),
+                    tint = colors.text.copy(alpha = 0.84f),
                     modifier = Modifier.size(22.dp),
                 )
             }
@@ -194,18 +234,18 @@ private fun RecoveryGameCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    SoftChip(game.chip)
+                    SoftChip(text = game.chip, colors = colors)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Outlined.AccessTime,
                             contentDescription = null,
-                            tint = ImpulsiveMutedText,
+                            tint = colors.mutedText,
                             modifier = Modifier.size(14.dp),
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = game.duration,
-                            color = ImpulsiveMutedText,
+                            color = colors.mutedText,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                         )
@@ -216,7 +256,7 @@ private fun RecoveryGameCard(
 
                 Text(
                     text = game.title,
-                    color = ImpulsiveText,
+                    color = colors.text,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -225,7 +265,7 @@ private fun RecoveryGameCard(
 
                 Text(
                     text = game.description,
-                    color = ImpulsiveText.copy(alpha = 0.78f),
+                    color = colors.text.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -233,7 +273,7 @@ private fun RecoveryGameCard(
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = ImpulsiveText.copy(alpha = 0.36f),
+                tint = colors.text.copy(alpha = 0.36f),
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -241,14 +281,17 @@ private fun RecoveryGameCard(
 }
 
 @Composable
-private fun SoftChip(text: String) {
+private fun SoftChip(
+    text: String,
+    colors: RecoveryGamesColors,
+) {
     Surface(
-        color = ImpulsivePsychological.copy(alpha = 0.34f),
+        color = colors.chipBackground,
         shape = RoundedCornerShape(50),
     ) {
         Text(
             text = text,
-            color = Color(0xFF5C4A7D),
+            color = colors.accentText,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),

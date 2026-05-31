@@ -21,4 +21,7 @@
          Find it in Firebase Console -> Project settings -> General -> SDK setup,
          OR in Google Cloud Console -> APIs & Services -> Credentials. -->
     <string name="default_web_client_id">PLACEHOLDER_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+
+    <string name="uninstall_protection_admin_label">Impulsive uninstall protection</string>
+    <string name="uninstall_protection_admin_description">Adds an extra confirmation step before removing Impulsive during weak moments.</string>
 </resources>

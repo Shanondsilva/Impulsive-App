@@ -119,7 +119,7 @@ fun JournalHubScreen(
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        JournalHeader(title = "Journal", onBack = onBack)
+        JournalHeader(title = "Notes", onBack = onBack)
 
         Surface(
             color = ImpulsivePsychological.copy(alpha = 0.22f),
@@ -152,7 +152,7 @@ fun JournalHubScreen(
         )
 
         JournalModeCard(
-            title = "Normal journal",
+            title = "Notes",
             subtitle = "${state.noteCount} / ${state.maxNotes} saves · notes, lists and reminders.",
             action = "Open",
             iconTint = ImpulsiveSpiritual.copy(alpha = 0.82f),
@@ -187,7 +187,6 @@ fun JournalListScreen(
     viewModel: JournalViewModel = viewModel(),
 ) {
     val state by viewModel.listState.collectAsState()
-    var showTypePicker by remember { mutableStateOf(false) }
     var actionNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
     var highlightNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
     var categorizeNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
@@ -208,7 +207,7 @@ fun JournalListScreen(
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            JournalHeader(title = "Normal journal", onBack = onBack)
+            JournalHeader(title = "Notes", onBack = onBack)
 
             Surface(
                 color = ImpulsiveSurface,
@@ -236,7 +235,7 @@ fun JournalListScreen(
                         )
                     }
                     Button(
-                        onClick = { showTypePicker = true },
+                        onClick = { onCreateNote(JournalNoteType.Text) },
                         enabled = state.canCreateMore,
                         shape = RoundedCornerShape(22.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -251,6 +250,11 @@ fun JournalListScreen(
                 }
             }
 
+            CreateNoteCard(
+                enabled = state.canCreateMore,
+                onClick = { onCreateNote(JournalNoteType.Text) },
+            )
+
             if (!state.canCreateMore) {
                 SaveLimitCard()
             }
@@ -258,7 +262,7 @@ fun JournalListScreen(
             if (state.notes.isEmpty()) {
                 EmptyJournalState(
                     canCreate = state.canCreateMore,
-                    onCreateNote = { showTypePicker = true },
+                    onCreateNote = { onCreateNote(JournalNoteType.Text) },
                 )
             } else {
                 state.notes.forEach { note ->
@@ -270,17 +274,6 @@ fun JournalListScreen(
                 }
             }
         }
-    }
-
-    if (showTypePicker) {
-        NewNoteTypeDialog(
-            canCreate = state.canCreateMore,
-            onDismiss = { showTypePicker = false },
-            onCreate = { type ->
-                showTypePicker = false
-                onCreateNote(type)
-            },
-        )
     }
 
     actionNote?.let { note ->
@@ -366,6 +359,7 @@ fun JournalEditorScreen(
     val state by viewModel.editorState.collectAsState()
     val listState by viewModel.listState.collectAsState()
     val isAtSaveLimit = noteId == 0L && !listState.canCreateMore
+    var toolsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(noteId, initialType) {
         if (noteId == 0L) viewModel.startNew(initialType) else viewModel.loadExisting(noteId)
@@ -382,31 +376,7 @@ fun JournalEditorScreen(
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        JournalHeader(title = if (noteId == 0L) "New journal" else "Edit journal", onBack = onBack)
-
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            JournalNoteType.entries.forEach { type ->
-                Surface(
-                    color = if (state.type == type) type.accentColor().copy(alpha = 0.45f) else ImpulsiveSurface,
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = if (state.type == type) 0.0f else 0.08f)),
-                    modifier = Modifier.clickable { viewModel.updateType(type) },
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        Icon(type.smallIcon(), contentDescription = null, tint = ImpulsiveText, modifier = Modifier.size(17.dp))
-                        Text(type.label, color = ImpulsiveText, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
+        JournalHeader(title = if (noteId == 0L) "New note" else "Edit note", onBack = onBack)
 
         OutlinedTextField(
             value = state.titleDraft,
@@ -451,6 +421,16 @@ fun JournalEditorScreen(
             )
         }
 
+        NoteToolDock(
+            selectedType = state.type,
+            expanded = toolsExpanded,
+            onToggleExpanded = { toolsExpanded = !toolsExpanded },
+            onSelectType = { type ->
+                viewModel.updateType(type)
+                toolsExpanded = false
+            },
+        )
+
         if (isAtSaveLimit || state.noteLimitReached) {
             SaveLimitCard()
         }
@@ -467,7 +447,7 @@ fun JournalEditorScreen(
         ) {
             Icon(if (state.savedNoteId != null) Icons.Outlined.Check else Icons.Outlined.Save, contentDescription = null, modifier = Modifier.size(19.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text(if (state.savedNoteId != null) "Saved" else "Save journal")
+            Text(if (state.savedNoteId != null) "Saved" else "Save note")
         }
 
         if (state.noteId != 0L) {
@@ -535,6 +515,166 @@ private fun JournalModeCard(
                 Text(subtitle, color = ImpulsiveMutedText, style = MaterialTheme.typography.bodyMedium)
             }
             Text(action, color = Color(0xFF5C4A7D), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun CreateNoteCard(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (enabled) ImpulsivePsychological.copy(alpha = 0.22f) else ImpulsiveSurface,
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = if (enabled) 0.24f else 0.08f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onClick() },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        ImpulsivePsychological.copy(alpha = if (enabled) 0.42f else 0.16f),
+                        CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.EditNote,
+                    contentDescription = null,
+                    tint = if (enabled) ImpulsiveText else ImpulsiveMutedText,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Create note",
+                    color = if (enabled) ImpulsiveText else ImpulsiveMutedText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Write first. Turn it into a list, drawing or reminder inside the note.",
+                    color = ImpulsiveMutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteToolDock(
+    selectedType: JournalNoteType,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onSelectType: (JournalNoteType) -> Unit,
+) {
+    Surface(
+        color = ImpulsiveSurface,
+        shape = RoundedCornerShape(28.dp),
+        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.08f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleExpanded() },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(selectedType.accentColor().copy(alpha = 0.34f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        selectedType.smallIcon(),
+                        contentDescription = null,
+                        tint = ImpulsiveText,
+                        modifier = Modifier.size(19.dp),
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Note tools",
+                        color = ImpulsiveText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Current: ${selectedType.label}",
+                        color = ImpulsiveMutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Text(
+                    text = if (expanded) "Close" else "Open",
+                    color = Color(0xFF6C5A8F),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            if (expanded) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    JournalNoteType.entries.forEach { type ->
+                        ToolChoiceChip(
+                            type = type,
+                            selected = selectedType == type,
+                            onClick = { onSelectType(type) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolChoiceChip(
+    type: JournalNoteType,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (selected) type.accentColor().copy(alpha = 0.45f) else ImpulsiveSurface,
+        shape = RoundedCornerShape(50),
+        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = if (selected) 0.0f else 0.08f)),
+        modifier = Modifier.clickable { onClick() },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Icon(
+                imageVector = type.smallIcon(),
+                contentDescription = null,
+                tint = ImpulsiveText,
+                modifier = Modifier.size(17.dp),
+            )
+            Text(
+                text = type.label,
+                color = ImpulsiveText,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }

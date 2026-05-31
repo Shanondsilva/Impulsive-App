@@ -1,0 +1,171 @@
+package com.impulsive.app.frontend.screens.protection
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluator
+import com.impulsive.app.backend.domain.model.protection.toImpulsiveCompactTime
+import com.impulsive.app.backend.domain.model.release.ReleasePlanDefaults
+import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
+import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
+import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
+import kotlinx.coroutines.delay
+import java.time.Duration
+import java.time.LocalDateTime
+
+@Composable
+fun ImpulsiveBlockScreen(
+    sourcePackageName: String,
+    sourceLabel: String,
+    onStartControlTask: () -> Unit,
+    onReturnHome: () -> Unit,
+    modifier: Modifier = Modifier,
+    onboardingViewModel: OnboardingViewModel = viewModel(),
+    taskRewardViewModel: TaskRewardViewModel = viewModel(),
+) {
+    val onboardingState by onboardingViewModel.state.collectAsState()
+    val taskStoreState by taskRewardViewModel.storeState.collectAsState()
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = LocalDateTime.now()
+            delay(1_000L)
+        }
+    }
+
+    val answers = onboardingState.answers
+    val baseReleasePlan = calculateReleasePlan(
+        selectedDailyUrgeCount = answers.dailyRelapseUrgeCount,
+        now = now,
+        activeDayStart = minuteOfDayToLocalTime(answers.activeDayStartMinute),
+        activeDayEnd = minuteOfDayToLocalTime(answers.activeDayEndMinute),
+    )
+    val windowSnapshot = ProtectionWindowEvaluator.evaluate(
+        now = now,
+        releasePlan = baseReleasePlan,
+        adjustedNextReleaseWindow = taskStoreState.adjustedNextReleaseWindow,
+    )
+    val timeLeft = windowSnapshot.timeUntilNextWindow
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .padding(20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(32.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    text = if (windowSnapshot.isProtectionPaused) {
+                        "Release window is open"
+                    } else {
+                        "You are protected right now"
+                    },
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "$sourceLabel is part of your protected app list.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (windowSnapshot.isProtectionPaused) {
+                        "Protection turns back on at"
+                    } else {
+                        "Next planned window opens in"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Text(
+                    text = windowSnapshot.pausedWindowEnd?.toImpulsiveCompactTime()
+                        ?: timeLeft.formatBlockDuration(),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = if (windowSnapshot.isProtectionPaused) {
+                        "This is your ${ReleasePlanDefaults.ReleaseWindowMinutes}-minute planned window. Protection will resume automatically."
+                    } else {
+                        "Protection pauses for ${ReleasePlanDefaults.ReleaseWindowMinutes} minutes when your planned window opens."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = onStartControlTask,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !windowSnapshot.isProtectionPaused,
+                ) {
+                    Text(if (windowSnapshot.isProtectionPaused) "Task not needed right now" else "Start control task")
+                }
+                OutlinedButton(
+                    onClick = onReturnHome,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Return home")
+                }
+                Text(
+                    text = "Source: $sourcePackageName",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+private fun Duration.formatBlockDuration(): String {
+    val totalMinutes = toMinutes().coerceAtLeast(0L)
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+        hours > 0 -> "${hours}h"
+        else -> "${minutes}m"
+    }
+}

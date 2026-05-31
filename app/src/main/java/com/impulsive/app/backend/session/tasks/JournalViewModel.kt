@@ -142,11 +142,34 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
 
     fun updateType(type: JournalNoteType) {
         _editorState.update { current ->
+            val fromType = current.type
+            val newChecklistItems = when {
+                type == JournalNoteType.Checklist && current.checklistItems.all { it.text.isBlank() } -> {
+                    val bodyLines = current.bodyDraft.lines().filter { it.isNotBlank() }
+                    if (bodyLines.isNotEmpty()) {
+                        bodyLines.map { line -> ChecklistDraftItem(localId = nextLocalChecklistId--, text = line.trim()) }
+                    } else {
+                        listOf(newBlankChecklistItem())
+                    }
+                }
+                type == JournalNoteType.Checklist && current.checklistItems.isEmpty() ->
+                    listOf(newBlankChecklistItem())
+                else -> current.checklistItems
+            }
+            val newBody = when {
+                (type == JournalNoteType.Text || type == JournalNoteType.Reminder) &&
+                    fromType == JournalNoteType.Checklist &&
+                    current.bodyDraft.isBlank() -> {
+                    current.checklistItems
+                        .filter { it.text.isNotBlank() }
+                        .joinToString("\n") { it.text.trim() }
+                }
+                else -> current.bodyDraft
+            }
             current.copy(
                 type = type,
-                checklistItems = if (type == JournalNoteType.Checklist && current.checklistItems.isEmpty()) {
-                    listOf(newBlankChecklistItem())
-                } else current.checklistItems,
+                bodyDraft = newBody,
+                checklistItems = newChecklistItems,
                 savedNoteId = null,
                 noteLimitReached = false,
             )
