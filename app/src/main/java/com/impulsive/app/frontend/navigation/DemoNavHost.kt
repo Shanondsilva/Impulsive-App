@@ -19,6 +19,7 @@ import com.impulsive.app.frontend.screens.journal.JournalHubScreen
 import com.impulsive.app.frontend.screens.journal.JournalListScreen
 import com.impulsive.app.frontend.screens.onboarding.WelcomePrivacyScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
+import com.impulsive.app.frontend.screens.settings.SettingsScreen
 import com.impulsive.app.frontend.screens.tasks.FutureSelfMessageScreen
 import com.impulsive.app.frontend.screens.tasks.FutureSelfRecordScreen
 import com.impulsive.app.frontend.screens.tasks.MindLessonScreen
@@ -31,6 +32,7 @@ object DemoRoutes {
     const val WelcomePrivacy = "welcome_privacy"
     const val Home = "home"
     const val Score = "score"
+    const val Settings = "settings"
     const val TaskToComplete = "task_to_complete"
     const val RecoveryGames = "recovery_games"
     const val ReflexGame = "reflex_game"
@@ -115,13 +117,23 @@ fun DemoNavHost(
                 onOpenScore = {
                     navController.navigate(DemoRoutes.Score) { launchSingleTop = true }
                 },
+                onOpenSettings = {
+                    navController.navigate(DemoRoutes.Settings) { launchSingleTop = true }
+                },
             )
         }
 
         composable(DemoRoutes.Score) {
             ProgressDashboardScreen(
                 onOpenHome = { navController.popBackStack(DemoRoutes.Home, inclusive = false) },
-                onOpenSettings = { navController.popBackStack(DemoRoutes.Home, inclusive = false) },
+                onOpenSettings = { navController.navigate(DemoRoutes.Settings) { launchSingleTop = true } },
+            )
+        }
+
+        composable(DemoRoutes.Settings) {
+            SettingsScreen(
+                onBackHome = { navController.popBackStack(DemoRoutes.Home, inclusive = false) },
+                onOpenScore = { navController.navigate(DemoRoutes.Score) { launchSingleTop = true } },
             )
         }
 

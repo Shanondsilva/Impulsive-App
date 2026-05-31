@@ -19,6 +19,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -103,6 +104,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
+import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.progress.LevelViewModel
@@ -184,6 +186,12 @@ fun SettingsScreen(
                     }
                 },
             )
+            if (protectionSetupState.profileBadgeShouldShow) {
+                ProtectionSetupIncompleteCard(
+                    protectionSetupState = protectionSetupState,
+                    onOpenProtectionSetup = { showBlockedAppsSheet = true },
+                )
+            }
             PlusGroup(
                 haptics = haptics,
                 onViewPlus = { showPlusSheet = true },
@@ -248,6 +256,7 @@ fun SettingsScreen(
                     selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
                     onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
                     onDone = { showBlockedAppsSheet = false },
+                    allowShowMoreApps = true,
                 )
             }
         }
@@ -284,6 +293,94 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ProtectionSetupIncompleteCard(
+    protectionSetupState: ProtectionSetupState,
+    onOpenProtectionSetup: () -> Unit,
+) {
+    val items = (
+        protectionSetupState.incompleteCoreProtectionItems +
+            protectionSetupState.skippedCoreProtectionItems
+        )
+        .distinct()
+        .sortedBy { it.ordinal }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        border = BorderStroke(1.dp, Color(0xFFE5484D).copy(alpha = 0.35f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE5484D)),
+                )
+                Spacer(modifier = Modifier.size(10.dp))
+                Text(
+                    text = "Protection setup incomplete",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Text(
+                text = "These settings help Impulsive step in during real trigger moments. You can enable them now or later.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            items.forEach { item ->
+                MissingProtectionItemRow(item = item)
+            }
+            Button(
+                onClick = onOpenProtectionSetup,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Finish protection setup")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MissingProtectionItemRow(item: ProtectionSetupItem) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = item.protectionReasonText(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun ProtectionSetupItem.protectionReasonText(): String = when (this) {
+    ProtectionSetupItem.BlockedApps ->
+        "Choose the apps Impulsive should interrupt before the loop continues."
+    ProtectionSetupItem.UsageAccess ->
+        "Allows Impulsive to detect protected apps without reading private content."
+    ProtectionSetupItem.Notifications ->
+        "Lets Impulsive tell you when a planned window opens or protection turns back on."
+    ProtectionSetupItem.UninstallProtection ->
+        "Adds friction before uninstalling during weak moments. You stay in control."
+    ProtectionSetupItem.InterruptionPermission ->
+        "Allows stronger interruption tools later when you explicitly enable them."
+    ProtectionSetupItem.WebsiteProtection ->
+        "Lets Impulsive protect risky domains when website blocking is added."
 }
 
 @Composable

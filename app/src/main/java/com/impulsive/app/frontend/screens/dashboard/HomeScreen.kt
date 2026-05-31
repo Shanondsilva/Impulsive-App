@@ -3,6 +3,7 @@ package com.impulsive.app.frontend.screens.dashboard
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ import com.impulsive.app.backend.domain.model.tasks.TaskRewardStatus
 import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.core.util.ThemeMode
@@ -127,6 +129,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onOpenRecoveryGames: () -> Unit = {},
     onOpenJournal: () -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
@@ -141,6 +144,7 @@ fun HomeScreen(
     onOpenReading: () -> Unit = onOpenResetReadTask,
 ) {
     val state by onboardingViewModel.state.collectAsState()
+    val protectionSetupState by protectionSetupViewModel.state.collectAsState()
     val displayName = state.answers.name.takeIf { it.isNotBlank() } ?: "friend"
     val avatar = AvatarStyle.fromId(state.answers.avatarId)
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -191,6 +195,8 @@ fun HomeScreen(
                 avatar = avatar,
                 greeting = greeting,
                 displayName = displayName,
+                showProtectionBadge = protectionSetupState.profileBadgeShouldShow,
+                onClick = onOpenSettings,
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -282,30 +288,48 @@ private fun HeaderBlock(
     avatar: AvatarStyle,
     greeting: String,
     displayName: String,
+    showProtectionBadge: Boolean,
+    onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(horizontal = 20.dp)
             .padding(top = 18.dp),
         horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(avatar.backgroundColor),
+            modifier = Modifier.size(60.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Image(
-                painter = painterResource(id = avatar.drawableResId),
-                contentDescription = avatar.contentDescription,
+            Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop,
-            )
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(avatar.backgroundColor),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(id = avatar.drawableResId),
+                    contentDescription = avatar.contentDescription,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            if (showProtectionBadge) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE5484D))
+                        .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(16.dp))
@@ -320,29 +344,37 @@ private fun HeaderBlock(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (showProtectionBadge) {
                 Text(
-                    text = "Day $DAY_COUNT",
+                    text = "Protection setup needs attention",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Text(
-                    text = "•",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 6.dp),
-                )
-                Surface(
-                    color = ImpulsivePsychological.copy(alpha = 0.78f),
-                    shape = RoundedCornerShape(50),
-                ) {
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Mind mode",
-                        color = ImpulsiveText.copy(alpha = 0.82f),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                        text = "Day $DAY_COUNT",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
+                    Text(
+                        text = "•",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                    Surface(
+                        color = ImpulsivePsychological.copy(alpha = 0.78f),
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Text(
+                            text = "Mind mode",
+                            color = ImpulsiveText.copy(alpha = 0.82f),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                        )
+                    }
                 }
             }
         }

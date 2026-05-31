@@ -40,44 +40,51 @@ class InstalledAppScanner(
     }
 
     private fun classify(packageName: String, label: String): ProtectedAppCandidate {
-        val normalPackage = packageName.lowercase()
-        val normalLabel = label.lowercase()
-        val source = "$normalPackage $normalLabel"
+        val normalizedPackage = packageName.lowercase()
+        val normalizedLabel = label.lowercase()
+        val source = "$normalizedPackage $normalizedLabel"
 
         KnownRecommendedRules.firstOrNull { rule ->
-            normalPackage == rule.packageName || source.contains(rule.matchToken)
+            normalizedPackage == rule.packageName || source.contains(rule.matchToken)
         }?.let { rule ->
             return ProtectedAppCandidate(packageName, label, rule.category, ProtectedAppRiskBand.Recommended, rule.reason)
+        }
+
+        if (SafeUtilityPackageNames.any { normalizedPackage == it } || SafeUtilityTokens.any { source.contains(it) }) {
+            return ProtectedAppCandidate(
+                packageName, label, ProtectedAppCategory.UtilitySystem, ProtectedAppRiskBand.HiddenSafe,
+                "This looks like a phone utility, not a normal trigger app.",
+            )
         }
 
         return when {
             BrowserTokens.any(source::contains) -> ProtectedAppCandidate(
                 packageName, label, ProtectedAppCategory.BrowserSearch, ProtectedAppRiskBand.Recommended,
-                "Browser or search apps can bypass protection if left unprotected.",
+                "Browsers and search apps can open blocked content directly.",
             )
             SocialTokens.any(source::contains) -> ProtectedAppCandidate(
                 packageName, label, ProtectedAppCategory.SocialFeed, ProtectedAppRiskBand.Recommended,
-                "Social feeds are commonly linked to visual and scrolling triggers.",
+                "Social feeds can create visual and scrolling triggers.",
+            )
+            ShortVideoTokens.any(source::contains) -> ProtectedAppCandidate(
+                packageName, label, ProtectedAppCategory.ShortVideo, ProtectedAppRiskBand.Recommended,
+                "Short-video feeds can quickly pull you into autopilot.",
             )
             VideoTokens.any(source::contains) -> ProtectedAppCandidate(
-                packageName, label, ProtectedAppCategory.VideoMedia, ProtectedAppRiskBand.Review,
-                "Video apps may be fine for some users and risky for others.",
+                packageName, label, ProtectedAppCategory.VideoMedia, ProtectedAppRiskBand.Recommended,
+                "Video platforms can become a trigger source for some users.",
             )
             MessagingDatingTokens.any(source::contains) -> ProtectedAppCandidate(
-                packageName, label, ProtectedAppCategory.MessagingDating, ProtectedAppRiskBand.Review,
-                "Only protect this if messages, dating, or image sharing trigger the loop.",
+                packageName, label, ProtectedAppCategory.MessagingDating, ProtectedAppRiskBand.Recommended,
+                "Messaging or dating apps can involve image-heavy trigger loops.",
             )
             GameTokens.any(source::contains) -> ProtectedAppCandidate(
                 packageName, label, ProtectedAppCategory.Games, ProtectedAppRiskBand.Review,
-                "Games are not automatically risky, but can become avoidance loops.",
-            )
-            UtilitySafeTokens.any(source::contains) -> ProtectedAppCandidate(
-                packageName, label, ProtectedAppCategory.UtilitySystem, ProtectedAppRiskBand.UsuallySafe,
-                "This looks like a utility or system app.",
+                "Games are not automatically risky, but you can protect this if it leads to the loop.",
             )
             else -> ProtectedAppCandidate(
-                packageName, label, ProtectedAppCategory.Unknown, ProtectedAppRiskBand.Review,
-                "Review this manually if it usually leads to the loop.",
+                packageName, label, ProtectedAppCategory.Unknown, ProtectedAppRiskBand.HiddenSafe,
+                "Not suggested by default.",
             )
         }
     }
@@ -91,21 +98,54 @@ class InstalledAppScanner(
 
     private companion object {
         val KnownRecommendedRules = listOf(
-            KnownRule("com.instagram.android", "instagram", ProtectedAppCategory.SocialFeed, "Known social feed trigger."),
-            KnownRule("com.zhiliaoapp.musically", "tiktok", ProtectedAppCategory.ShortVideo, "Short-video feed trigger."),
-            KnownRule("com.google.android.youtube", "youtube", ProtectedAppCategory.VideoMedia, "Video recommendation trigger."),
-            KnownRule("com.reddit.frontpage", "reddit", ProtectedAppCategory.SocialFeed, "Forum and image-feed trigger."),
-            KnownRule("com.android.chrome", "chrome", ProtectedAppCategory.BrowserSearch, "Browser and search access."),
-            KnownRule("com.brave.browser", "brave", ProtectedAppCategory.BrowserSearch, "Browser and private search access."),
-            KnownRule("com.twitter.android", "twitter", ProtectedAppCategory.SocialFeed, "Social feed trigger."),
-            KnownRule("com.facebook.katana", "facebook", ProtectedAppCategory.SocialFeed, "Social feed trigger."),
+            KnownRule("com.instagram.android", "instagram", ProtectedAppCategory.SocialFeed, "Instagram is a visual social feed and common trigger source."),
+            KnownRule("com.zhiliaoapp.musically", "tiktok", ProtectedAppCategory.ShortVideo, "TikTok is a short-video feed and common trigger source."),
+            KnownRule("com.google.android.youtube", "youtube", ProtectedAppCategory.VideoMedia, "YouTube can become a visual or search trigger."),
+            KnownRule("com.reddit.frontpage", "reddit", ProtectedAppCategory.SocialFeed, "Reddit can contain adult communities and search loops."),
+            KnownRule("com.android.chrome", "chrome", ProtectedAppCategory.BrowserSearch, "Chrome can open blocked websites directly."),
+            KnownRule("com.brave.browser", "brave", ProtectedAppCategory.BrowserSearch, "Brave can open blocked websites directly."),
+            KnownRule("org.mozilla.firefox", "firefox", ProtectedAppCategory.BrowserSearch, "Firefox can open blocked websites directly."),
+            KnownRule("com.sec.android.app.sbrowser", "samsung internet", ProtectedAppCategory.BrowserSearch, "Samsung Internet can open blocked websites directly."),
+            KnownRule("com.microsoft.emmx", "edge", ProtectedAppCategory.BrowserSearch, "Edge can open blocked websites directly."),
+            KnownRule("com.twitter.android", "twitter", ProtectedAppCategory.SocialFeed, "X/Twitter can contain visual and scrolling triggers."),
+            KnownRule("com.facebook.katana", "facebook", ProtectedAppCategory.SocialFeed, "Facebook can contain visual and scrolling triggers."),
+            KnownRule("com.snapchat.android", "snapchat", ProtectedAppCategory.SocialFeed, "Snapchat can involve image-heavy triggers."),
+            KnownRule("com.pinterest", "pinterest", ProtectedAppCategory.SocialFeed, "Pinterest can become a visual search loop."),
+            KnownRule("com.discord", "discord", ProtectedAppCategory.MessagingDating, "Discord can contain image-heavy communities."),
+            KnownRule("org.telegram.messenger", "telegram", ProtectedAppCategory.MessagingDating, "Telegram can contain adult channels and image-heavy content."),
         )
 
-        val BrowserTokens = listOf("browser", "chrome", "brave", "firefox", "edge", "opera", "duckduckgo", "samsung internet")
-        val SocialTokens = listOf("instagram", "tiktok", "reddit", "facebook", "twitter", "snapchat", "pinterest", "tumblr")
-        val VideoTokens = listOf("youtube", "vimeo", "netflix", "prime video", "disney", "twitch")
-        val MessagingDatingTokens = listOf("whatsapp", "telegram", "messenger", "signal", "tinder", "bumble", "hinge")
-        val GameTokens = listOf("game", "games", "clash", "royale", "candy", "roblox", "minecraft")
-        val UtilitySafeTokens = listOf("settings", "calendar", "calculator", "clock", "phone", "contacts", "maps", "files")
+        val SafeUtilityPackageNames = listOf(
+            "com.android.settings",
+            "com.android.camera",
+            "com.sec.android.app.camera",
+            "com.google.android.apps.photos",
+            "com.sec.android.gallery3d",
+            "com.android.vending",
+            "com.sec.android.app.samsungapps",
+            "com.samsung.android.samsungpass",
+            "com.sec.android.easymover",
+            "com.sec.android.app.myfiles",
+            "com.google.android.dialer",
+            "com.samsung.android.dialer",
+            "com.samsung.android.bixby.agent",
+            "com.samsung.android.app.routines",
+            "com.samsung.android.lool",
+            "com.sec.android.app.launcher",
+        )
+        val SafeUtilityTokens = listOf(
+            "bixby", "camera", "gallery", "photos", "play store", "galaxy store",
+            "samsung pass", "smart switch", "my files", "file manager", "files",
+            "phone", "dialer", "contacts", "settings", "calculator", "clock", "calendar",
+            "messages", "recorder", "wallet", "authenticator", "keyboard", "launcher",
+            "themes", "weather", "find my mobile", "device care", "secure folder",
+            "nearby share", "print service", "android auto", "finder", "routines",
+        )
+        val BrowserTokens = listOf("browser", "chrome", "brave", "firefox", "opera", "edge", "duckduckgo", "kiwi", "tor", "internet", "search")
+        val SocialTokens = listOf("instagram", "reddit", "twitter", "facebook", "snapchat", "pinterest", "tumblr")
+        val ShortVideoTokens = listOf("tiktok", "shorts", "reels")
+        val VideoTokens = listOf("youtube", "twitch", "vimeo", "dailymotion", "video")
+        val MessagingDatingTokens = listOf("tinder", "bumble", "hinge", "grindr", "telegram", "discord")
+        val GameTokens = listOf("game", "games")
     }
 }
