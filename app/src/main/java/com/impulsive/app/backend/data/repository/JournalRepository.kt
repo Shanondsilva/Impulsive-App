@@ -29,27 +29,7 @@ class JournalRepository(context: Context) {
         note: JournalNoteEntity,
         checklistItems: List<JournalChecklistItemEntity> = emptyList(),
     ): Long {
-        val savedId = if (note.id == 0L) {
-            dao.insert(note)
-        } else {
-            dao.update(note)
-            note.id
-        }
-
-        if (note.noteType == "CHECKLIST") {
-            dao.replaceChecklistItems(
-                noteId = savedId,
-                items = checklistItems.mapIndexed { index, item ->
-                    item.copy(
-                        noteId = savedId,
-                        sortOrder = index.toLong(),
-                    )
-                },
-            )
-        } else {
-            dao.deleteChecklistItemsForNote(savedId)
-        }
-
+        val savedId = dao.upsertNoteWithChecklist(note, checklistItems)
         reminderScheduler.schedule(
             noteId = savedId,
             title = note.title,
@@ -104,10 +84,7 @@ class JournalRepository(context: Context) {
         val mutable = notes.toMutableList()
         val moved = mutable.removeAt(index)
         mutable.add(targetIndex, moved)
-        val now = System.currentTimeMillis()
-        mutable.forEachIndexed { order, note ->
-            dao.update(note.copy(sortOrder = order.toLong(), updatedAtMillis = if (note.id == noteId) now else note.updatedAtMillis))
-        }
+        dao.reorder(mutable, movedNoteId = noteId, now = System.currentTimeMillis())
     }
 
     private suspend fun daoSnapshot(source: String): List<JournalNoteEntity> {

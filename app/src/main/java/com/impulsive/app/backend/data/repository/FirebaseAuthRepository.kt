@@ -114,12 +114,8 @@ class FirebaseAuthRepository(
                 ?: return AuthResult.Error("Apple sign-in returned no user.")
             AuthResult.Success(firebaseUser.toAuthUser(forced = AuthProvider.Apple))
         } catch (e: Exception) {
-            val message = e.localizedMessage.orEmpty()
-            if (message.isCancellationMessage()) {
-                AuthResult.Cancelled
-            } else {
-                e.toAuthError(providerName = "Apple")
-            }
+            if (e.isAppleCancellation()) AuthResult.Cancelled
+            else e.toAuthError(providerName = "Apple")
         }
     }
 
@@ -250,31 +246,42 @@ class FirebaseAuthRepository(
         return AuthProvider.Guest
     }
 
+    // Firebase's generic OAuth flow (Apple) throws FirebaseAuthWebException with this
+    // error code when the user dismisses the sign-in sheet. This is locale-independent.
+    private fun Exception.isAppleCancellation(): Boolean {
+        if (this is FirebaseAuthWebException) {
+            return errorCode == "ERROR_WEB_CONTEXT_CANCELED"
+        }
+        // Last-resort fallback for OS-level cancellations that surface before Firebase
+        // sees them (e.g. activity result RESULT_CANCELED with no FirebaseAuth wrapping).
+        val msg = message ?: return false
+        return msg.contains("cancel", ignoreCase = true) ||
+            msg.contains("dismiss", ignoreCase = true)
+    }
+
+    private fun Exception.isConfigurationError(): Boolean {
+        val code = (this as? FirebaseAuthException)?.errorCode
+        if (code == "ERROR_OPERATION_NOT_ALLOWED") return true
+        if (this is FirebaseAuthInvalidCredentialsException) return true
+        // Fallback for errors that arrive as raw messages before Firebase wraps them
+        // (e.g. Google Identity Services developer_error on misconfigured SHA-1).
+        val msg = message ?: return false
+        return msg.contains("operation-not-allowed", ignoreCase = true) ||
+            msg.contains("developer_error", ignoreCase = true) ||
+            msg.contains("invalid_client", ignoreCase = true)
+    }
+
     private fun Exception.toAuthError(providerName: String): AuthResult.Error {
-        val message = localizedMessage.orEmpty()
-        return if (message.isConfigurationMessage()) {
+        return if (isConfigurationError()) {
             AuthResult.Error(AuthNotConfiguredMessage, this)
         } else {
-            AuthResult.Error(message.ifEmpty { "$providerName sign-in failed." }, this)
+            val msg = localizedMessage?.ifBlank { null } ?: "$providerName sign-in failed."
+            AuthResult.Error(msg, this)
         }
     }
 
     private fun String.isConfiguredValue(): Boolean {
         return isNotBlank() && !contains("PLACEHOLDER", ignoreCase = true)
-    }
-
-    private fun String.isCancellationMessage(): Boolean {
-        return contains("cancel", ignoreCase = true) ||
-            contains("dismiss", ignoreCase = true)
-    }
-
-    private fun String.isConfigurationMessage(): Boolean {
-        return contains("configuration", ignoreCase = true) ||
-            contains("configured", ignoreCase = true) ||
-            contains("operation-not-allowed", ignoreCase = true) ||
-            contains("provider is disabled", ignoreCase = true) ||
-            contains("developer_error", ignoreCase = true) ||
-            contains("invalid_client", ignoreCase = true)
     }
 
     private sealed interface FacebookLoginOutcome {

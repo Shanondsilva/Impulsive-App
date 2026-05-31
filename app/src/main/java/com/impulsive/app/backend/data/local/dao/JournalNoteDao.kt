@@ -85,11 +85,42 @@ interface JournalNoteDao {
     @Query("DELETE FROM journal_checklist_items WHERE noteId = :noteId")
     suspend fun deleteChecklistItemsForNote(noteId: Long)
 
+    @Query("UPDATE journal_notes SET sortOrder = :sortOrder, updatedAtMillis = :updatedAtMillis WHERE id = :noteId")
+    suspend fun updateSortOrder(noteId: Long, sortOrder: Long, updatedAtMillis: Long)
+
     @Transaction
     suspend fun replaceChecklistItems(noteId: Long, items: List<JournalChecklistItemEntity>) {
         deleteChecklistItemsForNote(noteId)
         if (items.isNotEmpty()) {
             insertChecklistItems(items)
+        }
+    }
+
+    @Transaction
+    suspend fun upsertNoteWithChecklist(
+        note: JournalNoteEntity,
+        items: List<JournalChecklistItemEntity>,
+    ): Long {
+        val savedId = if (note.id == 0L) insert(note) else { update(note); note.id }
+        if (note.noteType == "CHECKLIST") {
+            replaceChecklistItems(
+                noteId = savedId,
+                items = items.mapIndexed { index, item -> item.copy(noteId = savedId, sortOrder = index.toLong()) },
+            )
+        } else {
+            deleteChecklistItemsForNote(savedId)
+        }
+        return savedId
+    }
+
+    @Transaction
+    suspend fun reorder(notes: List<JournalNoteEntity>, movedNoteId: Long, now: Long) {
+        notes.forEachIndexed { index, note ->
+            updateSortOrder(
+                noteId = note.id,
+                sortOrder = index.toLong(),
+                updatedAtMillis = if (note.id == movedNoteId) now else note.updatedAtMillis,
+            )
         }
     }
 }
