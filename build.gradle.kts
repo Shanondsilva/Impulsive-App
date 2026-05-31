@@ -6,4 +6,5 @@ plugins {
     // Wires Firebase configuration (google-services.json) into the app at build time.
     // Required for Firebase Authentication providers (Google, Apple, Facebook).
     id("com.google.gms.google-services") version "4.4.2" apply false
+    id("com.google.firebase.crashlytics") version "3.0.2" apply false
 }

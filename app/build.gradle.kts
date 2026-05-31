@@ -9,6 +9,7 @@ plugins {
 
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 android {
@@ -92,6 +93,7 @@ dependencies {
     // every Firebase library on a compatible version set.
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-crashlytics")
 
     // Google Sign-In via Android Credential Manager (the recommended modern API).
     implementation("androidx.credentials:credentials:1.3.0")
