@@ -3,7 +3,6 @@ package com.impulsive.app.frontend.screens.dashboard
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -195,7 +194,6 @@ fun HomeScreen(
                 avatar = avatar,
                 greeting = greeting,
                 displayName = displayName,
-                showProtectionBadge = protectionSetupState.profileBadgeShouldShow,
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -278,6 +276,7 @@ fun HomeScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 12.dp)
                 .fillMaxWidth(),
+            settingsBadgeVisible = protectionSetupState.profileBadgeShouldShow,
         )
     }
 }
@@ -287,7 +286,6 @@ private fun HeaderBlock(
     avatar: AvatarStyle,
     greeting: String,
     displayName: String,
-    showProtectionBadge: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -317,16 +315,6 @@ private fun HeaderBlock(
                     contentScale = ContentScale.Crop,
                 )
             }
-            if (showProtectionBadge) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFE5484D))
-                        .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
-                )
-            }
         }
 
         Spacer(modifier = Modifier.width(16.dp))
@@ -341,14 +329,7 @@ private fun HeaderBlock(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            if (showProtectionBadge) {
-                Text(
-                    text = "Protection setup needs attention",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Day $DAY_COUNT",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -372,7 +353,6 @@ private fun HeaderBlock(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                         )
                     }
-                }
             }
         }
     }

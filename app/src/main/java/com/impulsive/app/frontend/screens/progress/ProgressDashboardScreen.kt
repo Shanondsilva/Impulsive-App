@@ -62,6 +62,7 @@ import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.score.ScoreTimelineItem
 import com.impulsive.app.backend.domain.model.score.UrgeTrendState
 import com.impulsive.app.backend.session.progress.ScoreViewModel
+import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.frontend.components.BottomNavBar
 import com.impulsive.app.frontend.components.BottomNavItem
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
@@ -104,8 +105,10 @@ fun ProgressDashboardScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ScoreViewModel = viewModel(),
+    protectionSetupViewModel: ProtectionSetupViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val colors = rememberScoreColors()
 
     Box(
@@ -175,6 +178,7 @@ fun ProgressDashboardScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 12.dp)
                 .fillMaxWidth(),
+            settingsBadgeVisible = protectionSetupState.profileBadgeShouldShow,
         )
     }
 }

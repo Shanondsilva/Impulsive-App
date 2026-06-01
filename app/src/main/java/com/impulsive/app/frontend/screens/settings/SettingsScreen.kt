@@ -2,8 +2,11 @@ package com.impulsive.app.frontend.screens.settings
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -55,9 +58,9 @@ import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PrivacyTip
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,6 +72,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -106,6 +110,7 @@ import kotlin.math.sin
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
+import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.progress.LevelViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
@@ -248,6 +253,7 @@ fun SettingsScreen(
                 .padding(horizontal = 24.dp, vertical = 12.dp)
                 .fillMaxWidth(),
             hapticsEnabled = appSettingsState.hapticsEnabled,
+            settingsBadgeVisible = protectionSetupState.profileBadgeShouldShow,
         )
 
         if (showBlockedAppsSheet) {
@@ -808,8 +814,6 @@ private fun ProtectionFocusGroup(
         haptics = null,
         glowSpec = SettingsGlowSpec.split(ProtectionGlow, FocusGlow),
     ) {
-        SettingsRow(title = "Default focus", value = "25 min")
-        SettingsDivider()
         SettingsRow(
             title = "Protected apps",
             value = monitoredAppsValue,
@@ -818,15 +822,13 @@ private fun ProtectionFocusGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Website protection",
-            value = "Browser apps first",
-            subtext = "V1 protects selected browsers. Domain-level VPN or DNS filtering comes later.",
-        )
-        SettingsDivider()
-        SettingsRow(
             title = "Usage Access",
             value = if (protectionState.usageAccessEnabled) "Enabled" else "Not enabled",
-            subtext = "Needed later so Impulsive can detect protected apps.",
+            subtext = "Lets Impulsive detect when a protected app opens. Required for protection to work.",
+            onClick = {
+                val intent = UsageAccessPermissionChecker(context).createUsageAccessSettingsIntent()
+                runCatching { context.startActivity(intent) }
+            },
         )
         SettingsDivider()
         SettingsRow(
@@ -841,9 +843,17 @@ private fun ProtectionFocusGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Background protection",
+            title = "Battery optimization",
             value = if (protectionState.backgroundActivityEnabled) "Allowed" else "Needs review",
             subtext = "Helps protection survive reboot and battery optimization.",
+            onClick = {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .apply {
+                        data = Uri.parse("package:" + context.packageName)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                runCatching { context.startActivity(intent) }
+            },
         )
         if (protectionState.usageAccessEnabled && protectionState.selectedBlockedAppPackageNames.isNotEmpty()) {
             SettingsDivider()
@@ -870,6 +880,8 @@ private fun PrivacyAccountGroup(
     haptics: ImpulsiveHaptics,
     onRequestNotifications: () -> Unit,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showLocalDataInfo by remember { mutableStateOf(false) }
     val notificationValue = when {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> "Allowed by system"
         notificationsAllowed -> "Allowed"
@@ -912,7 +924,11 @@ private fun PrivacyAccountGroup(
             },
         )
         SettingsDivider()
-        SettingsRow(title = "Local data", subtext = "Stored privately on this device")
+        SettingsRow(
+            title = "Local data",
+            subtext = "Stored privately on this device",
+            onClick = { showLocalDataInfo = true },
+        )
         SettingsDivider()
         SettingsRow(title = "Export data", subtext = "Coming soon")
         SettingsDivider()
@@ -923,13 +939,28 @@ private fun PrivacyAccountGroup(
         SettingsRow(title = "Link Facebook account", subtext = "Not connected")
         SettingsDivider()
         SettingsRow(title = "Backup & sync", subtext = "Not connected")
-        SettingsDivider()
-        SettingsRow(title = "Restore purchases", subtext = "Coming soon", trailingIcon = Icons.Filled.Refresh)
+        if (showLocalDataInfo) {
+            AlertDialog(
+                onDismissRequest = { showLocalDataInfo = false },
+                confirmButton = { TextButton(onClick = { showLocalDataInfo = false }) { Text("Got it") } },
+                title = { Text("Where your data is stored") },
+                text = {
+                    Text(
+                        "All your notes, sessions, and settings stay in Impulsive's private storage on " +
+                            "this device only:\n\n${context.applicationInfo.dataDir}\n\nNothing is uploaded. " +
+                            "Other apps cannot read this folder. Use Delete data to remove everything."
+                    )
+                },
+            )
+        }
     }
 }
 
 @Composable
 private fun SupportGroup() {
+    val context = LocalContext.current
+    var showAbout by remember { mutableStateOf(false) }
+
     AccordionGroup(
         title = "Support",
         summary = "Help, feedback, and about",
@@ -937,15 +968,64 @@ private fun SupportGroup() {
         haptics = null,
         glowSpec = SettingsGlowSpec.single(SupportGlow),
     ) {
-        SettingsRow(title = "Help centre", subtext = "Coming soon", trailingIcon = Icons.AutoMirrored.Filled.HelpOutline)
+        SettingsRow(
+            title = "Help centre",
+            trailingIcon = Icons.AutoMirrored.Filled.HelpOutline,
+            onClick = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://useimpulsive.com/help.html"))
+                    .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                runCatching { context.startActivity(intent) }
+            },
+        )
         SettingsDivider()
-        SettingsRow(title = "Contact support", subtext = "Coming soon", trailingIcon = Icons.Filled.MailOutline)
+        SettingsRow(
+            title = "Contact support",
+            trailingIcon = Icons.Filled.MailOutline,
+            onClick = { sendSupportEmail(context, "Impulsive support") },
+        )
         SettingsDivider()
-        SettingsRow(title = "Send feedback", subtext = "Coming soon", trailingIcon = Icons.Filled.ChatBubbleOutline)
+        SettingsRow(
+            title = "Send feedback",
+            trailingIcon = Icons.Filled.ChatBubbleOutline,
+            onClick = { sendSupportEmail(context, "Impulsive feedback") },
+        )
         SettingsDivider()
-        SettingsRow(title = "Report a bug", subtext = "Coming soon", trailingIcon = Icons.Filled.BugReport)
+        SettingsRow(
+            title = "Report a bug",
+            trailingIcon = Icons.Filled.BugReport,
+            onClick = {
+                sendSupportEmail(
+                    context,
+                    "Impulsive bug report",
+                    "\n\n---\nApp version: ${appVersionName(context)}\nAndroid: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\nDevice: ${Build.MANUFACTURER} ${Build.MODEL}",
+                )
+            },
+        )
         SettingsDivider()
-        SettingsRow(title = "About Impulsive", subtext = "Version details", trailingIcon = Icons.Filled.Info)
+        SettingsRow(
+            title = "About Impulsive",
+            trailingIcon = Icons.Filled.Info,
+            onClick = { showAbout = true },
+        )
+        if (showAbout) {
+            AlertDialog(
+                onDismissRequest = { showAbout = false },
+                confirmButton = {
+                    TextButton(onClick = { showAbout = false }) { Text("Close") }
+                },
+                title = { Text("About Impulsive") },
+                text = {
+                    Column {
+                        Text("Impulsive helps you interrupt urges and reset your thinking.")
+                        Spacer(Modifier.height(8.dp))
+                        Text("Version ${appVersionName(context)}", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(8.dp))
+                        Text("useimpulsive.com", style = MaterialTheme.typography.bodySmall)
+                        Text("Hello@useimpulsive.com", style = MaterialTheme.typography.bodySmall)
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -979,7 +1059,10 @@ private fun PlusGroup(
         SettingsDivider()
         PlusFeatureRow(title = "Deeper weekly insights")
         SettingsDivider()
-        PlusFeatureRow(title = "Advanced protection tools")
+        PlusFeatureRow(
+            title = "Website protection",
+            note = "DNS-based filtering, stronger anti-bypass tools, and future cloud protection",
+        )
         SettingsDivider()
         PlusFeatureRow(title = "Restore purchases", note = "Available when billing is connected")
 
@@ -1524,6 +1607,21 @@ private fun isNotificationPermissionAllowed(context: Context): Boolean {
     return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
+
+private fun sendSupportEmail(context: Context, subject: String, body: String = "") {
+    val uri = Uri.parse(
+        "mailto:Hello@useimpulsive.com" +
+            "?subject=" + Uri.encode(subject) +
+            (if (body.isNotBlank()) "&body=" + Uri.encode(body) else "")
+    )
+    val intent = Intent(Intent.ACTION_SENDTO, uri).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+    runCatching { context.startActivity(intent) }
+}
+
+private fun appVersionName(context: Context): String =
+    runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    }.getOrNull() ?: "1.0"
 
 private fun recoverySummary(answers: OnboardingAnswers): String {
     val triggerCount = answers.triggers.size

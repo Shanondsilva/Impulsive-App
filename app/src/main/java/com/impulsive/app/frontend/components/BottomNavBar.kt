@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
@@ -43,6 +45,7 @@ fun BottomNavBar(
     selected: BottomNavItem,
     onSelect: (BottomNavItem) -> Unit,
     hapticsEnabled: Boolean = true,
+    settingsBadgeVisible: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberImpulsiveHaptics(hapticsEnabled)
@@ -121,6 +124,7 @@ fun BottomNavBar(
                 haptics = haptics,
                 isDark = isDark,
                 selectedGlow = selectedGlow,
+                badgeVisible = settingsBadgeVisible,
             )
         }
     }
@@ -135,6 +139,7 @@ private fun BottomNavButton(
     haptics: com.impulsive.app.frontend.utils.ImpulsiveHaptics,
     isDark: Boolean,
     selectedGlow: Color,
+    badgeVisible: Boolean = false,
 ) {
     IconButton(onClick = {
         haptics.light()
@@ -179,6 +184,17 @@ private fun BottomNavButton(
                     contentDescription = item.name,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp),
+                )
+            }
+            if (badgeVisible) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-6).dp, y = 6.dp)
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE5484D))
+                        .border(2.dp, Color.White, CircleShape),
                 )
             }
         }
