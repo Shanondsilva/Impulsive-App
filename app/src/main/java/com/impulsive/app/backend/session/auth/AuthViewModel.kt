@@ -58,6 +58,21 @@ class AuthViewModel : AndroidViewModel {
         repository.signInWithFacebook(activity)
     }
 
+    fun signInWithGoogleForAppLockReset(activity: Activity, onSuccess: () -> Unit) =
+        launchSignIn(AuthProvider.Google, onSuccess) {
+            repository.signInWithGoogle(activity)
+        }
+
+    fun signInWithAppleForAppLockReset(activity: Activity, onSuccess: () -> Unit) =
+        launchSignIn(AuthProvider.Apple, onSuccess) {
+            repository.signInWithApple(activity)
+        }
+
+    fun signInWithFacebookForAppLockReset(activity: Activity, onSuccess: () -> Unit) =
+        launchSignIn(AuthProvider.Facebook, onSuccess) {
+            repository.signInWithFacebook(activity)
+        }
+
     fun continueAsGuest() = launchSignIn(AuthProvider.Guest) {
         repository.continueAsGuest()
     }
@@ -83,19 +98,27 @@ class AuthViewModel : AndroidViewModel {
             ?.onActivityResult(requestCode, resultCode, data)
     }
 
-    private fun launchSignIn(provider: AuthProvider, block: suspend () -> AuthResult) {
+    private fun launchSignIn(
+        provider: AuthProvider,
+        onSuccess: (() -> Unit)? = null,
+        block: suspend () -> AuthResult,
+    ) {
         // Guard against double-tap while another provider is in flight.
         if (_state.value.inFlightProvider != null) return
         _state.update { it.copy(inFlightProvider = provider, errorMessage = null) }
         viewModelScope.launch {
             val result = block()
+            var succeeded = false
             _state.update { current ->
                 when (result) {
-                    is AuthResult.Success -> current.copy(
-                        user = result.user,
-                        inFlightProvider = null,
-                        errorMessage = null,
-                    )
+                    is AuthResult.Success -> {
+                        succeeded = true
+                        current.copy(
+                            user = result.user,
+                            inFlightProvider = null,
+                            errorMessage = null,
+                        )
+                    }
                     AuthResult.Cancelled -> current.copy(
                         inFlightProvider = null,
                         errorMessage = null,
@@ -106,6 +129,7 @@ class AuthViewModel : AndroidViewModel {
                     )
                 }
             }
+            if (succeeded) onSuccess?.invoke()
         }
     }
 }

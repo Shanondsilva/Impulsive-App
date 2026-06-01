@@ -68,6 +68,7 @@ class ProtectionNotificationHelper(
     fun showBlockedAttemptNotification(
         sourcePackageName: String,
         sourceLabel: String,
+        hideSensitive: Boolean = false,
     ) {
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -81,8 +82,8 @@ class ProtectionNotificationHelper(
         )
         val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(context.getString(R.string.notif_blocked_attempt_title))
-            .setContentText(context.getString(R.string.notif_blocked_attempt_body, sourceLabel))
+            .setContentTitle(if (hideSensitive) "Impulsive" else context.getString(R.string.notif_blocked_attempt_title))
+            .setContentText(if (hideSensitive) "Open Impulsive to continue." else context.getString(R.string.notif_blocked_attempt_body, sourceLabel))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -96,6 +97,7 @@ class ProtectionNotificationHelper(
     fun showBlockFullScreen(
         sourcePackageName: String,
         sourceLabel: String,
+        hideSensitive: Boolean = false,
     ) {
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -109,8 +111,8 @@ class ProtectionNotificationHelper(
         )
         val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(context.getString(R.string.notif_block_fullscreen_title, sourceLabel))
-            .setContentText(context.getString(R.string.notif_block_fullscreen_body))
+            .setContentTitle(if (hideSensitive) "Impulsive" else context.getString(R.string.notif_block_fullscreen_title, sourceLabel))
+            .setContentText(if (hideSensitive) "Open Impulsive to continue." else context.getString(R.string.notif_block_fullscreen_body))
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)

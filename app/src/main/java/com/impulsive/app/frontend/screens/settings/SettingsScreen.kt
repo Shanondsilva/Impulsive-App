@@ -103,10 +103,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
+import com.impulsive.app.backend.data.UserDataManager
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
@@ -114,9 +117,13 @@ import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.progress.LevelViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
+import com.impulsive.app.backend.session.settings.AppLockViewModel
 import com.impulsive.app.backend.session.settings.AppSettingsViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.backend.service.protection.ProtectionServiceController
+import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
+import com.impulsive.app.frontend.screens.lock.SetPinScreen
+import com.impulsive.app.frontend.screens.lock.rememberAppLockGuardController
 import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.core.util.ThemeMode
 import com.impulsive.app.frontend.components.AvatarStyle
@@ -142,8 +149,10 @@ fun SettingsScreen(
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val appLockViewModel: AppLockViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val levelViewModel: LevelViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    val appLockEnabled by appLockViewModel.enabled.collectAsStateWithLifecycle()
     val currentLevel by levelViewModel.currentLevel.collectAsStateWithLifecycle()
     val storedMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
     val selectedMode = if (storedMode == ThemeMode.System) ThemeMode.AsPerTime else storedMode
@@ -156,6 +165,7 @@ fun SettingsScreen(
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var showPlusSheet by remember { mutableStateOf(false) }
     var showBlockedAppsSheet by remember { mutableStateOf(false) }
+    val appLockGuard = rememberAppLockGuardController()
     var notificationsAllowed by remember { mutableStateOf(isNotificationPermissionAllowed(context)) }
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -196,7 +206,7 @@ fun SettingsScreen(
             if (protectionSetupState.profileBadgeShouldShow) {
                 ProtectionSetupIncompleteCard(
                     protectionSetupState = protectionSetupState,
-                    onOpenProtectionSetup = { showBlockedAppsSheet = true },
+                    onOpenProtectionSetup = { appLockGuard.run(appLockEnabled) { showBlockedAppsSheet = true } },
                 )
             }
             PlusGroup(
@@ -221,14 +231,38 @@ fun SettingsScreen(
             )
             ProtectionFocusGroup(
                 protectionState = protectionSetupState,
-                onOpenBlockedApps = { showBlockedAppsSheet = true },
+                appLockEnabled = appLockEnabled,
+                guard = appLockGuard::run,
+                onOpenBlockedApps = { appLockGuard.run(appLockEnabled) { showBlockedAppsSheet = true } },
                 onOpenUninstallProtection = onOpenUninstallProtection,
             )
             PrivacyAccountGroup(
+                appLockEnabled = appLockEnabled,
+                onDisableAppLock = appLockViewModel::disable,
                 hideSensitiveNotifications = appSettingsState.hideSensitiveNotifications,
                 onHideSensitiveNotificationsChanged = appSettingsViewModel::setHideSensitiveNotifications,
                 notificationsAllowed = notificationsAllowed,
                 haptics = haptics,
+                onExportData = {
+                    appSettingsViewModel.exportData { uri ->
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra(Intent.EXTRA_SUBJECT, "My Impulsive data")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        runCatching {
+                            context.startActivity(
+                                Intent.createChooser(share, "Export your data"),
+                            )
+                        }
+                    }
+                },
+                onDeleteAllData = {
+                    appSettingsViewModel.deleteAllData(
+                        onComplete = { UserDataManager(context).restartApp() },
+                    )
+                },
                 onRequestNotifications = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -300,6 +334,8 @@ fun SettingsScreen(
                 }
             }
         }
+
+        AppLockGuardHost(controller = appLockGuard)
     }
 }
 
@@ -795,6 +831,8 @@ private fun FutureSelfMessageGroup(
 @Composable
 private fun ProtectionFocusGroup(
     protectionState: ProtectionSetupState,
+    appLockEnabled: Boolean,
+    guard: (enabled: Boolean, action: () -> Unit) -> Unit,
     onOpenBlockedApps: () -> Unit,
     onOpenUninstallProtection: () -> Unit,
 ) {
@@ -839,7 +877,7 @@ private fun ProtectionFocusGroup(
             } else {
                 "Add friction before removing Impulsive during weak moments."
             },
-            onClick = onOpenUninstallProtection,
+            onClick = { guard(appLockEnabled) { onOpenUninstallProtection() } },
         )
         SettingsDivider()
         SettingsRow(
@@ -866,7 +904,7 @@ private fun ProtectionFocusGroup(
             SettingsRow(
                 title = "Pause protection monitor",
                 subtext = "Stops the monitor until you start it again.",
-                onClick = { ProtectionServiceController.stop(context) },
+                onClick = { guard(appLockEnabled) { ProtectionServiceController.stop(context) } },
             )
         }
     }
@@ -874,14 +912,20 @@ private fun ProtectionFocusGroup(
 
 @Composable
 private fun PrivacyAccountGroup(
+    appLockEnabled: Boolean,
+    onDisableAppLock: () -> Unit,
     hideSensitiveNotifications: Boolean,
     onHideSensitiveNotificationsChanged: (Boolean) -> Unit,
     notificationsAllowed: Boolean,
     haptics: ImpulsiveHaptics,
+    onExportData: () -> Unit,
+    onDeleteAllData: () -> Unit,
     onRequestNotifications: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var showLocalDataInfo by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showSetPin by remember { mutableStateOf(false) }
     val notificationValue = when {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> "Allowed by system"
         notificationsAllowed -> "Allowed"
@@ -895,7 +939,23 @@ private fun PrivacyAccountGroup(
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(PrivacyGlow),
     ) {
-        SettingsRow(title = "App lock", subtext = "Coming soon")
+        SettingsRow(
+            title = "App lock",
+            subtext = if (appLockEnabled) {
+                "Fingerprint or PIN required to open Impulsive"
+            } else {
+                "Add a fingerprint or PIN to keep Impulsive private"
+            },
+            trailing = {
+                SettingsSwitch(
+                    checked = appLockEnabled,
+                    haptics = haptics,
+                    onCheckedChange = { wantOn ->
+                        if (wantOn) showSetPin = true else onDisableAppLock()
+                    },
+                )
+            },
+        )
         SettingsDivider()
         SettingsRow(
             title = "Hide sensitive notifications",
@@ -930,9 +990,18 @@ private fun PrivacyAccountGroup(
             onClick = { showLocalDataInfo = true },
         )
         SettingsDivider()
-        SettingsRow(title = "Export data", subtext = "Coming soon")
+        SettingsRow(
+            title = "Export data",
+            subtext = "Save a readable copy and share it anywhere",
+            onClick = onExportData,
+        )
         SettingsDivider()
-        SettingsRow(title = "Delete data", subtext = "Coming soon", trailingIcon = Icons.Filled.DeleteOutline)
+        SettingsRow(
+            title = "Delete data",
+            subtext = "Permanently erase all data on this device",
+            trailingIcon = Icons.Filled.DeleteOutline,
+            onClick = { showDeleteConfirm = true },
+        )
         SettingsDivider()
         SettingsRow(title = "Link Google account", subtext = "Not connected")
         SettingsDivider()
@@ -952,6 +1021,39 @@ private fun PrivacyAccountGroup(
                     )
                 },
             )
+        }
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Delete all data?") },
+                text = {
+                    Text(
+                        "This permanently erases your notes, sessions, scores, settings, and " +
+                            "everything else stored on this device. This cannot be undone, and the app " +
+                            "will restart."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showDeleteConfirm = false
+                        onDeleteAllData()
+                    }) { Text("Delete everything") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                },
+            )
+        }
+        if (showSetPin) {
+            Dialog(
+                onDismissRequest = { showSetPin = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                SetPinScreen(
+                    onPinSet = { showSetPin = false },
+                    onCancel = { showSetPin = false },
+                )
+            }
         }
     }
 }

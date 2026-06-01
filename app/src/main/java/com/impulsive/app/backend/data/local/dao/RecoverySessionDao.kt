@@ -33,4 +33,7 @@ interface RecoverySessionDao {
         """,
     )
     suspend fun getLatestSession(): RecoverySessionEntity?
+
+    @Query("SELECT * FROM recovery_sessions ORDER BY completedAt DESC")
+    suspend fun getAllSessions(): List<RecoverySessionEntity>
 }

@@ -14,6 +14,7 @@ import androidx.core.app.ServiceCompat
 import com.impulsive.app.MainActivity
 import com.impulsive.app.backend.data.local.device.ForegroundAppReader
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
+import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationDataSource
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationState
 import com.impulsive.app.backend.data.repository.OnboardingRepository
@@ -51,6 +52,7 @@ class AppMonitorService : Service() {
     private val protectionSetupRepository by lazy { ProtectionSetupRepository(applicationContext) }
     private val onboardingRepository by lazy { OnboardingRepository(applicationContext) }
     private val taskRewardRepository by lazy { TaskRewardRepository(applicationContext) }
+    private val appSettingsDataSource by lazy { AppSettingsPreferencesDataSource(applicationContext) }
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
 
     // Collected once into the service scope — no per-tick disk reads.
@@ -65,6 +67,10 @@ class AppMonitorService : Service() {
     private val taskStoreState by lazy {
         taskRewardRepository.storeState
             .stateIn(serviceScope, SharingStarted.Eagerly, emptyTaskRewardStoreState())
+    }
+    private val hideSensitiveNotifications by lazy {
+        appSettingsDataSource.hideSensitiveNotifications
+            .stateIn(serviceScope, SharingStarted.Eagerly, false)
     }
     private val windowNotificationState by lazy {
         windowNotificationDataSource.state
@@ -86,6 +92,7 @@ class AppMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         notificationHelper.ensureChannels()
+        hideSensitiveNotifications.value
         startAsForegroundService()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         isScreenOn = powerManager.isInteractive
@@ -221,12 +228,14 @@ class AppMonitorService : Service() {
                     notificationHelper.showBlockFullScreen(
                         sourcePackageName = sourcePackageName,
                         sourceLabel = sourceLabel,
+                        hideSensitive = hideSensitiveNotifications.value,
                     )
                 }
         } else {
             notificationHelper.showBlockFullScreen(
                 sourcePackageName = sourcePackageName,
                 sourceLabel = sourceLabel,
+                hideSensitive = hideSensitiveNotifications.value,
             )
         }
     }

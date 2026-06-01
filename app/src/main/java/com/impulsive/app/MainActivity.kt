@@ -2,8 +2,8 @@ package com.impulsive.app
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -11,34 +11,51 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalView
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.impulsive.app.backend.data.local.preferences.AppLockPreferencesDataSource
+import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.core.util.resolveSceneTime
 import com.impulsive.app.core.util.shouldUseDarkTheme
+import com.impulsive.app.frontend.screens.lock.AppLockGateScreen
 import com.impulsive.app.frontend.navigation.AppNavHost
 import com.impulsive.app.frontend.theme.ImpulsiveTheme
 import java.time.LocalTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
+    private val appLockDataSource by lazy {
+        AppLockPreferencesDataSource(applicationContext)
+    }
     private val pendingBlockRequest = mutableStateOf<BlockRequest?>(null)
+    private val blockLaunchBypassActive = mutableStateOf(false)
+    private val unlockedThisSession = mutableStateOf(false)
+    private val showGuestPinResetDialog = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
+        blockLaunchBypassActive.value = pendingBlockRequest.value != null
 
         setContent {
             val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
             val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
+            val appLockEnabled by appLockDataSource.enabled.collectAsStateWithLifecycle(initialValue = false)
+            val unlocked by unlockedThisSession
             val systemInDark = isSystemInDarkTheme()
 
             // Single ticking time source — re-emits every minute so both shouldUseDarkTheme
@@ -64,12 +81,44 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val blockActive = pendingBlockRequest.value != null || blockLaunchBypassActive.value
+            val locked = appLockEnabled && !unlocked && !blockActive
+
             ImpulsiveTheme(darkTheme = useDark) {
-                AppNavHost(
-                    authViewModel = authViewModel,
-                    initialBlockRequest = pendingBlockRequest.value,
-                    onBlockRequestConsumed = { pendingBlockRequest.value = null },
-                )
+                if (locked) {
+                    AppLockGateScreen(
+                        onUnlocked = { unlockedThisSession.value = true },
+                        onForgotPin = { handleForgotPin() },
+                    )
+                } else {
+                    AppNavHost(
+                        authViewModel = authViewModel,
+                        initialBlockRequest = pendingBlockRequest.value,
+                        onBlockRequestConsumed = { pendingBlockRequest.value = null },
+                    )
+                }
+                if (showGuestPinResetDialog.value) {
+                    AlertDialog(
+                        onDismissRequest = { showGuestPinResetDialog.value = false },
+                        title = { Text("Can't reset guest PIN") },
+                        text = {
+                            Text(
+                                "Guest accounts can't reset a PIN. To regain access you'll need to clear the app's data in system settings, which erases everything.",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showGuestPinResetDialog.value = false
+                                    openAppDetailsSettings()
+                                },
+                            ) { Text("Open settings") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showGuestPinResetDialog.value = false }) { Text("Cancel") }
+                        },
+                    )
+                }
             }
         }
     }
@@ -78,6 +127,15 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
+        if (pendingBlockRequest.value != null) {
+            blockLaunchBypassActive.value = true
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        unlockedThisSession.value = false
+        blockLaunchBypassActive.value = false
     }
 
     @Deprecated("onActivityResult is deprecated, but the Facebook SDK still requires it.")
@@ -96,6 +154,31 @@ class MainActivity : ComponentActivity() {
             sourceLabel = getStringExtra(BlockRequest.ExtraSourceLabel).orEmpty().ifBlank { sourcePackage },
             detectedAtMillis = getLongExtra(BlockRequest.ExtraDetectedAtMillis, System.currentTimeMillis()),
         )
+    }
+
+    private fun handleForgotPin() {
+        when (authViewModel.state.value.user?.provider) {
+            AuthProvider.Google -> authViewModel.signInWithGoogleForAppLockReset(this) { clearAppLockAfterProviderAuth() }
+            AuthProvider.Apple -> authViewModel.signInWithAppleForAppLockReset(this) { clearAppLockAfterProviderAuth() }
+            AuthProvider.Facebook -> authViewModel.signInWithFacebookForAppLockReset(this) { clearAppLockAfterProviderAuth() }
+            AuthProvider.Guest, null -> {
+                showGuestPinResetDialog.value = true
+            }
+        }
+    }
+
+    private fun clearAppLockAfterProviderAuth() {
+        lifecycleScope.launch {
+            appLockDataSource.clearPin()
+            unlockedThisSession.value = true
+        }
+    }
+
+    private fun openAppDetailsSettings() {
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        runCatching { startActivity(intent) }
     }
 
     companion object {

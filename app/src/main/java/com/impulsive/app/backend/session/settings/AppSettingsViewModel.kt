@@ -3,6 +3,8 @@ package com.impulsive.app.backend.session.settings
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.impulsive.app.backend.data.UserDataExporter
+import com.impulsive.app.backend.data.UserDataManager
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,5 +41,19 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setHideSensitiveNotifications(enabled: Boolean) {
         viewModelScope.launch { dataSource.setHideSensitiveNotifications(enabled) }
+    }
+
+    fun deleteAllData(onComplete: () -> Unit) {
+        viewModelScope.launch {
+            UserDataManager(getApplication()).deleteAllData()
+            onComplete()
+        }
+    }
+
+    fun exportData(onReady: (android.net.Uri) -> Unit) {
+        viewModelScope.launch {
+            val uri = runCatching { UserDataExporter(getApplication()).writeExportFile() }.getOrNull()
+            if (uri != null) onReady(uri)
+        }
     }
 }
