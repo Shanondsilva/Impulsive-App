@@ -19,16 +19,18 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.impulsive.app.R
 import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluator
 import com.impulsive.app.backend.domain.model.protection.toImpulsiveCompactTime
 import com.impulsive.app.backend.domain.model.release.ReleasePlanDefaults
@@ -50,8 +52,8 @@ fun ImpulsiveBlockScreen(
     onboardingViewModel: OnboardingViewModel = viewModel(),
     taskRewardViewModel: TaskRewardViewModel = viewModel(),
 ) {
-    val onboardingState by onboardingViewModel.state.collectAsState()
-    val taskStoreState by taskRewardViewModel.storeState.collectAsState()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val taskStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     var now by remember { mutableStateOf(LocalDateTime.now()) }
 
     LaunchedEffect(Unit) {
@@ -96,25 +98,25 @@ fun ImpulsiveBlockScreen(
             ) {
                 Text(
                     text = if (windowSnapshot.isProtectionPaused) {
-                        "Release window is open"
+                        stringResource(R.string.block_screen_headline_paused)
                     } else {
-                        "You are protected right now"
+                        stringResource(R.string.block_screen_headline_protected)
                     },
                     color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "$sourceLabel is part of your protected app list.",
+                    text = stringResource(R.string.block_screen_app_in_list, sourceLabel),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (windowSnapshot.isProtectionPaused) {
-                        "Protection turns back on at"
+                        stringResource(R.string.block_screen_time_label_paused)
                     } else {
-                        "Next planned window opens in"
+                        stringResource(R.string.block_screen_time_label_protected)
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelLarge,
@@ -128,9 +130,9 @@ fun ImpulsiveBlockScreen(
                 )
                 Text(
                     text = if (windowSnapshot.isProtectionPaused) {
-                        "This is your ${ReleasePlanDefaults.ReleaseWindowMinutes}-minute planned window. Protection will resume automatically."
+                        stringResource(R.string.block_screen_detail_paused, ReleasePlanDefaults.ReleaseWindowMinutes)
                     } else {
-                        "Protection pauses for ${ReleasePlanDefaults.ReleaseWindowMinutes} minutes when your planned window opens."
+                        stringResource(R.string.block_screen_detail_protected, ReleasePlanDefaults.ReleaseWindowMinutes)
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
@@ -141,16 +143,22 @@ fun ImpulsiveBlockScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !windowSnapshot.isProtectionPaused,
                 ) {
-                    Text(if (windowSnapshot.isProtectionPaused) "Task not needed right now" else "Start control task")
+                    Text(
+                        if (windowSnapshot.isProtectionPaused) {
+                            stringResource(R.string.block_screen_btn_task_not_needed)
+                        } else {
+                            stringResource(R.string.block_screen_btn_start_task)
+                        }
+                    )
                 }
                 OutlinedButton(
                     onClick = onReturnHome,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Return home")
+                    Text(stringResource(R.string.block_screen_btn_return_home))
                 }
                 Text(
-                    text = "Source: $sourcePackageName",
+                    text = stringResource(R.string.block_screen_source_label, sourcePackageName),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                     style = MaterialTheme.typography.labelSmall,
                 )

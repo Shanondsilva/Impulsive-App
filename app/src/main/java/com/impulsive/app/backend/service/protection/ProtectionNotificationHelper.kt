@@ -21,25 +21,25 @@ class ProtectionNotificationHelper(
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         val monitoringChannel = NotificationChannel(
             MonitoringChannelId,
-            "Impulsive protection",
+            context.getString(R.string.notif_channel_monitoring_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Shows that Impulsive is actively checking protected apps."
+            description = context.getString(R.string.notif_channel_monitoring_description)
             setShowBadge(false)
         }
         val blockedAttemptChannel = NotificationChannel(
             BlockedAttemptChannelId,
-            "Protected app attempts",
+            context.getString(R.string.notif_channel_blocked_attempts_name),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "Opens Impulsive when a protected app is opened outside a planned window."
+            description = context.getString(R.string.notif_channel_blocked_attempts_description)
         }
         val releaseWindowChannel = NotificationChannel(
             ReleaseWindowChannelId,
-            "Protection pause windows",
+            context.getString(R.string.notif_channel_release_window_name),
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "Tells you when protection pauses and turns back on around release windows."
+            description = context.getString(R.string.notif_channel_release_window_description)
         }
         manager.createNotificationChannel(monitoringChannel)
         manager.createNotificationChannel(blockedAttemptChannel)
@@ -55,8 +55,8 @@ class ProtectionNotificationHelper(
         )
         return NotificationCompat.Builder(context, MonitoringChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Impulsive protection is on")
-            .setContentText("Protected apps are checked during your protected time.")
+            .setContentTitle(context.getString(R.string.notif_monitoring_title))
+            .setContentText(context.getString(R.string.notif_monitoring_body))
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -81,8 +81,8 @@ class ProtectionNotificationHelper(
         )
         val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Impulsive stepped in")
-            .setContentText("$sourceLabel is protected right now. Tap to return to Impulsive.")
+            .setContentTitle(context.getString(R.string.notif_blocked_attempt_title))
+            .setContentText(context.getString(R.string.notif_blocked_attempt_body, sourceLabel))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -109,8 +109,8 @@ class ProtectionNotificationHelper(
         )
         val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Pause before $sourceLabel")
-            .setContentText("Tap to take a moment with Impulsive.")
+            .setContentTitle(context.getString(R.string.notif_block_fullscreen_title, sourceLabel))
+            .setContentText(context.getString(R.string.notif_block_fullscreen_body))
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)
@@ -127,8 +127,8 @@ class ProtectionNotificationHelper(
     ) {
         val notification = NotificationCompat.Builder(context, ReleaseWindowChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Release window is open")
-            .setContentText("Protection is paused until ${windowEnd.toImpulsiveCompactTime()}.")
+            .setContentTitle(context.getString(R.string.notif_release_window_open_title))
+            .setContentText(context.getString(R.string.notif_release_window_open_body, windowEnd.toImpulsiveCompactTime()))
             .setContentIntent(homePendingIntent(ReleaseWindowPausedNotificationId))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -142,8 +142,8 @@ class ProtectionNotificationHelper(
     fun showProtectionResumedNotification() {
         val notification = NotificationCompat.Builder(context, ReleaseWindowChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Protection is back on")
-            .setContentText("Protected apps are being checked again.")
+            .setContentTitle(context.getString(R.string.notif_protection_resumed_title))
+            .setContentText(context.getString(R.string.notif_protection_resumed_body))
             .setContentIntent(homePendingIntent(ProtectionResumedNotificationId))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)

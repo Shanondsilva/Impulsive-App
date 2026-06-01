@@ -24,4 +24,41 @@
 
     <string name="uninstall_protection_admin_label">Impulsive uninstall protection</string>
     <string name="uninstall_protection_admin_description">Adds an extra confirmation step before removing Impulsive during weak moments.</string>
+
+    <!-- Notification channels -->
+    <string name="notif_channel_monitoring_name">Impulsive protection</string>
+    <string name="notif_channel_monitoring_description">Shows that Impulsive is actively checking protected apps.</string>
+    <string name="notif_channel_blocked_attempts_name">Protected app attempts</string>
+    <string name="notif_channel_blocked_attempts_description">Opens Impulsive when a protected app is opened outside a planned window.</string>
+    <string name="notif_channel_release_window_name">Protection pause windows</string>
+    <string name="notif_channel_release_window_description">Tells you when protection pauses and turns back on around release windows.</string>
+
+    <!-- Monitoring (persistent foreground) notification -->
+    <string name="notif_monitoring_title">Impulsive protection is on</string>
+    <string name="notif_monitoring_body">Protected apps are checked during your protected time.</string>
+
+    <!-- Blocked attempt / full-screen notifications -->
+    <string name="notif_blocked_attempt_title">Impulsive stepped in</string>
+    <string name="notif_blocked_attempt_body">%1$s is protected right now. Tap to return to Impulsive.</string>
+    <string name="notif_block_fullscreen_title">Pause before %1$s</string>
+    <string name="notif_block_fullscreen_body">Tap to take a moment with Impulsive.</string>
+
+    <!-- Release window notifications -->
+    <string name="notif_release_window_open_title">Release window is open</string>
+    <string name="notif_release_window_open_body">Protection is paused until %1$s.</string>
+    <string name="notif_protection_resumed_title">Protection is back on</string>
+    <string name="notif_protection_resumed_body">Protected apps are being checked again.</string>
+
+    <!-- Block screen -->
+    <string name="block_screen_headline_protected">You are protected right now</string>
+    <string name="block_screen_headline_paused">Release window is open</string>
+    <string name="block_screen_app_in_list">%1$s is part of your protected app list.</string>
+    <string name="block_screen_time_label_protected">Next planned window opens in</string>
+    <string name="block_screen_time_label_paused">Protection turns back on at</string>
+    <string name="block_screen_detail_protected">Protection pauses for %1$d minutes when your planned window opens.</string>
+    <string name="block_screen_detail_paused">This is your %1$d-minute planned window. Protection will resume automatically.</string>
+    <string name="block_screen_btn_start_task">Start control task</string>
+    <string name="block_screen_btn_task_not_needed">Task not needed right now</string>
+    <string name="block_screen_btn_return_home">Return home</string>
+    <string name="block_screen_source_label">Source: %1$s</string>
 </resources>

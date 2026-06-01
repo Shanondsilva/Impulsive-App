@@ -36,7 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -119,7 +119,7 @@ private fun homeReadablePalette(useDarkUi: Boolean): HomeReadablePalette = if (u
         secondaryText = ImpulsiveText.copy(alpha = 0.80f),
         mutedText = ImpulsiveMutedText,
         actionText = Color(0xFF5C4A7D),
-        subtleBorder = ImpulsiveText.copy(alpha = 0.06f),
+        subtleBorder = Color.Transparent,
         softShadow = ImpulsiveText.copy(alpha = 0.08f),
     )
 }
@@ -143,12 +143,12 @@ fun HomeScreen(
     onOpenSettings: () -> Unit = {},
     onOpenReading: () -> Unit = onOpenResetReadTask,
 ) {
-    val state by onboardingViewModel.state.collectAsState()
-    val protectionSetupState by protectionSetupViewModel.state.collectAsState()
+    val state by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val displayName = state.answers.name.takeIf { it.isNotBlank() } ?: "friend"
     val avatar = AvatarStyle.fromId(state.answers.avatarId)
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val themeMode by themeViewModel.themeMode.collectAsState()
+    val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
     val systemInDark = isSystemInDarkTheme()
     val currentNow by produceState(initialValue = LocalDateTime.now().withSecond(0).withNano(0)) {
         while (true) {
@@ -171,7 +171,7 @@ fun HomeScreen(
         activeDayStart = minuteOfDayToLocalTime(state.answers.activeDayStartMinute),
         activeDayEnd = minuteOfDayToLocalTime(state.answers.activeDayEndMinute),
     )
-    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsState()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     val taskRewardState = taskRewardStoreState.toTaskRewardState(releasePlan)
     val displayReleasePlan = calculateRewardedReleasePlan(
         releasePlan = releasePlan,
@@ -196,7 +196,6 @@ fun HomeScreen(
                 greeting = greeting,
                 displayName = displayName,
                 showProtectionBadge = protectionSetupState.profileBadgeShouldShow,
-                onClick = onOpenSettings,
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -289,12 +288,10 @@ private fun HeaderBlock(
     greeting: String,
     displayName: String,
     showProtectionBadge: Boolean,
-    onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
             .padding(horizontal = 20.dp)
             .padding(top = 18.dp),
         horizontalArrangement = Arrangement.Start,

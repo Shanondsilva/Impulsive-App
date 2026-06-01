@@ -41,7 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,7 +105,7 @@ fun ProgressDashboardScreen(
     modifier: Modifier = Modifier,
     viewModel: ScoreViewModel = viewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val colors = rememberScoreColors()
 
     Box(
@@ -218,7 +218,7 @@ private fun rememberScoreColors(): ScoreScreenColors {
             elevatedSurface = Color(0xFFF7F1F8),
             text = Color(0xFF2F2637),
             muted = Color(0xFF706777),
-            faintLine = Color(0xFF2F2637).copy(alpha = 0.10f),
+            faintLine = Color.Transparent,
             mainCard = Color(0xFFDFF4E8),
             mainCardText = Color(0xFF24392F),
             selectedPill = ImpulsivePsychological,
@@ -281,10 +281,14 @@ private fun MainControlScoreCard(
     Surface(
         color = colors.mainCard,
         shape = RoundedCornerShape(34.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isDark) colors.greenGlow.copy(alpha = 0.42f) else colors.greenGlow.copy(alpha = 0.30f),
-        ),
+        border = if (isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = colors.greenGlow.copy(alpha = 0.42f),
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -531,10 +535,14 @@ private fun SummaryMetricCard(
     Surface(
         color = colors.surface,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isDark) colors.greenGlow.copy(alpha = 0.16f) else colors.faintLine.copy(alpha = 0.6f),
-        ),
+        border = if (isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = colors.greenGlow.copy(alpha = 0.16f),
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -584,6 +592,7 @@ private fun ScoreRecordsCard(
     recentSessions: List<ScoreTimelineItem>,
     colors: ScoreScreenColors,
 ) {
+    val isDark = colors.background.luminance() < 0.5f
     val topBest = personalBests
         .filter { it.hasRecord }
         .maxByOrNull { it.bestScore }
@@ -593,7 +602,7 @@ private fun ScoreRecordsCard(
     Surface(
         color = colors.surface,
         shape = RoundedCornerShape(30.dp),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.58f)),
+        border = if (isDark) BorderStroke(1.dp, accent.copy(alpha = 0.58f)) else null,
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -731,10 +740,11 @@ private fun RecentPlayedPanel(
     colors: ScoreScreenColors,
     modifier: Modifier = Modifier,
 ) {
+    val isDark = colors.background.luminance() < 0.5f
     Surface(
         color = colors.elevatedSurface.copy(alpha = 0.48f),
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, colors.faintLine.copy(alpha = 0.45f)),
+        border = if (isDark) BorderStroke(1.dp, colors.faintLine.copy(alpha = 0.45f)) else null,
         modifier = modifier,
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -876,7 +886,7 @@ private fun PersonalBestCard(
     Surface(
         color = colors.surface,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, accent.copy(alpha = if (isDark) 0.62f else 0.55f)),
+        border = if (isDark) BorderStroke(1.dp, accent.copy(alpha = 0.62f)) else null,
         modifier = Modifier
             .width(164.dp)
             .shadow(
@@ -977,10 +987,14 @@ private fun CompactSafeExitCard(
     Surface(
         color = colors.safeExitCard,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isDark) accent.copy(alpha = 0.72f) else accent.copy(alpha = 0.42f),
-        ),
+        border = if (isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = accent.copy(alpha = 0.72f),
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -1068,10 +1082,14 @@ private fun UrgeTrendCard(
     Surface(
         color = colors.urgeCard,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isDark) accent.copy(alpha = 0.52f) else accent.copy(alpha = 0.30f),
-        ),
+        border = if (isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = accent.copy(alpha = 0.52f),
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -1185,10 +1203,14 @@ private fun RecoveryMetricCard(
     Surface(
         color = cardColor,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isDark) accentColor.copy(alpha = 0.38f) else Color.Transparent,
-        ),
+        border = if (isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = accentColor.copy(alpha = 0.38f),
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -1445,7 +1467,7 @@ private fun OutcomePill(
     Surface(
         color = pillColor,
         shape = RoundedCornerShape(50),
-        border = BorderStroke(1.dp, colors.faintLine.copy(alpha = 0.55f)),
+        border = if (isDark) BorderStroke(1.dp, colors.faintLine.copy(alpha = 0.55f)) else null,
     ) {
         Text(
             text = outcome.label,

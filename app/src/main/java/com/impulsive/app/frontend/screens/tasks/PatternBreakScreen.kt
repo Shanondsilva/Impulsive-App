@@ -34,7 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -96,9 +97,9 @@ fun PatternBreakScreen(
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     patternBreakViewModel: PatternBreakViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val onboardingState by onboardingViewModel.state.collectAsState()
-    val rewardStoreState by taskRewardViewModel.storeState.collectAsState()
-    val completionResult by taskRewardViewModel.lastCompletionResult.collectAsState()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val rewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val completionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
         while (true) {
             value = LocalDateTime.now()
@@ -370,7 +371,11 @@ private fun PatternBreakPlaying(
         Surface(
             color = ImpulsiveSurface,
             shape = RoundedCornerShape(28.dp),
-            border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+            border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+            } else {
+                null
+            },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(
@@ -406,7 +411,11 @@ private fun PatternBreakPlaying(
             Surface(
                 color = if (index % 2 == 0) Color(0xFFFFFCFF) else ImpulsivePhysical.copy(alpha = 0.22f),
                 shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+                border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                    BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+                } else {
+                    null
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSelect(index) },
@@ -564,7 +573,11 @@ private fun CenterTaskPanel(content: @Composable () -> Unit) {
         Surface(
             color = ImpulsiveSurface,
             shape = RoundedCornerShape(30.dp),
-            border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+            border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+            } else {
+                null
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .shadow(

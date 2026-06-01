@@ -184,11 +184,11 @@ class FirebaseAuthRepository(
         val accessToken = when (loginOutcome) {
             FacebookLoginOutcome.Cancelled -> return AuthResult.Cancelled
             is FacebookLoginOutcome.Error -> {
-                val message = loginOutcome.message
-                return if (message.isConfigurationMessage()) {
-                    AuthResult.Error(AuthNotConfiguredMessage, loginOutcome.cause)
+                val cause = loginOutcome.cause
+                return if (cause is Exception) {
+                    cause.toAuthError("Facebook")
                 } else {
-                    AuthResult.Error(message, loginOutcome.cause)
+                    AuthResult.Error(loginOutcome.message, cause)
                 }
             }
             is FacebookLoginOutcome.Success -> loginOutcome.accessToken

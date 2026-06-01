@@ -75,7 +75,7 @@ private fun rememberRecoveryGamesColors(): RecoveryGamesColors {
             text = Color(0xFF2F2637),
             mutedText = Color(0xFF706777),
             accentText = Color(0xFF5C4A7D),
-            border = Color(0xFF2F2637).copy(alpha = 0.06f),
+            border = Color.Transparent,
             shadow = Color(0xFF2F2637).copy(alpha = 0.08f),
             chipBackground = ImpulsivePsychological.copy(alpha = 0.34f),
         )
@@ -191,10 +191,11 @@ private fun RecoveryGameCard(
     colors: RecoveryGamesColors,
 ) {
     val cardShape = RoundedCornerShape(28.dp)
+    val isDark = colors.background.luminance() < 0.5f
     Surface(
         color = colors.surface,
         shape = cardShape,
-        border = BorderStroke(1.dp, colors.border),
+        border = if (isDark) BorderStroke(1.dp, colors.border) else null,
         modifier = Modifier
             .fillMaxWidth()
             .shadow(

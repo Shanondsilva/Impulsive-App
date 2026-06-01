@@ -37,7 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
@@ -84,10 +84,10 @@ fun ReflexGameScreen(
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val onboardingState by onboardingViewModel.state.collectAsState()
-    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsState()
-    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
         while (true) {
             value = LocalDateTime.now()

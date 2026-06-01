@@ -1,12 +1,17 @@
 <resources>
-    <style name="Theme.Impulsive" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <!-- Pre-API-31: Theme.SplashScreen provides the compat splash on API 26–30. -->
+    <style name="Theme.Impulsive" parent="Theme.SplashScreen">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
+        <!-- windowBackground matches the splash so there is no flash between the two frames. -->
         <item name="android:windowBackground">#F3FBF6</item>
         <item name="android:colorAccent">#93E9BE</item>
         <item name="android:statusBarColor">#F3FBF6</item>
         <item name="android:navigationBarColor">#F3FBF6</item>
         <item name="android:windowLightStatusBar">true</item>
+        <!-- SplashScreen compat attributes (androidx.core:core-splashscreen reads these on API 26–30) -->
+        <item name="windowSplashScreenBackground">#F3FBF6</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
     </style>
 </resources>

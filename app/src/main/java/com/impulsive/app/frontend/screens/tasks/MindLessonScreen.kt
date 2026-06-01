@@ -50,7 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +66,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -113,10 +114,10 @@ fun MindLessonScreen(
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     mindLessonViewModel: MindLessonViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val uiState by mindLessonViewModel.uiState.collectAsState()
-    val onboardingState by onboardingViewModel.state.collectAsState()
-    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsState()
-    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsState()
+    val uiState by mindLessonViewModel.uiState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     var rewardLogged by remember { mutableStateOf(false) }
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
@@ -302,7 +303,11 @@ private fun LessonCards(
             color = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(32.dp),
             tonalElevation = 2.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+            border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+            } else {
+                null
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -969,7 +974,11 @@ private fun CheckQuestion(
             Surface(
                 color = ImpulsiveSurface,
                 shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = if (hintDimmed) 0.02f else 0.06f)),
+                border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = if (hintDimmed) 0.02f else 0.06f))
+                } else {
+                    null
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(78.dp),

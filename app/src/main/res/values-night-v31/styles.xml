@@ -1,0 +1,16 @@
+<resources>
+    <!-- Dark mode, API 31+ native splash. -->
+    <style name="Theme.Impulsive" parent="Theme.SplashScreen">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">#11161A</item>
+        <item name="android:colorAccent">#6B5BA3</item>
+        <item name="android:statusBarColor">#11161A</item>
+        <item name="android:navigationBarColor">#11161A</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowSplashScreenBackground">#11161A</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+    </style>
+</resources>

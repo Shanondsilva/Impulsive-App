@@ -55,6 +55,7 @@ enum class ProtectionSetupItem(
 }
 
 data class ProtectionSetupState(
+    val isLoaded: Boolean = false,
     val usageAccessEnabled: Boolean = false,
     val selectedBlockedAppPackageNames: Set<String> = emptySet(),
     val websiteProtectionEnabled: Boolean = false,
@@ -83,7 +84,8 @@ data class ProtectionSetupState(
             .sortedBy { it.ordinal }
 
     val profileBadgeShouldShow: Boolean
-        get() = incompleteCoreProtectionItems.isNotEmpty() || skippedCoreProtectionItems.isNotEmpty()
+        get() = isLoaded &&
+            (incompleteCoreProtectionItems.isNotEmpty() || skippedCoreProtectionItems.isNotEmpty())
 
     fun isComplete(item: ProtectionSetupItem): Boolean = when (item) {
         ProtectionSetupItem.BlockedApps -> blockedAppsSelected

@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +47,7 @@ fun BlockedAppsSelectionContent(
     allowShowMoreApps: Boolean = false,
 ) {
     val context = LocalContext.current
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var candidates by remember { mutableStateOf(emptyList<ProtectedAppCandidate>()) }
     var localSelection by remember(selectedPackageNames) { mutableStateOf(selectedPackageNames) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -174,6 +176,7 @@ private fun ProtectedAppCandidateRow(
     selected: Boolean,
     onToggle: () -> Unit,
 ) {
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -182,7 +185,11 @@ private fun ProtectedAppCandidateRow(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)),
+        border = if (isDarkTheme) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+        } else {
+            null
+        },
     ) {
         Row(
             modifier = Modifier

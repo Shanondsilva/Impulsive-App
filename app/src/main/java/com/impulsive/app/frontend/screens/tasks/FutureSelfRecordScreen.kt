@@ -45,7 +45,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,8 +86,8 @@ fun FutureSelfRecordScreen(
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: FutureSelfMessageViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val recordState by viewModel.recordState.collectAsState()
-    val onboardingState by onboardingViewModel.state.collectAsState()
+    val recordState by viewModel.recordState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var selectedMode by remember {

@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.Impulsive" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.Impulsive" parent="Theme.SplashScreen">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
@@ -9,5 +9,7 @@
         <item name="android:navigationBarColor">#F3FBF6</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
+        <item name="windowSplashScreenBackground">#F3FBF6</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
     </style>
 </resources>

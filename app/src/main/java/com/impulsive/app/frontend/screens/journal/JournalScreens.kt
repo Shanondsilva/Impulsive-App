@@ -61,7 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,7 +108,7 @@ fun JournalHubScreen(
     modifier: Modifier = Modifier,
     viewModel: JournalViewModel = viewModel(),
 ) {
-    val state by viewModel.listState.collectAsState()
+    val state by viewModel.listState.collectAsStateWithLifecycle()
     BackHandler { onBack() }
 
     Column(
@@ -186,7 +187,7 @@ fun JournalListScreen(
     modifier: Modifier = Modifier,
     viewModel: JournalViewModel = viewModel(),
 ) {
-    val state by viewModel.listState.collectAsState()
+    val state by viewModel.listState.collectAsStateWithLifecycle()
     var actionNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
     var highlightNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
     var categorizeNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
@@ -212,7 +213,11 @@ fun JournalListScreen(
             Surface(
                 color = ImpulsiveSurface,
                 shape = RoundedCornerShape(28.dp),
-                border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f)),
+                border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                    BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+                } else {
+                    null
+                },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
@@ -356,8 +361,8 @@ fun JournalEditorScreen(
     modifier: Modifier = Modifier,
     viewModel: JournalViewModel = viewModel(),
 ) {
-    val state by viewModel.editorState.collectAsState()
-    val listState by viewModel.listState.collectAsState()
+    val state by viewModel.editorState.collectAsStateWithLifecycle()
+    val listState by viewModel.listState.collectAsStateWithLifecycle()
     val isAtSaveLimit = noteId == 0L && !listState.canCreateMore
     var toolsExpanded by remember { mutableStateOf(false) }
 
@@ -495,7 +500,11 @@ private fun JournalModeCard(
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
     ) {
         Row(
@@ -527,7 +536,11 @@ private fun CreateNoteCard(
     Surface(
         color = if (enabled) ImpulsivePsychological.copy(alpha = 0.22f) else ImpulsiveSurface,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = if (enabled) 0.24f else 0.08f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = if (enabled) 0.24f else 0.08f))
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled) { onClick() },
@@ -579,7 +592,11 @@ private fun NoteToolDock(
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.08f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.08f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -655,7 +672,11 @@ private fun ToolChoiceChip(
     Surface(
         color = if (selected) type.accentColor().copy(alpha = 0.45f) else ImpulsiveSurface,
         shape = RoundedCornerShape(50),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = if (selected) 0.0f else 0.08f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = if (selected) 0.0f else 0.08f))
+        } else {
+            null
+        },
         modifier = Modifier.clickable { onClick() },
     ) {
         Row(
@@ -684,7 +705,11 @@ private fun SaveLimitCard() {
     Surface(
         color = ImpulsivePsychological.copy(alpha = 0.14f),
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = 0.25f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = 0.25f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
@@ -701,7 +726,11 @@ private fun EmptyJournalState(canCreate: Boolean, onCreateNote: () -> Unit) {
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -729,7 +758,11 @@ private fun JournalNoteCard(
     Surface(
         color = note.cardColor(),
         shape = RoundedCornerShape(26.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
@@ -762,7 +795,11 @@ private fun CompactJournalNoteCard(note: JournalNoteEntity, onClick: () -> Unit)
     Surface(
         color = note.cardColor(),
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
     ) {
         Row(
@@ -867,7 +904,11 @@ private fun ActionRow(label: String, onClick: () -> Unit) {
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
     ) {
         Text(label, color = ImpulsiveText, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
@@ -899,7 +940,11 @@ private fun HighlightOption(label: String, key: String?, onSelected: (String?) -
     Surface(
         color = color.copy(alpha = if (key == null) 1f else 0.34f),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth().clickable { onSelected(key) },
     ) {
         Text(label, color = ImpulsiveText, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
@@ -950,7 +995,11 @@ private fun ChecklistEditorBody(
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1005,7 +1054,11 @@ private fun SketchEditorBody(sketch: String, onSketchChanged: (String) -> Unit) 
         Surface(
             color = Color(0xFFFFFCFF),
             shape = RoundedCornerShape(28.dp),
-            border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.08f)),
+            border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.08f))
+            } else {
+                null
+            },
             modifier = Modifier.fillMaxWidth().height(310.dp),
         ) {
             Canvas(
@@ -1098,7 +1151,11 @@ private fun ReminderCard(
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {

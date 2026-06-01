@@ -19,7 +19,7 @@ import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
         JournalChecklistItemEntity::class,
     ],
     version = 3,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recoverySessionDao(): RecoverySessionDao
@@ -28,7 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val DatabaseName = "impulsive.db"
 
-        private val Migration1To2 = object : Migration(1, 2) {
+        internal val Migration1To2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """
@@ -49,7 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val Migration2To3 = object : Migration(2, 3) {
+        internal val Migration2To3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE journal_notes ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE journal_notes ADD COLUMN category TEXT NOT NULL DEFAULT ''")

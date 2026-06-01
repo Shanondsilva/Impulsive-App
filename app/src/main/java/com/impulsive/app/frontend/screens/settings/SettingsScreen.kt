@@ -72,7 +72,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -133,21 +133,22 @@ fun SettingsScreen(
     futureSelfViewModel: com.impulsive.app.backend.session.tasks.FutureSelfMessageViewModel =
         androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val futureSelfRecordState by futureSelfViewModel.recordState.collectAsState()
-    val onboardingState by onboardingViewModel.state.collectAsState()
+    val futureSelfRecordState by futureSelfViewModel.recordState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val levelViewModel: LevelViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val appSettingsState by appSettingsViewModel.state.collectAsState()
-    val currentLevel by levelViewModel.currentLevel.collectAsState()
-    val storedMode by themeViewModel.themeMode.collectAsState()
+    val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    val currentLevel by levelViewModel.currentLevel.collectAsStateWithLifecycle()
+    val storedMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
     val selectedMode = if (storedMode == ThemeMode.System) ThemeMode.AsPerTime else storedMode
     val displayName = onboardingState.answers.name.takeIf { it.isNotBlank() } ?: "Shanon"
     val avatar = AvatarStyle.fromId(onboardingState.answers.avatarId)
     val context = LocalContext.current
     val protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val protectionSetupState by protectionSetupViewModel.state.collectAsState()
+    val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var showPlusSheet by remember { mutableStateOf(false) }
     var showBlockedAppsSheet by remember { mutableStateOf(false) }
     var notificationsAllowed by remember { mutableStateOf(isNotificationPermissionAllowed(context)) }
@@ -155,6 +156,7 @@ fun SettingsScreen(
         contract = ActivityResultContracts.RequestPermission(),
     ) {
         notificationsAllowed = isNotificationPermissionAllowed(context)
+        protectionSetupViewModel.setNotificationPermissionEnabled(notificationsAllowed)
     }
     val background = MaterialTheme.colorScheme.background
 
@@ -300,6 +302,7 @@ private fun ProtectionSetupIncompleteCard(
     protectionSetupState: ProtectionSetupState,
     onOpenProtectionSetup: () -> Unit,
 ) {
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val items = (
         protectionSetupState.incompleteCoreProtectionItems +
             protectionSetupState.skippedCoreProtectionItems
@@ -312,7 +315,7 @@ private fun ProtectionSetupIncompleteCard(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
-        border = BorderStroke(1.dp, SettingsBoxBorder.copy(alpha = 0.55f)),
+        border = if (isDarkTheme) BorderStroke(1.dp, SettingsBoxBorder.copy(alpha = 0.55f)) else null,
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
@@ -1061,10 +1064,10 @@ private fun AccordionGroup(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(22.dp),
         tonalElevation = 2.dp,
-        border = if (glowSpec?.animated == true || glowSpec == null) {
-            null
-        } else {
+        border = if (isDarkTheme && glowSpec != null && !glowSpec.animated) {
             BorderStroke(1.2.dp, glowSpec.colors.first().copy(alpha = 0.55f))
+        } else {
+            null
         },
     ) {
         Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {

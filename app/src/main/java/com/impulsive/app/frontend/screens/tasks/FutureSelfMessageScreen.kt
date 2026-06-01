@@ -37,7 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -86,10 +86,10 @@ fun FutureSelfMessageScreen(
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: FutureSelfMessageViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val playback by viewModel.playbackState.collectAsState()
-    val onboardingState by onboardingViewModel.state.collectAsState()
-    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsState()
-    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsState()
+    val playback by viewModel.playbackState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     var rewardLogged by remember { mutableStateOf(false) }
 

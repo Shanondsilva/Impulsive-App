@@ -21,10 +21,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,6 +45,7 @@ fun ProtectionSetupOnboardingScreen(
     state: ProtectionSetupState,
     onBack: () -> Unit,
     onChooseApps: () -> Unit,
+    onOpenUsageAccessPermission: () -> Unit,
     onOpenInterruptionPermission: () -> Unit,
     onOpenBackgroundActivityPermission: () -> Unit,
     onOpenUninstallProtection: () -> Unit,
@@ -134,8 +137,8 @@ fun ProtectionSetupOnboardingScreen(
                 body = "This phone setting lets Impulsive notice protected apps. You can finish it from your profile after onboarding.",
                 completed = state.isComplete(ProtectionSetupItem.UsageAccess),
                 skipped = ProtectionSetupItem.UsageAccess in state.skippedSetupItems,
-                actionLabel = null,
-                onAction = null,
+                actionLabel = "Open settings",
+                onAction = onOpenUsageAccessPermission,
                 onSkip = { onSkipItem(ProtectionSetupItem.UsageAccess) },
             )
             ProtectionSetupCard(
@@ -211,6 +214,7 @@ private fun ProtectionSetupCard(
     onAction: (() -> Unit)?,
     onSkip: () -> Unit,
 ) {
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val borderColor by animateColorAsState(
         targetValue = when {
             completed -> ProtectionComplete.copy(alpha = 0.62f)
@@ -235,7 +239,13 @@ private fun ProtectionSetupCard(
         modifier = Modifier
             .fillMaxWidth()
             .background(ImpulsiveSurface, RoundedCornerShape(24.dp))
-            .border(BorderStroke(1.2.dp, borderColor), RoundedCornerShape(24.dp))
+            .then(
+                if (isDarkTheme) {
+                    Modifier.border(BorderStroke(1.2.dp, borderColor), RoundedCornerShape(24.dp))
+                } else {
+                    Modifier
+                },
+            )
             .padding(16.dp),
     ) {
         Row(
@@ -386,7 +396,11 @@ private fun ProtectionSmallButton(
         },
         modifier = modifier.height(42.dp),
         shape = RoundedCornerShape(21.dp),
-        border = BorderStroke(1.dp, ImpulsivePsychological),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsivePsychological)
+        } else {
+            null
+        },
         colors = ButtonDefaults.outlinedButtonColors(
             contentColor = ProtectionAccentText,
         ),

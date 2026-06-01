@@ -161,9 +161,12 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         val expired = targets.filter { now - it.createdAtMs > it.lifetimeMs }
-        if (expired.any { it.type == TargetType.Hit }) {
+        val expiredHits = expired.count { it.type == TargetType.Hit }
+        if (expiredHits > 0) {
             combo = 0
             noMiss = false
+            misses += expiredHits
+            bombStreak += expiredHits   // a missed target costs a life, same weight as tapping a bomb
         }
         targets = targets.filter { target -> expired.none { it.id == target.id } }
 
@@ -175,6 +178,9 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
                 lives = max(0, ReflexGameConfig.MAX_BOMBS - bombStreak),
                 targets = targets,
             )
+        }
+        if (bombStreak >= ReflexGameConfig.MAX_BOMBS) {
+            endWithGameOver()
         }
     }
 

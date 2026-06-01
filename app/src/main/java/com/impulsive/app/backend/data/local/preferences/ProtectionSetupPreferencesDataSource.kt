@@ -21,6 +21,7 @@ class ProtectionSetupPreferencesDataSource(
 
     val state: Flow<ProtectionSetupState> = dataStore.data.map { preferences ->
         ProtectionSetupState(
+            isLoaded = true,
             usageAccessEnabled = preferences[UsageAccessEnabledKey] ?: false,
             selectedBlockedAppPackageNames =
                 preferences[SelectedBlockedAppPackageNamesKey].toStringSet(),

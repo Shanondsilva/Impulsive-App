@@ -32,14 +32,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -52,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -92,10 +92,10 @@ fun ResetReadScreen(
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     resetReadViewModel: ResetReadViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val uiState by resetReadViewModel.uiState.collectAsState()
-    val onboardingState by onboardingViewModel.state.collectAsState()
-    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsState()
-    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsState()
+    val uiState by resetReadViewModel.uiState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     var rewardLogged by remember { mutableStateOf(false) }
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
@@ -314,16 +314,6 @@ private fun ReadProgressPanel(uiState: ResetReadUiState) {
                     modifier = Modifier.size(22.dp),
                 )
             }
-            LinearProgressIndicator(
-                progress = { uiState.scrollProgress },
-                color = ImpulsivePsychological,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                drawStopIndicator = {},
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(7.dp)
-                    .clip(RoundedCornerShape(50)),
-            )
             Text(
                 text = if (uiState.reachedEnd) "Article end reached" else "Scroll to the end and let the read timer finish",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -356,7 +346,11 @@ private fun NativeArticleView(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(30.dp),
         tonalElevation = 2.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+        } else {
+            null
+        },
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
@@ -423,7 +417,11 @@ private fun InlineArticleImage(
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -660,7 +658,11 @@ private fun ClosingQuestion(
             Surface(
                 color = ImpulsiveSurface,
                 shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+                border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+                } else {
+                    null
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(76.dp)

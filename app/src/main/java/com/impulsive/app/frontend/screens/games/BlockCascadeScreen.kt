@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,7 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -96,10 +97,10 @@ fun BlockCascadeScreen(
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: BlockCascadeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val onboardingState by onboardingViewModel.state.collectAsState()
-    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsState()
-    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     var rewardLogged by remember { mutableStateOf(false) }
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
@@ -378,8 +379,8 @@ private fun BlockCascadeBoardCanvas(
         contentAlignment = Alignment.Center,
     ) {
         val boardModifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(BlockCascadeColumns / BlockCascadeRows.toFloat())
+            .fillMaxHeight()
+            .aspectRatio(BlockCascadeColumns / BlockCascadeRows.toFloat(), matchHeightConstraintsFirst = true)
             .clip(RoundedCornerShape(26.dp))
             .background(Color(0xFFFFFCFF))
             .border(1.dp, ImpulsiveText.copy(alpha = 0.08f), RoundedCornerShape(26.dp))
@@ -459,13 +460,13 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBlock(
 private fun blockPalette(): BlockPalette = BlockPalette(
     gridLine = Color(0xFFF2EEF7),
     blocks = listOf(
-        ImpulsivePsychological,
-        ImpulsivePsychological.copy(alpha = 0.72f),
-        Color(0xFFE8E2F8),
-        ImpulsivePhysical.copy(alpha = 0.72f),
-        Color(0xFFEAF5FE),
-        ImpulsiveSpiritual.copy(alpha = 0.74f),
-        Color(0xFFFFF7C6),
+        Color(0xFF7C3AED), // vivid violet
+        Color(0xFF2563EB), // strong blue
+        Color(0xFF06B6D4), // cyan
+        Color(0xFF10B981), // emerald
+        Color(0xFFF59E0B), // amber
+        Color(0xFFEF4444), // red
+        Color(0xFFEC4899), // magenta/pink
     ),
 )
 

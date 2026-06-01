@@ -39,7 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -130,7 +130,7 @@ private fun rememberTaskModeColors(): TaskModeColors {
             primaryText = ImpulsiveText,
             mutedText = ImpulsiveMutedText,
             accentText = Color(0xFF5B4B7E),
-            subtleBorder = ImpulsiveText.copy(alpha = 0.06f),
+            subtleBorder = Color.Transparent,
             softShadow = ImpulsiveText.copy(alpha = 0.08f),
             chipBackground = ImpulsiveText.copy(alpha = 0.055f),
             rewardBackground = Color(0xFFFFF9D8),
@@ -205,7 +205,7 @@ fun TaskToCompleteScreen(
 ) {
     val colors = rememberTaskModeColors()
     val haptics = rememberImpulsiveHaptics(enabled = true)
-    val state by onboardingViewModel.state.collectAsState()
+    val state by onboardingViewModel.state.collectAsStateWithLifecycle()
     val currentNow by produceState(initialValue = LocalDateTime.now().withSecond(0).withNano(0)) {
         while (true) {
             value = LocalDateTime.now().withSecond(0).withNano(0)
@@ -218,8 +218,8 @@ fun TaskToCompleteScreen(
         activeDayStart = minuteOfDayToLocalTime(state.answers.activeDayStartMinute),
         activeDayEnd = minuteOfDayToLocalTime(state.answers.activeDayEndMinute),
     )
-    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsState()
-    val completionResult by taskRewardViewModel.lastCompletionResult.collectAsState()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val completionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val taskRewardState = taskRewardStoreState.toTaskRewardState(releasePlan)
     val displayReleasePlan = calculateRewardedReleasePlan(
         releasePlan = releasePlan,
@@ -382,7 +382,7 @@ private fun CompletionResultCard(
     Surface(
         color = colors.elevatedSurface,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, colors.subtleBorder),
+        border = if (colors.isDark) BorderStroke(1.dp, colors.subtleBorder) else null,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -430,7 +430,7 @@ private fun TodayPlanCard(
     Surface(
         color = colors.planCard,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, colors.subtleBorder),
+        border = if (colors.isDark) BorderStroke(1.dp, colors.subtleBorder) else null,
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -539,10 +539,14 @@ private fun TaskChoiceCard(
     Surface(
         color = cardColor,
         shape = cardShape,
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (recommended) colors.accentText.copy(alpha = 0.22f) else colors.subtleBorder,
-        ),
+        border = if (colors.isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = if (recommended) colors.accentText.copy(alpha = 0.22f) else colors.subtleBorder,
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -759,7 +763,7 @@ private fun BottomNoteCard(colors: TaskModeColors) {
     Surface(
         color = colors.elevatedSurface,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, colors.subtleBorder),
+        border = if (colors.isDark) BorderStroke(1.dp, colors.subtleBorder) else null,
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -795,7 +799,7 @@ private fun AllTasksCompleteCard(colors: TaskModeColors) {
     Surface(
         color = colors.elevatedSurface,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, colors.subtleBorder),
+        border = if (colors.isDark) BorderStroke(1.dp, colors.subtleBorder) else null,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {

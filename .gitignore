@@ -1,4 +1,7 @@
-﻿.gradle/
+﻿# Prompt-bundling workflow artifacts — duplicate source files used as Codex context
+.score_bundle/
+
+.gradle/
 build/
 app/build/
 */build/

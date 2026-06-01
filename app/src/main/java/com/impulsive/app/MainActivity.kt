@@ -8,17 +8,22 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalView
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
+import com.impulsive.app.core.util.resolveSceneTime
 import com.impulsive.app.core.util.shouldUseDarkTheme
-import com.impulsive.app.frontend.navigation.OnboardingNavHost
+import com.impulsive.app.frontend.navigation.AppNavHost
 import com.impulsive.app.frontend.theme.ImpulsiveTheme
+import java.time.LocalTime
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -26,15 +31,28 @@ class MainActivity : ComponentActivity() {
     private val pendingBlockRequest = mutableStateOf<BlockRequest?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
 
         setContent {
             val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-            val themeMode by themeViewModel.themeMode.collectAsState()
+            val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
             val systemInDark = isSystemInDarkTheme()
-            val useDark = shouldUseDarkTheme(themeMode, systemInDark)
+
+            // Single ticking time source — re-emits every minute so both shouldUseDarkTheme
+            // and resolveSceneTime always see the same hour and update at boundary crossings.
+            val currentHour by produceState(initialValue = LocalTime.now().hour) {
+                while (true) {
+                    val now = LocalTime.now()
+                    value = now.hour
+                    // Sleep until the start of the next minute.
+                    delay((60 - now.second) * 1_000L - now.nano / 1_000_000L)
+                }
+            }
+
+            val useDark = shouldUseDarkTheme(themeMode, systemInDark, currentHour)
             val view = LocalView.current
             SideEffect {
                 val window = (view.context as android.app.Activity).window
@@ -47,7 +65,7 @@ class MainActivity : ComponentActivity() {
             }
 
             ImpulsiveTheme(darkTheme = useDark) {
-                OnboardingNavHost(
+                AppNavHost(
                     authViewModel = authViewModel,
                     initialBlockRequest = pendingBlockRequest.value,
                     onBlockRequestConsumed = { pendingBlockRequest.value = null },

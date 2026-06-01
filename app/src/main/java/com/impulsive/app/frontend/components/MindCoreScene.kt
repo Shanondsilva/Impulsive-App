@@ -126,49 +126,66 @@ fun MindCoreScene(
             Canvas(modifier = Modifier.matchParentSize()) {
                 val w = size.width
                 val h = size.height
-                val centerX = w * 0.95f
-                val centerY = h * 0.05f
-                val baseAngle = ambientTime * 2f * PI.toFloat()
-                val rayCount = 6
-                val rayLength = w * 0.55f
-                repeat(rayCount) { i ->
-                    val angle = baseAngle + (i.toFloat() / rayCount) * 2f * PI.toFloat()
-                    val ex = centerX + cos(angle) * rayLength
-                    val ey = centerY + sin(angle) * rayLength
-                    drawLine(
-                        color = Color(0xFFFFF5C2).copy(alpha = 0.08f),
-                        start = Offset(centerX, centerY),
-                        end = Offset(ex, ey),
-                        strokeWidth = 8.dp.toPx(),
-                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                    )
+                val sunCenter = when (timeOfDay) {
+                    TimeOfDay.Morning -> Offset(w * 0.22f, h * 0.18f)
+                    TimeOfDay.Afternoon -> Offset(w * 0.80f, h * 0.16f)
+                    TimeOfDay.Evening -> Offset(w * 0.74f, h * 0.24f)
+                    TimeOfDay.Night -> Offset(w * 0.50f, h * 0.18f)
                 }
+                val glowPulse = 0.92f + 0.08f * calmWave(ambientTime, phase = 0.08f)
+                drawCircle(
+                    color = Color(0xFFFFF3B0).copy(alpha = 0.20f),
+                    radius = 36.dp.toPx() * glowPulse,
+                    center = sunCenter,
+                )
+                drawCircle(
+                    color = Color(0xFFFFF0A0).copy(alpha = 0.30f),
+                    radius = 24.dp.toPx() * glowPulse,
+                    center = sunCenter,
+                )
+                drawCircle(
+                    color = Color(0xFFFFE89A).copy(alpha = 0.92f),
+                    radius = 12.dp.toPx() * glowPulse,
+                    center = sunCenter,
+                )
             }
 
             Canvas(modifier = Modifier.matchParentSize()) {
                 val wScene = size.width
                 val hScene = size.height
                 val clouds = listOf(
-                    CloudSpec(phase = 0.00f, y = 0.10f, w = 0.22f, h = 0.055f, alpha = 0.60f, speed = 1.00f),
-                    CloudSpec(phase = 0.25f, y = 0.18f, w = 0.18f, h = 0.045f, alpha = 0.55f, speed = 0.75f),
-                    CloudSpec(phase = 0.55f, y = 0.08f, w = 0.20f, h = 0.05f, alpha = 0.50f, speed = 1.15f),
-                    CloudSpec(phase = 0.80f, y = 0.22f, w = 0.16f, h = 0.04f, alpha = 0.45f, speed = 0.85f),
+                    CloudSpec(phase = 0.00f, y = 0.11f, w = 0.24f, h = 0.052f, alpha = 0.42f, speed = 0.42f),
+                    CloudSpec(phase = 0.24f, y = 0.18f, w = 0.18f, h = 0.040f, alpha = 0.36f, speed = 0.34f),
+                    CloudSpec(phase = 0.56f, y = 0.09f, w = 0.21f, h = 0.048f, alpha = 0.32f, speed = 0.38f),
+                    CloudSpec(phase = 0.78f, y = 0.23f, w = 0.17f, h = 0.038f, alpha = 0.28f, speed = 0.30f),
                 )
 
                 clouds.forEach { (phase, y, width, height, alpha, speed) ->
-                    val x = (((ambientTime * speed) + phase) % 1f) * 1.4f - 0.2f
-                    drawOval(
-                        color = Color.White.copy(alpha = alpha),
-                        topLeft = Offset(x * wScene, y * hScene),
-                        size = Size(width * wScene, height * hScene),
+                    val loop = (((ambientTime * speed) + phase) % 1f)
+                    val smooth = 0.5f - 0.5f * cos(loop * 2f * PI.toFloat())
+                    val baseX = (-0.16f + smooth * 1.34f) * wScene
+                    val baseY = (y + sin((ambientTime + phase) * 2f * PI.toFloat()).toFloat() * 0.009f) * hScene
+                    val cloudColor = Color.White.copy(alpha = alpha)
+                    drawCircle(
+                        color = cloudColor,
+                        radius = height * hScene * 0.90f,
+                        center = Offset(baseX + width * wScene * 0.10f, baseY),
                     )
-                    drawOval(
-                        color = Color.White.copy(alpha = alpha * 0.85f),
-                        topLeft = Offset(
-                            (x + width * 0.30f) * wScene,
-                            (y - height * 0.30f) * hScene,
-                        ),
-                        size = Size(width * 0.60f * wScene, height * 0.85f * hScene),
+                    drawCircle(
+                        color = cloudColor.copy(alpha = alpha * 0.95f),
+                        radius = height * hScene * 1.05f,
+                        center = Offset(baseX + width * wScene * 0.34f, baseY - height * hScene * 0.14f),
+                    )
+                    drawCircle(
+                        color = cloudColor.copy(alpha = alpha * 0.92f),
+                        radius = height * hScene * 0.82f,
+                        center = Offset(baseX + width * wScene * 0.58f, baseY + height * hScene * 0.08f),
+                    )
+                    drawRoundRect(
+                        color = cloudColor.copy(alpha = alpha * 0.88f),
+                        topLeft = Offset(baseX + width * wScene * 0.14f, baseY - height * hScene * 0.28f),
+                        size = Size(width * wScene * 0.62f, height * hScene * 0.86f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(height * hScene * 0.38f),
                     )
                 }
             }

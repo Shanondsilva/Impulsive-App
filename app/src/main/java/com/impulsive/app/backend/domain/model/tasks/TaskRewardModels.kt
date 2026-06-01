@@ -383,7 +383,7 @@ fun isSameLocalDay(
 
 const val MinimumProtectionFloorMinutes = 20L
 const val InitialLevel = 1
-const val InitialLevelPoints = 40
+const val InitialLevelPoints = 0
 
 private fun Duration.coerceAtLeast(minimum: Duration): Duration =
     if (this < minimum) minimum else this

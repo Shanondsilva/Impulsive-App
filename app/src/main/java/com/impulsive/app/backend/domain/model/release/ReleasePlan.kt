@@ -113,7 +113,7 @@ fun ReleasePlanState.formattedTimeUntilNextWindow(): String =
     "Next window in ${timeUntilNextReleaseWindow.formatCompactDuration()}"
 
 fun ReleasePlanState.formattedTodaysWindow(): String =
-    "Today's window: ${ReleasePlanDefaults.ReleaseWindowMinutes} min"
+    "Window time: ${ReleasePlanDefaults.ReleaseWindowMinutes} mins"
 
 private fun activeEndForDate(
     date: LocalDate,

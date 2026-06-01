@@ -41,5 +41,5 @@ fun impulsiveGlowBorderStroke(
     darkAlpha: Float = 0.56f,
 ): BorderStroke = BorderStroke(
     width = width,
-    color = if (enabled) glowColor.copy(alpha = darkAlpha) else fallbackColor,
+    color = if (enabled) glowColor.copy(alpha = darkAlpha) else fallbackColor.copy(alpha = 0f),
 )
