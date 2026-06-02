@@ -64,7 +64,7 @@ class UserDataExporter(private val context: Context) {
             }
             appendLine()
 
-            appendLine("== Recovery sessions (${sessions.size}) ==")
+            appendLine("== Pivot sessions (${sessions.size}) ==")
             if (sessions.isEmpty()) appendLine("None yet.")
             sessions.forEach { appendRecoverySession(it) }
             appendLine()
@@ -74,7 +74,7 @@ class UserDataExporter(private val context: Context) {
             scoreSessions.forEach { appendScoreSession(it) }
             appendLine()
 
-            appendLine("== Urge log (${urgeEvents.size}) ==")
+            appendLine("== Difficult moment log (${urgeEvents.size}) ==")
             if (urgeEvents.isEmpty()) appendLine("None yet.")
             urgeEvents.forEach { appendUrgeEvent(it) }
             appendLine()
@@ -104,21 +104,21 @@ class UserDataExporter(private val context: Context) {
     }
 
     private fun StringBuilder.appendRecoverySession(session: RecoverySessionEntity) {
-        val urge = "${session.urgeBefore ?: "-"} -> ${session.urgeAfter ?: "-"}"
+        val intensity = "${session.urgeBefore ?: "-"} -> ${session.urgeAfter ?: "-"}"
         val helped = when (session.helped) {
             true -> "helped"
             false -> "did not help"
             null -> "no answer"
         }
-        appendLine("- ${millis(session.completedAt)} | urge $urge | $helped | ${session.durationSeconds}s | ${session.recoveryType}")
+        appendLine("- ${millis(session.completedAt)} | intensity $intensity | $helped | ${session.durationSeconds}s | ${session.recoveryType}")
     }
 
     private fun StringBuilder.appendScoreSession(session: ScoreSessionRecord) {
-        val urge = "${session.urgeBefore ?: "-"} -> ${session.urgeAfter ?: "-"}"
+        val intensity = "${session.urgeBefore ?: "-"} -> ${session.urgeAfter ?: "-"}"
         val valid = if (session.validCompletion) "valid" else "partial"
         appendLine(
             "- ${localDateTime(session.completedAt)} | ${session.gameType.displayName} | score ${session.score} | " +
-                "urge $urge | ${session.outcome.label} | ${session.durationSec}s | $valid",
+                "intensity $intensity | ${session.outcome.label} | ${session.durationSec}s | $valid",
         )
     }
 

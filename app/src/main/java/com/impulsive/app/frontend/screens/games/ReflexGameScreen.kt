@@ -229,7 +229,7 @@ private fun ReadyView(uiState: ReflexGameUiState, onStart: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = "Interrupt autopilot with a short reaction round.",
+            text = "Pivot out of autopilot with a short reaction round.",
             color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,

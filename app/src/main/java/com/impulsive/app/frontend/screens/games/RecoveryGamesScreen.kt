@@ -1,5 +1,6 @@
 package com.impulsive.app.frontend.screens.games
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,22 +24,34 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.impulsive.app.backend.data.local.preferences.GameAccessState
+import com.impulsive.app.backend.data.repository.StoreResult
+import com.impulsive.app.backend.domain.model.store.GameAccess
+import com.impulsive.app.backend.domain.model.store.GameStoreCatalog
+import com.impulsive.app.backend.domain.model.store.StoreGame
+import com.impulsive.app.backend.session.game.GameStoreViewModel
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 
@@ -102,6 +115,20 @@ fun RecoveryGamesScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = rememberRecoveryGamesColors()
+    val storeViewModel: GameStoreViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val points by storeViewModel.spendablePoints.collectAsStateWithLifecycle()
+    val access by storeViewModel.accessByGame.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    fun showStoreResult(result: StoreResult, successText: String) {
+        val msg = when (result) {
+            StoreResult.Success -> successText
+            StoreResult.NotEnoughPoints -> "Not enough control points yet."
+            StoreResult.Unavailable -> "That game isn't available."
+        }
+        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    }
+
     val games = listOf(
         RecoveryGameCardModel(
             title = "Reflex Override",
@@ -161,7 +188,7 @@ fun RecoveryGamesScreen(
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Recovery Games",
+                text = "Pivot Games",
                 color = colors.text,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
@@ -171,16 +198,84 @@ fun RecoveryGamesScreen(
         Spacer(modifier = Modifier.height(18.dp))
 
         Text(
-            text = "Choose a short, time-boxed game. The goal is to interrupt the loop and return to control.",
+            text = "Choose a short, time-boxed game. Notice the moment, pivot your attention, then return to plan.",
             color = colors.mutedText,
             style = MaterialTheme.typography.bodyLarge,
         )
 
         Spacer(modifier = Modifier.height(22.dp))
 
+        Surface(
+            color = colors.surface,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    Text(
+                        text = "Control points",
+                        color = colors.mutedText,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = points.toString(),
+                        color = colors.text,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text(
+                    text = "Spend below to unlock games",
+                    color = colors.mutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
         games.forEach { game ->
             RecoveryGameCard(game = game, colors = colors)
             Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        val lockedGames = GameStoreCatalog.games.filter { catalogGame ->
+            (access[catalogGame.id]?.access ?: GameAccess.LOCKED) != GameAccess.OWNED
+        }
+        if (lockedGames.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Unlock more games",
+                color = colors.text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            lockedGames.forEach { catalogGame ->
+                val state = access[catalogGame.id]
+                LockedGameStoreCard(
+                    game = catalogGame,
+                    state = state,
+                    points = points,
+                    colors = colors,
+                    onBuy = {
+                        storeViewModel.buy(catalogGame.id) { result ->
+                            showStoreResult(result, "Unlocked ${catalogGame.displayName}.")
+                        }
+                    },
+                    onRent = {
+                        storeViewModel.rent(catalogGame.id) { result ->
+                            showStoreResult(result, "Rented for ${GameStoreCatalog.RentPlays} plays.")
+                        }
+                    },
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+            }
         }
     }
 }
@@ -277,6 +372,80 @@ private fun RecoveryGameCard(
                 tint = colors.text.copy(alpha = 0.36f),
                 modifier = Modifier.size(22.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun LockedGameStoreCard(
+    game: StoreGame,
+    state: GameAccessState?,
+    points: Int,
+    colors: RecoveryGamesColors,
+    onBuy: () -> Unit,
+    onRent: () -> Unit,
+) {
+    val isRented = state?.access == GameAccess.RENTED
+    val cardShape = RoundedCornerShape(28.dp)
+    Surface(
+        color = colors.surface,
+        shape = cardShape,
+        border = BorderStroke(1.dp, colors.border),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            color = colors.chipBackground,
+                            shape = RoundedCornerShape(20.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = "Locked",
+                        tint = colors.text.copy(alpha = 0.7f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = game.displayName,
+                        color = colors.text,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = if (isRented) "${state?.playsLeft ?: 0} plays left" else "Locked",
+                        color = colors.mutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
+            if (!isRented) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onRent,
+                        enabled = points >= game.rentPrice,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Rent - ${game.rentPrice}")
+                    }
+                    Button(
+                        onClick = onBuy,
+                        enabled = points >= game.buyPrice,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Buy - ${game.buyPrice}")
+                    }
+                }
+            }
         }
     }
 }

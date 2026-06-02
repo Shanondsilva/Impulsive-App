@@ -48,6 +48,7 @@ data class ReflexGameUiState(
 class ReflexGameViewModel(application: Application) : AndroidViewModel(application) {
     private val dataSource = ReflexGameHistoryDataSource(application)
     private val scoreRepository = ScoreRepository(application)
+    private val gameStoreManager = com.impulsive.app.backend.data.repository.GameStoreManager(application)
     private val _uiState = MutableStateFlow(ReflexGameUiState())
     val uiState: StateFlow<ReflexGameUiState> = _uiState
 
@@ -434,6 +435,9 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
                     },
                 ),
             )
+            if (outcome != ScoreSessionOutcome.WalkedAway) {
+                gameStoreManager.recordPlay(gameId = "REFLEX_OVERRIDE", won = !result.gameOver)
+            }
         }
     }
 

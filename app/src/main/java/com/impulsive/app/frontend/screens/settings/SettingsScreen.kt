@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,11 +64,13 @@ import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -111,6 +114,7 @@ import kotlin.math.max
 import kotlin.math.sin
 import com.impulsive.app.backend.data.UserDataManager
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
+import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
@@ -129,6 +133,7 @@ import com.impulsive.app.core.util.ThemeMode
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.components.BottomNavBar
 import com.impulsive.app.frontend.components.BottomNavItem
+import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.utils.ImpulsiveHaptics
 import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
@@ -222,7 +227,12 @@ fun SettingsScreen(
                 soundEffectsEnabled = appSettingsState.soundEffectsEnabled,
                 onSoundEffectsChanged = appSettingsViewModel::setSoundEffectsEnabled,
             )
-            RecoverySetupGroup(answers = onboardingState.answers)
+            RecoverySetupGroup(
+                answers = onboardingState.answers,
+                onEditTriggers = { onboardingViewModel.setMultiSelectAnswer(OnboardingQuestionId.Triggers, it) },
+                onEditTiming = { onboardingViewModel.setMultiSelectAnswer(OnboardingQuestionId.Timing, it) },
+                onEditWeeklyTarget = { onboardingViewModel.setSingleSelectAnswer(OnboardingQuestionId.WeekOneGoal, it) },
+            )
             FutureSelfMessageGroup(
                 hasMessage = futureSelfRecordState.message != null,
                 kind = futureSelfRecordState.message?.kind,
@@ -321,7 +331,7 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "Impulsive Plus will unlock stronger recovery tools when payments are connected.",
+                        text = "Impulsive Plus will unlock stronger pivot tools when payments are connected.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -368,7 +378,7 @@ private fun ProtectionSetupIncompleteCard(
                     modifier = Modifier
                         .size(10.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE5484D)),
+                        .background(ImpulsiveFocusMode),
                 )
                 Spacer(modifier = Modifier.size(10.dp))
                 Text(
@@ -379,7 +389,7 @@ private fun ProtectionSetupIncompleteCard(
                 )
             }
             Text(
-                text = "These settings help Impulsive step in during real trigger moments. You can enable them now or later.",
+                text = "These settings help Impulsive step in during difficult habit moments. You can enable them now or later.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -415,7 +425,7 @@ private fun MissingProtectionItemRow(item: ProtectionSetupItem) {
 
 private fun ProtectionSetupItem.protectionReasonText(): String = when (this) {
     ProtectionSetupItem.BlockedApps ->
-        "Choose the apps Impulsive should interrupt before the loop continues."
+        "Choose the apps where Impulsive should create a pause before the loop continues."
     ProtectionSetupItem.UsageAccess ->
         "Allows Impulsive to detect protected apps without reading private content."
     ProtectionSetupItem.Notifications ->
@@ -423,11 +433,11 @@ private fun ProtectionSetupItem.protectionReasonText(): String = when (this) {
     ProtectionSetupItem.UninstallProtection ->
         "Adds friction before uninstalling during weak moments. You stay in control."
     ProtectionSetupItem.InterruptionPermission ->
-        "Allows stronger interruption tools later when you explicitly enable them."
+        "Allows stronger pivot tools later when you explicitly enable them."
     ProtectionSetupItem.BackgroundActivity ->
         "Helps Impulsive restart after reboot and avoid being stopped by battery optimization."
     ProtectionSetupItem.WebsiteProtection ->
-        "Lets Impulsive protect risky domains when website blocking is added."
+        "Lets Impulsive protect selected domains when website blocking is added."
 }
 
 @Composable
@@ -444,7 +454,7 @@ private fun SettingsHeader() {
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "Shape Impulsive around how you recover.",
+                text = "Shape Impulsive around how you Notice, Pivot and Understand.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -773,24 +783,151 @@ private fun ThemeSegmentedSelector(
 }
 
 @Composable
-private fun RecoverySetupGroup(answers: OnboardingAnswers) {
+private fun RecoverySetupGroup(
+    answers: OnboardingAnswers,
+    onEditTriggers: (List<String>) -> Unit,
+    onEditTiming: (List<String>) -> Unit,
+    onEditWeeklyTarget: (String?) -> Unit,
+) {
+    var editing by remember { mutableStateOf<RecoveryEditTarget?>(null) }
+
     AccordionGroup(
-        title = "Recovery setup",
+        title = "Pivot setup",
         summary = recoverySummary(answers),
         icon = Icons.Filled.Spa,
         haptics = null,
         glowSpec = SettingsGlowSpec.single(RecoverySetupGlow),
     ) {
-        SettingsRow(title = "Onboarding answers", subtext = "Read-only summary")
+        SettingsRow(title = "Onboarding answers", subtext = "Tap an item below to update it")
         SettingsDivider()
-        SettingsRow(title = "Triggers", value = answerListSummary(answers.triggers, TriggerLabels, "Not configured"))
+        SettingsRow(
+            title = "Cues",
+            value = answerListSummary(answers.triggers, TriggerLabels, "Not configured"),
+            onClick = { editing = RecoveryEditTarget.Triggers },
+        )
         SettingsDivider()
-        SettingsRow(title = "Timing pattern", value = answerListSummary(answers.timing, TimingLabels, "Not configured"))
+        SettingsRow(
+            title = "Timing pattern",
+            value = answerListSummary(answers.timing, TimingLabels, "Not configured"),
+            onClick = { editing = RecoveryEditTarget.Timing },
+        )
         SettingsDivider()
-        SettingsRow(title = "Weekly target", value = answerLabel(answers.weekOneGoal, WeekOneLabels, "Not configured"))
+        SettingsRow(
+            title = "Weekly target",
+            value = answerLabel(answers.weekOneGoal, WeekOneLabels, "Not configured"),
+            onClick = { editing = RecoveryEditTarget.WeeklyTarget },
+        )
         SettingsDivider()
-        SettingsRow(title = "Daily urge count", value = "${answers.dailyRelapseUrgeCount} per day")
+        SettingsRow(title = "Daily support estimate", value = "${answers.dailyRelapseUrgeCount} moments per day")
+
+        when (editing) {
+            RecoveryEditTarget.Triggers -> MultiSelectEditDialog(
+                title = "Cues",
+                options = TriggerLabels,
+                selected = answers.triggers,
+                onConfirm = { onEditTriggers(it); editing = null },
+                onDismiss = { editing = null },
+            )
+            RecoveryEditTarget.Timing -> MultiSelectEditDialog(
+                title = "Timing pattern",
+                options = TimingLabels,
+                selected = answers.timing,
+                onConfirm = { onEditTiming(it); editing = null },
+                onDismiss = { editing = null },
+            )
+            RecoveryEditTarget.WeeklyTarget -> SingleSelectEditDialog(
+                title = "Weekly target",
+                options = WeekOneLabels,
+                selected = answers.weekOneGoal,
+                onConfirm = { onEditWeeklyTarget(it); editing = null },
+                onDismiss = { editing = null },
+            )
+            null -> Unit
+        }
     }
+}
+
+@Composable
+private fun MultiSelectEditDialog(
+    title: String,
+    options: Map<String, String>,
+    selected: List<String>,
+    onConfirm: (List<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var current by remember { mutableStateOf(selected.toSet()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { (id, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                current = if (id in current) current - id else current + id
+                            }
+                            .padding(vertical = 6.dp),
+                    ) {
+                        Checkbox(
+                            checked = id in current,
+                            onCheckedChange = { checked ->
+                                current = if (checked) current + id else current - id
+                            },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(current.toList()) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun SingleSelectEditDialog(
+    title: String,
+    options: Map<String, String>,
+    selected: String?,
+    onConfirm: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var current by remember { mutableStateOf(selected) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { (id, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { current = id }
+                            .padding(vertical = 6.dp),
+                    ) {
+                        RadioButton(selected = current == id, onClick = { current = id })
+                        Spacer(Modifier.width(8.dp))
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(current) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
@@ -813,7 +950,7 @@ private fun FutureSelfMessageGroup(
     ) {
         SettingsRow(
             title = if (hasMessage) "Replace or re-record" else "Record a future-self message",
-            subtext = "A short voice note or text you'll hear during an urge.",
+            subtext = "A short voice note or text you'll hear during a difficult moment.",
             onClick = onRecordOrManage,
         )
         if (hasMessage) {
@@ -1118,7 +1255,11 @@ private fun SupportGroup() {
                 title = { Text("About Impulsive") },
                 text = {
                     Column {
-                        Text("Impulsive helps you interrupt urges and reset your thinking.")
+                        Text("Impulsive helps you notice a difficult moment, create a pause, choose a next step, and understand your patterns.")
+                        Spacer(Modifier.height(8.dp))
+                        Text("If your patterns are causing serious distress, harm, or feel difficult to stop despite unwanted consequences, consider speaking with a qualified professional or a trusted support service.")
+                        Spacer(Modifier.height(8.dp))
+                        Text("Impulsive is a behaviour-change support tool for adults. It is not a medical device, therapy service, diagnosis tool, crisis-support service, or clinically validated treatment. It does not diagnose, treat, cure, or prevent addiction, compulsions, mental health conditions, or any medical condition. It helps you create a pause, choose a next step, and understand your patterns.")
                         Spacer(Modifier.height(8.dp))
                         Text("Version ${appVersionName(context)}", style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(8.dp))
@@ -1138,7 +1279,7 @@ private fun PlusGroup(
 ) {
     AccordionGroup(
         title = "Impulsive Plus",
-        summary = "Unlock stronger recovery tools",
+        summary = "Unlock stronger pivot tools",
         icon = Icons.Filled.AutoAwesome,
         haptics = haptics,
         headerExtra = { PlusBadge() },
@@ -1157,7 +1298,7 @@ private fun PlusGroup(
         SettingsDivider()
         PlusFeatureRow(title = "Temperature Focus")
         SettingsDivider()
-        PlusFeatureRow(title = "Premium recovery games")
+        PlusFeatureRow(title = "Premium pivot games")
         SettingsDivider()
         PlusFeatureRow(title = "Deeper weekly insights")
         SettingsDivider()
@@ -1187,7 +1328,7 @@ private fun PlusGroup(
 
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Calm upgrade only. Never during a trigger.",
+            text = "Calm upgrade only. Never during a difficult habit moment.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelSmall,
         )
@@ -1729,8 +1870,8 @@ private fun recoverySummary(answers: OnboardingAnswers): String {
     val triggerCount = answers.triggers.size
     val timingCount = answers.timing.size
     return when {
-        triggerCount > 0 && timingCount > 0 -> "$triggerCount triggers • $timingCount timing cues"
-        triggerCount > 0 -> "$triggerCount triggers saved"
+        triggerCount > 0 && timingCount > 0 -> "$triggerCount cues, $timingCount timing cues"
+        triggerCount > 0 -> "$triggerCount cues saved"
         timingCount > 0 -> "$timingCount timing cues saved"
         else -> "Setup answers and targets"
     }
@@ -1754,6 +1895,8 @@ private fun answerLabel(
     labels: Map<String, String>,
     emptyText: String,
 ): String = selectedId?.let { labels[it] } ?: emptyText
+
+private enum class RecoveryEditTarget { Triggers, Timing, WeeklyTarget }
 
 private const val SettingsExpandMillis = 220
 private const val SettingsCollapseMillis = 170
@@ -1801,7 +1944,7 @@ private val TimingLabels = mapOf(
 )
 
 private val WeekOneLabels = mapOf(
-    "notice_triggers" to "Just notice my triggers",
+    "notice_triggers" to "Notice my cues",
     "cut_down_a_little" to "Cut down a little",
     "daily_reset_habit" to "Build one daily reset habit",
     "cut_down_by_half" to "Cut down by half",

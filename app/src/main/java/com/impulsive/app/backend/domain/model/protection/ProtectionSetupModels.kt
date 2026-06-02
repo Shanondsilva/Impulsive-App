@@ -1,7 +1,7 @@
 package com.impulsive.app.backend.domain.model.protection
 
 /**
- * Setup items that decide whether Impulsive can protect the user in real trigger moments.
+ * Setup items that decide whether Impulsive can protect the user in difficult habit moments.
  *
  * This model is intentionally permission-transparent. It stores the setup state that the app UI
  * can explain and revisit later. Actual Android permission checks should still be performed by
@@ -44,7 +44,7 @@ enum class ProtectionSetupItem(
     ),
     WebsiteProtection(
         storageValue = "website_protection",
-        title = "Protect risky websites",
+        title = "Protect selected websites",
         isCoreProtection = false,
     );
 

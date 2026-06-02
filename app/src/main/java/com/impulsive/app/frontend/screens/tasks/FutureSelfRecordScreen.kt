@@ -596,7 +596,7 @@ private fun polarPoint(center: Float, angleDegrees: Float, radius: Float): Offse
 
 internal fun onboardingWhySeed(weekOneGoal: String?, name: String): String {
     val goalLine = when (weekOneGoal) {
-        "notice_triggers" -> "I want to start noticing my triggers."
+        "notice_triggers" -> "I want to start noticing my cues."
         "cut_down_a_little" -> "I want to cut down a little this week."
         "daily_reset_habit" -> "I want to build one daily reset habit."
         "cut_down_by_half" -> "I want to cut down by half this week."

@@ -57,7 +57,7 @@ data class LessonCheckQuestion(
 val StarterMindLessons = listOf(
     MindLesson(
         id = "night_spikes",
-        title = "Why urges can spike at night",
+        title = "Why difficult moments can spike at night",
         cards = listOf(
             LessonCard.Text("At night, your brain has fewer fresh inputs. Quiet space can make old loops feel louder.", "moon"),
             LessonCard.SpotTheDifference(
@@ -85,7 +85,7 @@ val StarterMindLessons = listOf(
         id = "fifteen_minute_wave",
         title = "The 15-minute wave",
         cards = listOf(
-            LessonCard.Text("An urge usually changes shape when you stop feeding it with attention.", "wave"),
+            LessonCard.Text("A difficult habit moment usually changes shape when you stop feeding it with attention.", "wave"),
             LessonCard.FindTarget(
                 prompt = "Find the calm spot in the scene.",
                 scene = SceneSpec(SceneKind.Orbs, seed = 24),
@@ -95,20 +95,20 @@ val StarterMindLessons = listOf(
         ),
         checkQuestion = LessonCheckQuestion(
             prompt = "What is the point of a short reset?",
-            options = listOf("Create space for the wave to shift", "Prove you never have urges", "Make the day perfect"),
+            options = listOf("Create space for the wave to shift", "Prove difficult moments never happen", "Make the day perfect"),
             correctAnswerIndex = 0,
             shortExplanationForEachOption = listOf(
                 "Right. The reset creates space for intensity to change.",
-                "Urges are signals, not proof of who you are.",
+                "Difficult moments are signals, not proof of who you are.",
                 "A useful reset only needs to help the next few minutes.",
             ),
         ),
     ),
     MindLesson(
         id = "what_trigger_is",
-        title = "What a trigger actually is",
+        title = "What a cue actually is",
         cards = listOf(
-            LessonCard.Text("A trigger is a cue your brain has learned to connect with a familiar routine.", "spark"),
+            LessonCard.Text("A cue is something your brain has learned to connect with a familiar routine.", "spark"),
             LessonCard.SpotTheDifference(
                 prompt = "Tap the differences in the matching cue cards.",
                 baseScene = SceneSpec(SceneKind.Tiles, seed = 37),
@@ -119,7 +119,7 @@ val StarterMindLessons = listOf(
             LessonCard.Text("Naming the cue is useful because it moves the moment from autopilot into awareness.", "label"),
         ),
         checkQuestion = LessonCheckQuestion(
-            prompt = "Why name the trigger?",
+            prompt = "Why name the cue?",
             options = listOf("It creates a choice point", "It blames you", "It makes the cue disappear forever"),
             correctAnswerIndex = 0,
             shortExplanationForEachOption = listOf(
@@ -139,7 +139,7 @@ val StarterMindLessons = listOf(
                 scene = SceneSpec(SceneKind.Path, seed = 52),
                 targetHotspot = NormRect(0.64f, 0.48f, 0.12f, 0.12f),
             ),
-            LessonCard.Text("Switching attention early matters because it interrupts the chase phase.", "switch"),
+            LessonCard.Text("Switching attention early matters because it creates a pivot before the chase phase grows.", "switch"),
         ),
         checkQuestion = LessonCheckQuestion(
             prompt = "When can dopamine be active?",
@@ -157,7 +157,7 @@ val StarterMindLessons = listOf(
         title = "Why willpower alone gets tired",
         cards = listOf(
             LessonCard.Text("Willpower is easier when your environment and next step are already set up.", "battery"),
-            LessonCard.Text("If every urge becomes a long argument, attention gets drained.", "thread"),
+            LessonCard.Text("If every difficult moment becomes a long argument, attention gets drained.", "thread"),
             LessonCard.Text("A prepared replacement action lowers the number of decisions you need to make.", "route"),
         ),
         checkQuestion = LessonCheckQuestion(
@@ -189,7 +189,7 @@ val StarterMindLessons = listOf(
             correctAnswerIndex = 0,
             shortExplanationForEachOption = listOf(
                 "Right. Simple and clear is easier to repeat.",
-                "Huge goals can be useful later, but they are harder during an urge.",
+                "Huge goals can be useful later, but they are harder during a difficult habit moment.",
                 "Plans work better when they are visible and ready.",
             ),
         ),

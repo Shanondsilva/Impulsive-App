@@ -63,7 +63,7 @@ fun OnboardingDailyRelapseCountScreen(
         Spacer(modifier = Modifier.height(metrics.iconToTitleSpacing))
 
         Text(
-            text = "How many times in a day do you feel like relapsing?",
+            text = "How many difficult habit moments do you want support with each day?",
             color = OnboardingPrimary,
             fontSize = metrics.titleFontSize,
             lineHeight = metrics.titleLineHeight,
@@ -85,7 +85,7 @@ fun OnboardingDailyRelapseCountScreen(
             )
             Spacer(modifier = Modifier.height(14.dp))
             Text(
-                text = "We'll use this as your starting point, then reduce it slowly.",
+                text = "We'll use this as your starting point, then help you return to plan one moment at a time.",
                 color = OnboardingMutedText,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,

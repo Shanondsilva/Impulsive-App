@@ -114,9 +114,9 @@ private fun ReduceQuestionScreen(
                 modifier = Modifier.onGloballyPositioned { absorbState.logoCenter = it.boundsInRoot().center },
             )
             Spacer(modifier = Modifier.height(metrics.iconToTitleSpacing))
-            Text("What do you want help interrupting?", color = OnboardingPrimary, fontSize = metrics.titleFontSize, lineHeight = metrics.titleLineHeight, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text("What do you want help pivoting from?", color = OnboardingPrimary, fontSize = metrics.titleFontSize, lineHeight = metrics.titleLineHeight, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(metrics.titleToSubtitleSpacing))
-            Text("Select as many as you like. We'll tailor your experience to focus on these areas.", color = OnboardingMutedText, fontSize = metrics.subtitleFontSize, lineHeight = metrics.subtitleLineHeight, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(0.92f))
+            Text("Select as many as you like. We'll tailor your Notice, Pivot and Understand steps around these areas.", color = OnboardingMutedText, fontSize = metrics.subtitleFontSize, lineHeight = metrics.subtitleLineHeight, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(0.92f))
             Spacer(modifier = Modifier.height(metrics.subtitleToOptionsSpacing))
 
             QuestionOptionGroup(areaMinHeight = metrics.optionAreaMinHeight) {
@@ -174,9 +174,9 @@ private fun TriggerQuestionScreen(
                 modifier = Modifier.onGloballyPositioned { absorbState.logoCenter = it.boundsInRoot().center },
             )
             Spacer(modifier = Modifier.height(metrics.iconToTitleSpacing))
-            Text("What usually starts it?", color = OnboardingPrimary, fontSize = metrics.titleFontSize, lineHeight = metrics.titleLineHeight, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text("What usually starts a difficult habit moment?", color = OnboardingPrimary, fontSize = metrics.titleFontSize, lineHeight = metrics.titleLineHeight, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(metrics.titleToSubtitleSpacing))
-            Text("Select all the triggers you recognize. It's okay if you're not sure yet.", color = OnboardingMutedText, fontSize = metrics.subtitleFontSize, lineHeight = metrics.subtitleLineHeight, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(0.92f))
+            Text("Select all the cues you recognise. It's okay if you're not sure yet.", color = OnboardingMutedText, fontSize = metrics.subtitleFontSize, lineHeight = metrics.subtitleLineHeight, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(0.92f))
             Spacer(modifier = Modifier.height(metrics.subtitleToOptionsSpacing))
 
             QuestionOptionGroup(areaMinHeight = metrics.optionAreaMinHeight) {

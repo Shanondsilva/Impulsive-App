@@ -46,6 +46,7 @@ data class BlockCascadeUiState(
 
 class BlockCascadeViewModel(application: Application) : AndroidViewModel(application) {
     private val scoreRepository = ScoreRepository(application)
+    private val gameStoreManager = com.impulsive.app.backend.data.repository.GameStoreManager(application)
     private val _uiState = MutableStateFlow(BlockCascadeUiState())
     val uiState: StateFlow<BlockCascadeUiState> = _uiState
 
@@ -180,6 +181,9 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
                     validCompletion = state.completed,
                 ),
             )
+            if (outcome != ScoreSessionOutcome.WalkedAway) {
+                gameStoreManager.recordPlay(gameId = "BLOCK_CASCADE", won = outcome == ScoreSessionOutcome.Completed)
+            }
         }
     }
 

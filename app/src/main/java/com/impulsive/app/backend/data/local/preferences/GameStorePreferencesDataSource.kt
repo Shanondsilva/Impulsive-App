@@ -1,0 +1,111 @@
+package com.impulsive.app.backend.data.local.preferences
+
+import android.content.Context
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import com.impulsive.app.backend.domain.model.store.GameAccess
+import com.impulsive.app.backend.domain.model.store.GameStoreCatalog
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import java.time.LocalDate
+
+private val Context.gameStoreDataStore by preferencesDataStore(name = "game_store_prefs")
+
+data class GameAccessState(val access: GameAccess, val playsLeft: Int)
+
+class GameStorePreferencesDataSource(context: Context) {
+    private val store = context.applicationContext.gameStoreDataStore
+
+    val spendablePoints: Flow<Int> = store.data.map { it[SpendableKey] ?: 0 }
+    val lifetimePoints: Flow<Int> = store.data.map { it[LifetimeKey] ?: 0 }
+
+    val dailyEarned: Flow<Map<LocalDate, Int>> = store.data.map { prefs ->
+        decodeLedger(prefs[LedgerKey].orEmpty())
+    }
+
+    val accessByGame: Flow<Map<String, GameAccessState>> = store.data.map { prefs ->
+        val stored = decodeAccess(prefs[AccessKey].orEmpty())
+        GameStoreCatalog.games.associate { game ->
+            game.id to (
+                stored[game.id]
+                    ?: GameAccessState(if (game.defaultOwned) GameAccess.OWNED else GameAccess.LOCKED, 0)
+                )
+        }
+    }
+
+    suspend fun addEarned(points: Int) {
+        val today = LocalDate.now().toString()
+        store.edit { prefs ->
+            prefs[SpendableKey] = (prefs[SpendableKey] ?: 0) + points
+            prefs[LifetimeKey] = (prefs[LifetimeKey] ?: 0) + points
+            val ledger = decodeLedger(prefs[LedgerKey].orEmpty()).toMutableMap()
+            val key = LocalDate.parse(today)
+            ledger[key] = (ledger[key] ?: 0) + points
+            prefs[LedgerKey] = encodeLedger(ledger)
+        }
+    }
+
+    suspend fun trySpend(points: Int): Boolean {
+        var ok = false
+        store.edit { prefs ->
+            val balance = prefs[SpendableKey] ?: 0
+            if (balance >= points) {
+                prefs[SpendableKey] = balance - points
+                ok = true
+            }
+        }
+        return ok
+    }
+
+    suspend fun setAccess(gameId: String, state: GameAccessState) {
+        store.edit { prefs ->
+            val map = decodeAccess(prefs[AccessKey].orEmpty()).toMutableMap()
+            map[gameId] = state
+            prefs[AccessKey] = encodeAccess(map)
+        }
+    }
+
+    suspend fun accessFor(gameId: String): GameAccessState =
+        accessByGame.first()[gameId] ?: GameAccessState(GameAccess.LOCKED, 0)
+
+    private fun encodeLedger(m: Map<LocalDate, Int>): String =
+        m.entries.joinToString(";") { "${it.key}=${it.value}" }
+
+    private fun decodeLedger(s: String): Map<LocalDate, Int> =
+        if (s.isBlank()) {
+            emptyMap()
+        } else {
+            s.split(";").mapNotNull {
+                val p = it.split("=")
+                if (p.size == 2) runCatching { LocalDate.parse(p[0]) to p[1].toInt() }.getOrNull() else null
+            }.toMap()
+        }
+
+    private fun encodeAccess(m: Map<String, GameAccessState>): String =
+        m.entries.joinToString(";") { "${it.key}=${it.value.access.name}:${it.value.playsLeft}" }
+
+    private fun decodeAccess(s: String): Map<String, GameAccessState> =
+        if (s.isBlank()) {
+            emptyMap()
+        } else {
+            s.split(";").mapNotNull {
+                val p = it.split("=")
+                if (p.size != 2) return@mapNotNull null
+                val parts = p[1].split(":")
+                if (parts.size != 2) return@mapNotNull null
+                runCatching {
+                    p[0] to GameAccessState(GameAccess.valueOf(parts[0]), parts[1].toInt())
+                }.getOrNull()
+            }.toMap()
+        }
+
+    private companion object {
+        val SpendableKey = intPreferencesKey("spendable_points")
+        val LifetimeKey = intPreferencesKey("lifetime_points")
+        val LedgerKey = stringPreferencesKey("daily_earned_ledger")
+        val AccessKey = stringPreferencesKey("game_access")
+    }
+}

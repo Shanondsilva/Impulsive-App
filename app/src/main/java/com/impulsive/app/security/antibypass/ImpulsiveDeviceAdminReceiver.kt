@@ -25,7 +25,7 @@ class ImpulsiveDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
         return "Turning this off removes the extra pause before uninstalling Impulsive. " +
-            "Your recovery tools will still work, but removing the app becomes easier."
+            "Your support tools will still work, but removing the app becomes easier."
     }
 
     private fun syncUninstallProtectionState(context: Context, enabled: Boolean) {

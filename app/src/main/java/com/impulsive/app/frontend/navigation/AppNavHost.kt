@@ -51,6 +51,8 @@ import com.impulsive.app.frontend.screens.onboarding.OnboardingQuestionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingStartingPointScreen
 import com.impulsive.app.frontend.screens.onboarding.ProtectionSetupOnboardingScreen
 import com.impulsive.app.frontend.screens.onboarding.WelcomePrivacyScreen
+import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
+import com.impulsive.app.frontend.screens.lock.rememberAppLockGuardController
 import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.frontend.screens.protection.ImpulsiveBlockScreen
 import com.impulsive.app.frontend.screens.protection.UninstallProtectionScreen
@@ -615,15 +617,29 @@ fun AppNavHost(
                     Uri.decode(backStackEntry.arguments?.getString("sourcePackageName").orEmpty())
                 val sourceLabel =
                     Uri.decode(backStackEntry.arguments?.getString("sourceLabel").orEmpty())
+                val appLockDataSource = remember(context) {
+                    com.impulsive.app.backend.data.local.preferences.AppLockPreferencesDataSource(context)
+                }
+                val appLockEnabled by appLockDataSource.enabled.collectAsStateWithLifecycle(initialValue = false)
+                val blockGuard = rememberAppLockGuardController()
                 ImpulsiveBlockScreen(
                     sourcePackageName = sourcePackageName,
                     sourceLabel = sourceLabel.ifBlank { sourcePackageName },
                     onStartControlTask = {
-                        navController.navigate(AppRoutes.TaskToComplete) { launchSingleTop = true }
+                        blockGuard.run(appLockEnabled) {
+                            navController.navigate(AppRoutes.TaskToComplete) { launchSingleTop = true }
+                        }
                     },
                     onReturnHome = {
-                        navController.navigateBackToHome()
+                        blockGuard.run(appLockEnabled) {
+                            navController.navigateBackToHome()
+                        }
                     },
+                )
+                AppLockGuardHost(
+                    controller = blockGuard,
+                    title = "Confirm it's you",
+                    subtitle = "Authenticate to continue.",
                 )
             }
 

@@ -140,7 +140,7 @@ fun NotificationPermissionScreen(
         Spacer(modifier = Modifier.height(14.dp))
 
         Text(
-            text = "Impulsive can remind you before risk windows, focus sessions, and recovery check-ins.",
+            text = "Impulsive can remind you before planned windows, focus sessions, and support check-ins.",
             color = Color(0xFF48454E),
             fontSize = 16.sp,
             lineHeight = 23.sp,

@@ -226,7 +226,7 @@ fun HomeScreen(
             if (taskRewardState.currentWindowRewardAlreadyUsed) {
                 TaskCompletedPreviewCard(
                     releasePlan = displayReleasePlan,
-                    completedTaskName = taskRewardState.lastCompletedTaskType?.taskTitle ?: "Recovery task",
+                    completedTaskName = taskRewardState.lastCompletedTaskType?.taskTitle ?: "Pivot task",
                     onViewAllTasks = onOpenTasks,
                     palette = palette,
                 )
@@ -812,7 +812,7 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
     PsychologyTaskType.ThoughtCapture,
     PsychologyTaskType.ShortReadingBurst -> HomeRecommendedTask(
         title = "Future-Self Message",
-        description = "Use your saved reason as the next recovery action.",
+        description = "Use your saved reason as the next pivot action.",
     )
 }
 
@@ -854,8 +854,8 @@ private fun DashboardCards(
                 modifier = Modifier
                     .weight(1f)
                     .clickable { onOpenRecoveryGames() },
-                label = "RECOVERY GAME",
-                title = "Recovery\nGames",
+                label = "PIVOT GAME",
+                title = "Pivot\nGames",
                 subtext = "Reflex, Pattern and Mind games",
                 cta = "Open list ›",
                 iconColor = ImpulsivePsychological.copy(alpha = 0.58f),
@@ -899,7 +899,7 @@ private fun DashboardCards(
                 .clickable { onOpenReading() },
             label = "READING",
             title = "Reset Reading",
-            subtext = "Short calm cards for low-energy recovery moments",
+            subtext = "Short calm cards for low-energy reset moments",
             cta = "Open reading ›",
             iconColor = Color(0xFFFEF1AB).copy(alpha = if (isDark) 0.34f else 0.78f),
             glowColor = HomeGreenGlow,

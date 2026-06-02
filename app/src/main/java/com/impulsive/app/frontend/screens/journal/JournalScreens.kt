@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +30,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -86,12 +92,9 @@ import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.session.tasks.ChecklistDraftItem
 import com.impulsive.app.backend.session.tasks.JournalViewModel
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
-import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
-import com.impulsive.app.frontend.theme.ImpulsiveSurface
-import com.impulsive.app.frontend.theme.ImpulsiveText
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -130,14 +133,14 @@ fun JournalHubScreen(
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
                     text = "Two private spaces",
-                    color = ImpulsiveText,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Future-self messages stay separate. Normal notes hold thoughts, lists, drawings and reminders.",
-                    color = ImpulsiveMutedText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -148,7 +151,7 @@ fun JournalHubScreen(
             subtitle = "A small voice or text cue for hard moments.",
             action = "Open",
             iconTint = ImpulsivePsychological,
-            icon = { Icon(Icons.Outlined.Mic, contentDescription = null, tint = ImpulsiveText) },
+            icon = { Icon(Icons.Outlined.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) },
             onClick = onOpenFutureSelf,
         )
 
@@ -157,7 +160,7 @@ fun JournalHubScreen(
             subtitle = "${state.noteCount} / ${state.maxNotes} saves · notes, lists and reminders.",
             action = "Open",
             iconTint = ImpulsiveSpiritual.copy(alpha = 0.82f),
-            icon = { Icon(Icons.Outlined.EditNote, contentDescription = null, tint = ImpulsiveText) },
+            icon = { Icon(Icons.Outlined.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) },
             onClick = onOpenNormalJournal,
         )
 
@@ -168,7 +171,7 @@ fun JournalHubScreen(
         if (state.recentNotes.isNotEmpty()) {
             Text(
                 text = "Recent Notes",
-                color = ImpulsiveText,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -194,88 +197,67 @@ fun JournalListScreen(
     var deleteNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
 
     BackHandler { onBack() }
+    val pinned = state.notes.filter { it.isPinned }
+    val others = state.notes.filterNot { it.isPinned }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Column(
+        LazyVerticalStaggeredGrid(
+            columns = StaggeredGridCells.Fixed(2),
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalItemSpacing = 12.dp,
+            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
         ) {
-            JournalHeader(title = "Notes", onBack = onBack)
-
-            Surface(
-                color = ImpulsiveSurface,
-                shape = RoundedCornerShape(28.dp),
-                border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-                    BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
-                } else {
-                    null
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier.padding(18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Recent Notes",
-                            color = ImpulsiveText,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
+            item(span = StaggeredGridItemSpan.FullLine) {
+                JournalHeader(title = "Notes", onBack = onBack)
+            }
+            item(span = StaggeredGridItemSpan.FullLine) {
+                NotesCountRow(
+                    count = state.noteCount,
+                    max = state.maxNotes,
+                    canCreate = state.canCreateMore,
+                    onNew = { onCreateNote(JournalNoteType.Text) },
+                )
+            }
+            if (!state.canCreateMore) {
+                item(span = StaggeredGridItemSpan.FullLine) { SaveLimitCard() }
+            }
+            if (state.notes.isEmpty()) {
+                item(span = StaggeredGridItemSpan.FullLine) {
+                    EmptyJournalState(
+                        canCreate = state.canCreateMore,
+                        onCreateNote = { onCreateNote(JournalNoteType.Text) },
+                    )
+                }
+            } else {
+                if (pinned.isNotEmpty()) {
+                    item(span = StaggeredGridItemSpan.FullLine) { NotesSectionLabel("Pinned") }
+                    items(pinned, key = { it.id }) { note ->
+                        JournalNoteCard(
+                            note = note,
+                            onClick = { onOpenNote(note.id) },
+                            onLongPress = { actionNote = note },
                         )
-                        Text(
-                            text = "${state.noteCount} / ${state.maxNotes} saves",
-                            color = ImpulsiveMutedText,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    Button(
-                        onClick = { onCreateNote(JournalNoteType.Text) },
-                        enabled = state.canCreateMore,
-                        shape = RoundedCornerShape(22.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ImpulsivePsychological,
-                            contentColor = ImpulsiveText,
-                        ),
-                    ) {
-                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("New")
                     }
                 }
-            }
-
-            CreateNoteCard(
-                enabled = state.canCreateMore,
-                onClick = { onCreateNote(JournalNoteType.Text) },
-            )
-
-            if (!state.canCreateMore) {
-                SaveLimitCard()
-            }
-
-            if (state.notes.isEmpty()) {
-                EmptyJournalState(
-                    canCreate = state.canCreateMore,
-                    onCreateNote = { onCreateNote(JournalNoteType.Text) },
-                )
-            } else {
-                state.notes.forEach { note ->
-                    JournalNoteCard(
-                        note = note,
-                        onClick = { onOpenNote(note.id) },
-                        onLongPress = { actionNote = note },
-                    )
+                if (others.isNotEmpty()) {
+                    if (pinned.isNotEmpty()) {
+                        item(span = StaggeredGridItemSpan.FullLine) { NotesSectionLabel("Others") }
+                    }
+                    items(others, key = { it.id }) { note ->
+                        JournalNoteCard(
+                            note = note,
+                            onClick = { onOpenNote(note.id) },
+                            onLongPress = { actionNote = note },
+                        )
+                    }
                 }
             }
         }
@@ -476,12 +458,12 @@ private fun JournalHeader(title: String, onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = ImpulsiveText)
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
         }
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = title,
-            color = ImpulsiveText,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
@@ -498,10 +480,10 @@ private fun JournalModeCard(
     onClick: () -> Unit,
 ) {
     Surface(
-        color = ImpulsiveSurface,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(28.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
             null
         },
@@ -519,13 +501,55 @@ private fun JournalModeCard(
                 contentAlignment = Alignment.Center,
             ) { icon() }
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = ImpulsiveText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(subtitle, color = ImpulsiveMutedText, style = MaterialTheme.typography.bodyMedium)
+                Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
-            Text(action, color = Color(0xFF5C4A7D), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(action, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         }
     }
+}
+
+@Composable
+private fun NotesCountRow(count: Int, max: Int, canCreate: Boolean, onNew: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "$count / $max saves",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Button(
+            onClick = onNew,
+            enabled = canCreate,
+            shape = RoundedCornerShape(22.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+        ) {
+            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("New note")
+        }
+    }
+}
+
+@Composable
+private fun NotesSectionLabel(text: String) {
+    Text(
+        text = text,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+    )
 }
 
 @Composable
@@ -534,7 +558,7 @@ private fun CreateNoteCard(
     onClick: () -> Unit,
 ) {
     Surface(
-        color = if (enabled) ImpulsivePsychological.copy(alpha = 0.22f) else ImpulsiveSurface,
+        color = if (enabled) ImpulsivePsychological.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(24.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = if (enabled) 0.24f else 0.08f))
@@ -562,19 +586,19 @@ private fun CreateNoteCard(
                 Icon(
                     Icons.Outlined.EditNote,
                     contentDescription = null,
-                    tint = if (enabled) ImpulsiveText else ImpulsiveMutedText,
+                    tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Create note",
-                    color = if (enabled) ImpulsiveText else ImpulsiveMutedText,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
                     text = "Write first. Turn it into a list, drawing or reminder inside the note.",
-                    color = ImpulsiveMutedText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -590,10 +614,10 @@ private fun NoteToolDock(
     onSelectType: (JournalNoteType) -> Unit,
 ) {
     Surface(
-        color = ImpulsiveSurface,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(28.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.08f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
         } else {
             null
         },
@@ -619,20 +643,20 @@ private fun NoteToolDock(
                     Icon(
                         selectedType.smallIcon(),
                         contentDescription = null,
-                        tint = ImpulsiveText,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(19.dp),
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Note tools",
-                        color = ImpulsiveText,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
                         text = "Current: ${selectedType.label}",
-                        color = ImpulsiveMutedText,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -670,10 +694,10 @@ private fun ToolChoiceChip(
     onClick: () -> Unit,
 ) {
     Surface(
-        color = if (selected) type.accentColor().copy(alpha = 0.45f) else ImpulsiveSurface,
+        color = if (selected) type.accentColor().copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(50),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = if (selected) 0.0f else 0.08f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = if (selected) 0.0f else 0.08f))
         } else {
             null
         },
@@ -687,12 +711,12 @@ private fun ToolChoiceChip(
             Icon(
                 imageVector = type.smallIcon(),
                 contentDescription = null,
-                tint = ImpulsiveText,
+                tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(17.dp),
             )
             Text(
                 text = type.label,
-                color = ImpulsiveText,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -714,7 +738,7 @@ private fun SaveLimitCard() {
     ) {
         Text(
             text = "You have reached 50 saved notes. Existing notes can still be edited.",
-            color = ImpulsiveText,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(14.dp),
         )
@@ -724,10 +748,10 @@ private fun SaveLimitCard() {
 @Composable
 private fun EmptyJournalState(canCreate: Boolean, onCreateNote: () -> Unit) {
     Surface(
-        color = ImpulsiveSurface,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(28.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
             null
         },
@@ -741,9 +765,9 @@ private fun EmptyJournalState(canCreate: Boolean, onCreateNote: () -> Unit) {
             Box(
                 modifier = Modifier.size(58.dp).background(ImpulsivePsychological.copy(alpha = 0.45f), CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Outlined.Add, contentDescription = null, tint = ImpulsiveText) }
-            Text("No notes yet", color = ImpulsiveText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Create a note when your mind feels full.", color = ImpulsiveMutedText, style = MaterialTheme.typography.bodyMedium)
+            ) { Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) }
+            Text("No notes yet", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Create a note when your mind feels full.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             Button(onClick = onCreateNote, enabled = canCreate, shape = RoundedCornerShape(24.dp)) { Text("Create note") }
         }
     }
@@ -759,7 +783,7 @@ private fun JournalNoteCard(
         color = note.cardColor(),
         shape = RoundedCornerShape(26.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
             null
         },
@@ -772,16 +796,16 @@ private fun JournalNoteCard(
                 Box(
                     modifier = Modifier.size(36.dp).background(note.type().accentColor().copy(alpha = 0.34f), CircleShape),
                     contentAlignment = Alignment.Center,
-                ) { Icon(note.type().smallIcon(), contentDescription = null, tint = ImpulsiveText, modifier = Modifier.size(19.dp)) }
+                ) { Icon(note.type().smallIcon(), contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(19.dp)) }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(note.displayTitle(), color = ImpulsiveText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(note.metaLine(), color = ImpulsiveMutedText, style = MaterialTheme.typography.labelMedium)
+                    Text(note.displayTitle(), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(note.metaLine(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                 }
                 if (note.isPinned) {
-                    Text("Pinned", color = Color(0xFF5C4A7D), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Text("Pinned", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
-            Text(note.preview(), color = ImpulsiveMutedText, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(note.preview(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (note.category.isNotBlank()) NoteBadge(note.category)
                 note.reminderAtMillis?.let { NoteBadge("Reminder ${formatReminderCompact(it)}") }
@@ -796,7 +820,7 @@ private fun CompactJournalNoteCard(note: JournalNoteEntity, onClick: () -> Unit)
         color = note.cardColor(),
         shape = RoundedCornerShape(22.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
         } else {
             null
         },
@@ -810,10 +834,10 @@ private fun CompactJournalNoteCard(note: JournalNoteEntity, onClick: () -> Unit)
             Box(
                 modifier = Modifier.size(38.dp).background(note.type().accentColor().copy(alpha = 0.34f), CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { Icon(note.type().smallIcon(), contentDescription = null, tint = ImpulsiveText, modifier = Modifier.size(19.dp)) }
+            ) { Icon(note.type().smallIcon(), contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(19.dp)) }
             Column(modifier = Modifier.weight(1f)) {
-                Text(note.displayTitle(), color = ImpulsiveText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(note.preview(), color = ImpulsiveMutedText, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(note.displayTitle(), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(note.preview(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -821,10 +845,10 @@ private fun CompactJournalNoteCard(note: JournalNoteEntity, onClick: () -> Unit)
 
 @Composable
 private fun NoteBadge(label: String) {
-    Surface(color = ImpulsiveText.copy(alpha = 0.06f), shape = RoundedCornerShape(50)) {
+    Surface(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), shape = RoundedCornerShape(50)) {
         Text(
             text = label,
-            color = ImpulsiveMutedText,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
@@ -845,7 +869,7 @@ private fun NewNoteTypeDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = if (canCreate) "Choose the note type." else "You have reached 50 saved notes.",
-                    color = ImpulsiveMutedText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 JournalNoteType.entries.forEach { type ->
                     Surface(
@@ -858,8 +882,8 @@ private fun NewNoteTypeDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Icon(type.smallIcon(), contentDescription = null, tint = ImpulsiveText)
-                            Text(type.label, color = ImpulsiveText, fontWeight = FontWeight.SemiBold)
+                            Icon(type.smallIcon(), contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+                            Text(type.label, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -902,16 +926,16 @@ private fun NoteActionDialog(
 @Composable
 private fun ActionRow(label: String, onClick: () -> Unit) {
     Surface(
-        color = ImpulsiveSurface,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(16.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
         } else {
             null
         },
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
     ) {
-        Text(label, color = ImpulsiveText, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
+        Text(label, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
     }
 }
 
@@ -936,18 +960,18 @@ private fun HighlightDialog(onDismiss: () -> Unit, onSelected: (String?) -> Unit
 
 @Composable
 private fun HighlightOption(label: String, key: String?, onSelected: (String?) -> Unit) {
-    val color = highlightColorForKey(key) ?: ImpulsiveSurface
+    val color = highlightColorForKey(key) ?: MaterialTheme.colorScheme.surfaceVariant
     Surface(
         color = color.copy(alpha = if (key == null) 1f else 0.34f),
         shape = RoundedCornerShape(16.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.06f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
         } else {
             null
         },
         modifier = Modifier.fillMaxWidth().clickable { onSelected(key) },
     ) {
-        Text(label, color = ImpulsiveText, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
+        Text(label, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
     }
 }
 
@@ -993,17 +1017,17 @@ private fun ChecklistEditorBody(
     onRemoveItem: (Long) -> Unit,
 ) {
     Surface(
-        color = ImpulsiveSurface,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(28.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
             null
         },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Checklist", color = ImpulsiveText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Checklist", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             items.sortedWith(compareBy<ChecklistDraftItem> { it.isChecked }.thenBy { it.localId }).forEach { item ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1019,12 +1043,12 @@ private fun ChecklistEditorBody(
                         placeholder = { Text("List item") },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             textDecoration = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None,
-                            color = if (item.isChecked) ImpulsiveMutedText else ImpulsiveText,
+                            color = if (item.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         ),
                         shape = RoundedCornerShape(18.dp),
                     )
                     IconButton(onClick = { onRemoveItem(item.localId) }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Remove item", tint = ImpulsiveMutedText)
+                        Icon(Icons.Outlined.Delete, contentDescription = "Remove item", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -1035,7 +1059,7 @@ private fun ChecklistEditorBody(
             }
             Text(
                 text = "Checked items move to the bottom and stay visible.",
-                color = ImpulsiveMutedText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -1045,6 +1069,7 @@ private fun ChecklistEditorBody(
 @Composable
 private fun SketchEditorBody(sketch: String, onSketchChanged: (String) -> Unit) {
     var paths by remember { mutableStateOf(decodeSketch(sketch)) }
+    val sketchStrokeColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
 
     LaunchedEffect(sketch) {
         if (sketch.isNotBlank() && paths.isEmpty()) paths = decodeSketch(sketch)
@@ -1055,7 +1080,7 @@ private fun SketchEditorBody(sketch: String, onSketchChanged: (String) -> Unit) 
             color = Color(0xFFFFFCFF),
             shape = RoundedCornerShape(28.dp),
             border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-                BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.08f))
+                BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             } else {
                 null
             },
@@ -1089,7 +1114,7 @@ private fun SketchEditorBody(sketch: String, onSketchChanged: (String) -> Unit) 
                         }
                         drawPath(
                             path = path,
-                            color = ImpulsiveText.copy(alpha = 0.78f),
+                            color = sketchStrokeColor,
                             style = Stroke(width = 5f),
                         )
                     }
@@ -1149,10 +1174,10 @@ private fun ReminderCard(
 ) {
     val context = LocalContext.current
     Surface(
-        color = ImpulsiveSurface,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(28.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, ImpulsiveText.copy(alpha = 0.07f))
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
             null
         },
@@ -1164,15 +1189,15 @@ private fun ReminderCard(
                     modifier = Modifier.size(38.dp).background(ImpulsiveFocusMode.copy(alpha = 0.42f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Outlined.Notifications, contentDescription = null, tint = ImpulsiveText, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Remind me later", color = ImpulsiveText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Your reminders stay private on this device.", color = ImpulsiveMutedText, style = MaterialTheme.typography.bodySmall)
+                    Text("Remind me later", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Your reminders stay private on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
 
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(ImpulsiveText.copy(alpha = 0.08f)))
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
 
             ReminderOptionRow(label = "Later today", time = "6:00 PM", onClick = onLaterToday)
             ReminderOptionRow(label = "Tomorrow morning", time = "8:00 AM", onClick = onTomorrowMorning)
@@ -1192,11 +1217,11 @@ private fun ReminderCard(
                     Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "Selected: ${formatReminder(selected)}",
-                            color = ImpulsiveText,
+                            color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("Clear", color = Color(0xFF5C4A7D), fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onClear() })
+                        Text("Clear", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onClear() })
                     }
                 }
             }
@@ -1215,14 +1240,14 @@ private fun ReminderOptionRow(label: String, time: String?, onClick: () -> Unit)
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(
-            modifier = Modifier.size(32.dp).background(ImpulsiveText.copy(alpha = 0.06f), CircleShape),
+            modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Outlined.Notifications, contentDescription = null, tint = ImpulsiveMutedText, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
-        Text(label, color = ImpulsiveText, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         time?.let {
-            Text(it, color = ImpulsiveMutedText, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -1276,7 +1301,12 @@ private fun JournalNoteEntity.metaLine(): String {
 
 private fun JournalNoteEntity.updatedLabel(): String = formatShortDate(updatedAtMillis)
 
-private fun JournalNoteEntity.cardColor(): Color = highlightColorForKey(highlightColor)?.copy(alpha = 0.28f) ?: ImpulsiveSurface
+@Composable
+private fun JournalNoteEntity.cardColor(): Color {
+    val base = MaterialTheme.colorScheme.surfaceVariant
+    val highlight = highlightColorForKey(highlightColor) ?: return base
+    return highlight.copy(alpha = 0.28f).compositeOver(base)
+}
 
 private fun JournalNoteType.accentColor(): Color = when (this) {
     JournalNoteType.Text -> ImpulsivePsychological

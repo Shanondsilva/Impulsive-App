@@ -135,7 +135,7 @@ internal val TimingOptions = listOf(
 )
 
 internal val WeekOneOptions = listOf(
-    ReduceOption(id = "notice_triggers", label = "Just notice my triggers", icon = OnboardingOptionIcon.NoticeTriggers),
+    ReduceOption(id = "notice_triggers", label = "Notice my cues", icon = OnboardingOptionIcon.NoticeTriggers),
     ReduceOption(id = "cut_down_a_little", label = "Cut down a little", icon = OnboardingOptionIcon.CutDownLittle),
     ReduceOption(id = "daily_reset_habit", label = "Build one daily reset habit", icon = OnboardingOptionIcon.DailyResetHabit),
     ReduceOption(id = "cut_down_by_half", label = "Cut down by half", icon = OnboardingOptionIcon.CutDownHalf),

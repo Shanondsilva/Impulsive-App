@@ -30,13 +30,13 @@ enum class ScoreGameType(
     PatternBreak("PATTERN_BREAK", "Pattern Break"),
     BlockCascade("BLOCK_CASCADE", "Block Cascade"),
     MindLesson("MIND_LESSON", "Mind Lesson"),
-    UrgeSurvival("URGE_SURVIVAL", "Urge Survival"),
+    UrgeSurvival("URGE_SURVIVAL", "Wave Practice"),
     FluidRegulation("FLUID_REGULATION", "Fluid Regulation"),
     PrecisionFocus("PRECISION_FOCUS", "Precision Focus"),
     DopamineRunner("DOPAMINE_RUNNER", "Dopamine Runner"),
     BreathControl("BREATH_CONTROL", "Breath Control"),
     RageDischarge("RAGE_DISCHARGE", "Rage Discharge"),
-    Unknown("UNKNOWN", "Recovery Game");
+    Unknown("UNKNOWN", "Pivot Game");
 
     companion object {
         fun fromId(id: String): ScoreGameType = entries.firstOrNull { it.id == id } ?: Unknown
@@ -80,7 +80,7 @@ data class UrgeTrendState(
 ) {
     val difference: Int get() = totalActual - totalExpected
     val label: String get() = when {
-        !hasData -> "No urge trend yet"
+        !hasData -> "No difficult-moment trend yet"
         difference < 0 -> "Below baseline"
         difference == 0 -> "On baseline"
         else -> "Above baseline"

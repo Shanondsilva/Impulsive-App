@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,13 +37,19 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +57,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,6 +118,11 @@ fun ProgressDashboardScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val colors = rememberScoreColors()
+    val context = LocalContext.current
+    val storeManager = remember { com.impulsive.app.backend.data.repository.GameStoreManager(context) }
+    val dailyEarned by storeManager.dailyEarned.collectAsStateWithLifecycle(initialValue = emptyMap())
+    val lifetimePoints by storeManager.lifetimePoints.collectAsStateWithLifecycle(initialValue = 0)
+    var showPointsInfo by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -128,9 +141,39 @@ fun ProgressDashboardScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
 
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Total control points",
+                        color = colors.muted,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = "About control points",
+                        tint = colors.muted,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clickable { showPointsInfo = true },
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = lifetimePoints.formatNumber(),
+                    color = colors.text,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             MainControlScoreCard(
                 uiState = uiState,
                 colors = colors,
+                dailyEarned = dailyEarned,
             )
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -143,13 +186,6 @@ fun ProgressDashboardScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            GameScoreSummary(
-                uiState = uiState,
-                colors = colors,
-            )
-
-            Spacer(modifier = Modifier.height(22.dp))
-
             ScoreRecordsCard(
                 personalBests = uiState.personalBests,
                 recentSessions = uiState.recentSessions,
@@ -161,6 +197,23 @@ fun ProgressDashboardScreen(
             SafeExitAndUrgeCards(
                 uiState = uiState,
                 colors = colors,
+            )
+        }
+
+        if (showPointsInfo) {
+            AlertDialog(
+                onDismissRequest = { showPointsInfo = false },
+                confirmButton = {
+                    TextButton(onClick = { showPointsInfo = false }) { Text("Got it") }
+                },
+                title = { Text("Control points") },
+                text = {
+                    Text(
+                        "You earn control points every time you play a pivot game and by returning to plan " +
+                            "after difficult habit moments. Spend them in Pivot Games to rent or unlock more games. " +
+                            "This number is your lifetime total earned."
+                    )
+                },
             )
         }
 
@@ -201,12 +254,12 @@ private fun rememberScoreColors(): ScoreScreenColors {
             text = darkText,
             muted = darkMuted,
             faintLine = darkText.copy(alpha = 0.14f),
-            mainCard = Color(0xFF183127),
+            mainCard = Color(0xFF251D33),
             mainCardText = darkText,
             selectedPill = Color(0xFF6E5A96),
             unselectedPill = Color(0xFF1D2526),
-            safeExitCard = darkSurface,
-            urgeCard = darkSurface,
+            safeExitCard = Color(0xFF251D33),
+            urgeCard = Color(0xFF251D33),
             timelineDot = Color(0xFF2A2233),
             shadow = Color.Black,
             lavenderGlow = ImpulsivePsychological,
@@ -223,12 +276,12 @@ private fun rememberScoreColors(): ScoreScreenColors {
             text = Color(0xFF2F2637),
             muted = Color(0xFF706777),
             faintLine = Color.Transparent,
-            mainCard = Color(0xFFDFF4E8),
-            mainCardText = Color(0xFF24392F),
+            mainCard = Color(0xFFE9E2F7),
+            mainCardText = Color(0xFF2E2540),
             selectedPill = ImpulsivePsychological,
             unselectedPill = Color(0xFFF2ECF3),
-            safeExitCard = ImpulsiveOverallTheme,
-            urgeCard = ImpulsiveSpiritual,
+            safeExitCard = Color(0xFFE9E2F7),
+            urgeCard = Color(0xFFE9E2F7),
             timelineDot = Color(0xFFF4F0F7),
             shadow = Color(0xFF2F2637),
             lavenderGlow = ImpulsivePsychological,
@@ -253,7 +306,7 @@ private fun ScoreHeader(colors: ScoreScreenColors) {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "Your control progress, built from real recovery actions.",
+            text = "Your control progress, built from Notice, Pivot and Understand actions.",
             color = colors.text.copy(alpha = 0.82f),
             style = MaterialTheme.typography.bodyLarge,
             lineHeight = MaterialTheme.typography.bodyLarge.lineHeight,
@@ -266,21 +319,10 @@ private fun ScoreHeader(colors: ScoreScreenColors) {
 private fun MainControlScoreCard(
     uiState: ScoreDashboardState,
     colors: ScoreScreenColors,
+    dailyEarned: Map<LocalDate, Int>,
 ) {
     val isDark = colors.background.luminance() < 0.5f
-    val trendScores = uiState.recentSessions
-        .asReversed()
-        .map { it.score.coerceAtLeast(0) }
-        .takeLast(7)
-    val hasTrendData = trendScores.isNotEmpty()
-    val trendIsImproving = trendScores.size >= 2 && trendScores.last() >= trendScores.first()
     val trendAccent = colors.coralGlow
-    val trendLabel = when {
-        !hasTrendData -> "No trend yet"
-        trendScores.size == 1 -> "First session logged"
-        trendIsImproving -> "Trending stronger"
-        else -> "Recovery still building"
-    }
 
     Surface(
         color = colors.mainCard,
@@ -339,14 +381,14 @@ private fun MainControlScoreCard(
             ) {
                 Column {
                     Text(
-                        text = "Recent Trend",
+                        text = "Score card",
                         color = colors.mainCardText,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = trendLabel,
+                        text = "Points earned",
                         color = colors.mainCardText.copy(alpha = 0.68f),
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -372,8 +414,10 @@ private fun MainControlScoreCard(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            RecoveryTrendBars(
-                scores = trendScores,
+            ScoreCardChart(
+                dailyEarned = dailyEarned,
+                sessions = uiState.recentSessions,
+                range = uiState.selectedRange,
                 accent = trendAccent,
                 colors = colors,
             )
@@ -381,50 +425,103 @@ private fun MainControlScoreCard(
     }
 }
 
+private data class ScoreChartBar(val label: String, val value: Int, val detail: String, val games: Int)
+
+private fun buildScoreChartBars(
+    dailyEarned: Map<LocalDate, Int>,
+    sessions: List<ScoreTimelineItem>,
+    range: ScoreRange,
+): List<ScoreChartBar> {
+    return if (range == ScoreRange.AllTime) {
+        val year = LocalDate.now().year
+        val monthLetters = listOf("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+        (1..12).map { month ->
+            val points = dailyEarned.entries
+                .filter { it.key.year == year && it.key.monthValue == month }
+                .sumOf { it.value }
+            val games = sessions.count { it.completedAt.year == year && it.completedAt.monthValue == month }
+            val monthName = java.time.Month.of(month)
+                .getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+            ScoreChartBar(label = monthLetters[month - 1], value = points, detail = monthName, games = games)
+        }
+    } else {
+        val today = LocalDate.now()
+        val sunday = today.minusDays((today.dayOfWeek.value % 7).toLong())
+        val dayLetters = listOf("S", "M", "T", "W", "T", "F", "S")
+        (0..6).map { index ->
+            val date = sunday.plusDays(index.toLong())
+            val points = dailyEarned[date] ?: 0
+            val games = sessions.count { it.completedAt.toLocalDate() == date }
+            val dayName = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+            ScoreChartBar(label = dayLetters[index], value = points, detail = dayName, games = games)
+        }
+    }
+}
+
 @Composable
-private fun RecoveryTrendBars(
-    scores: List<Int>,
+private fun ScoreCardChart(
+    dailyEarned: Map<LocalDate, Int>,
+    sessions: List<ScoreTimelineItem>,
+    range: ScoreRange,
     accent: Color,
     colors: ScoreScreenColors,
 ) {
-    val isDark = colors.background.luminance() < 0.5f
-    val maxScore = scores.maxOrNull()?.coerceAtLeast(1) ?: 1
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(70.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        if (scores.isEmpty()) {
-            repeat(7) { index ->
-                Box(
+    val bars = remember(dailyEarned, sessions, range) { buildScoreChartBars(dailyEarned, sessions, range) }
+    var selected by remember(bars) { mutableStateOf<Int?>(null) }
+    val maxValue = (bars.maxOfOrNull { it.value } ?: 0).coerceAtLeast(1)
+    val selectedBar = selected?.let { bars.getOrNull(it) }
+
+    Column {
+        Text(
+            text = selectedBar?.let { "${it.detail}: ${it.value} points - ${it.games} games" }
+                ?: "Tap a bar to see that day",
+            color = colors.mainCardText.copy(alpha = 0.75f),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            bars.forEachIndexed { index, bar ->
+                val isSelected = selected == index
+                val fraction = bar.value.toFloat() / maxValue.toFloat()
+                Column(
                     modifier = Modifier
                         .weight(1f)
-                        .height((10 + index % 3 * 6).dp)
-                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                        .background(colors.mainCardText.copy(alpha = if (isDark) 0.10f else 0.18f)),
-                )
-            }
-        } else {
-            scores.forEach { score ->
-                val normalizedHeight = (18 + (score / maxScore.toFloat()) * 48).dp
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(normalizedHeight)
-                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                        .background(accent.copy(alpha = if (isDark) 0.78f else 0.58f)),
-                )
-            }
-            repeat((7 - scores.size).coerceAtLeast(0)) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(10.dp)
-                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                        .background(colors.mainCardText.copy(alpha = if (isDark) 0.10f else 0.14f)),
-                )
+                        .clickable { selected = if (isSelected) null else index },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(96.dp),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.62f)
+                                .fillMaxHeight(fraction.coerceIn(0.04f, 1f))
+                                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                                .background(
+                                    if (isSelected) {
+                                        accent
+                                    } else {
+                                        accent.copy(alpha = 0.42f)
+                                    },
+                                ),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = bar.label,
+                        color = colors.mainCardText.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    )
+                }
             }
         }
     }
@@ -498,99 +595,6 @@ private fun ScoreIconBadge(
 }
 
 @Composable
-private fun GameScoreSummary(
-    uiState: ScoreDashboardState,
-    colors: ScoreScreenColors,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SummaryMetricCard(
-            icon = Icons.Filled.SportsEsports,
-            title = "GAMES COMPLETED",
-            value = uiState.gamesCompleted.formatNumber(),
-            accentColor = colors.blueGlow,
-            colors = colors,
-        )
-        SummaryMetricCard(
-            icon = Icons.Filled.MilitaryTech,
-            title = "BEST GAME",
-            value = uiState.bestGameName,
-            accentColor = colors.yellowGlow,
-            colors = colors,
-        )
-        SummaryMetricCard(
-            icon = Icons.Filled.AutoAwesome,
-            title = "TOTAL CONTROL POINTS",
-            value = uiState.totalControlPoints.formatNumber(),
-            accentColor = colors.greenGlow,
-            colors = colors,
-        )
-    }
-}
-
-@Composable
-private fun SummaryMetricCard(
-    icon: ImageVector,
-    title: String,
-    value: String,
-    accentColor: Color,
-    colors: ScoreScreenColors,
-) {
-    val isDark = colors.background.luminance() < 0.5f
-    Surface(
-        color = colors.surface,
-        shape = RoundedCornerShape(24.dp),
-        border = if (isDark) {
-            BorderStroke(
-                width = 1.dp,
-                color = colors.greenGlow.copy(alpha = 0.16f),
-            )
-        } else {
-            null
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = if (isDark) 10.dp else 0.dp,
-                shape = RoundedCornerShape(24.dp),
-                clip = false,
-                ambientColor = if (isDark) colors.greenGlow.copy(alpha = 0.06f) else Color.Transparent,
-                spotColor = if (isDark) colors.lavenderGlow.copy(alpha = 0.05f) else Color.Transparent,
-            ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ScoreIconBadge(
-                icon = icon,
-                accentColor = accentColor,
-                colors = colors,
-                size = 34.dp,
-                iconSize = 18.dp,
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = title,
-                    color = colors.text.copy(alpha = 0.72f),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = value,
-                    color = colors.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun ScoreRecordsCard(
     personalBests: List<ScorePersonalBest>,
     recentSessions: List<ScoreTimelineItem>,
@@ -604,7 +608,7 @@ private fun ScoreRecordsCard(
     val accent = topBest?.gameType?.accentColor() ?: colors.lavenderGlow
 
     Surface(
-        color = colors.surface,
+        color = colors.mainCard,
         shape = RoundedCornerShape(30.dp),
         border = if (isDark) BorderStroke(1.dp, accent.copy(alpha = 0.58f)) else null,
         modifier = Modifier
@@ -659,6 +663,12 @@ private fun ScoreRecordsCard(
                     colors = colors,
                     modifier = Modifier.weight(1.08f),
                 )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(96.dp)
+                        .background(colors.text.copy(alpha = 0.10f)),
+                )
                 RecentPlayedPanel(
                     item = recentSessions.firstOrNull(),
                     colors = colors,
@@ -676,65 +686,58 @@ private fun MainPersonalBestPanel(
     modifier: Modifier = Modifier,
 ) {
     val accent = best?.gameType?.accentColor() ?: colors.lavenderGlow
-    Surface(
-        color = colors.elevatedSurface.copy(alpha = 0.72f),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.42f)),
-        modifier = modifier,
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ScoreIconBadge(
-                    icon = best?.gameType?.scoreIcon() ?: Icons.Filled.SportsEsports,
-                    accentColor = accent,
-                    colors = colors,
-                    size = 34.dp,
-                    iconSize = 18.dp,
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = best?.gameType?.displayName ?: "Recovery Game",
-                    color = colors.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    text = if (best?.hasRecord == true) best.bestScore.formatNumber() else "-",
-                    color = colors.text,
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Best",
-                    color = colors.muted,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 7.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ScoreIconBadge(
+                icon = best?.gameType?.scoreIcon() ?: Icons.Filled.SportsEsports,
+                accentColor = accent,
+                colors = colors,
+                size = 34.dp,
+                iconSize = 18.dp,
+            )
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = if (best?.hasRecord == true) {
-                    "Prev: ${best.previousScore?.formatNumber() ?: "-"} ${best.changeFromPrevious?.formatChange().orEmpty()}"
-                } else {
-                    "Complete a recovery game to set your first record."
-                },
-                color = colors.text.copy(alpha = 0.72f),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
+                text = best?.gameType?.displayName ?: "Pivot Game",
+                color = colors.text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = if (best?.hasRecord == true) best.bestScore.formatNumber() else "-",
+                color = colors.text,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Best",
+                color = colors.muted,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 7.dp),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = if (best?.hasRecord == true) {
+                "Prev: ${best.previousScore?.formatNumber() ?: "-"} ${best.changeFromPrevious?.formatChange().orEmpty()}"
+            } else {
+                "Complete a pivot game to set your first record."
+            },
+            color = colors.text.copy(alpha = 0.72f),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -744,22 +747,14 @@ private fun RecentPlayedPanel(
     colors: ScoreScreenColors,
     modifier: Modifier = Modifier,
 ) {
-    val isDark = colors.background.luminance() < 0.5f
-    Surface(
-        color = colors.elevatedSurface.copy(alpha = 0.48f),
-        shape = RoundedCornerShape(22.dp),
-        border = if (isDark) BorderStroke(1.dp, colors.faintLine.copy(alpha = 0.45f)) else null,
-        modifier = modifier,
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            if (item == null) {
-                EmptyRecentPlayedState(colors = colors)
-            } else {
-                RecentPlayedMiniRow(
-                    item = item,
-                    colors = colors,
-                )
-            }
+    Column(modifier = modifier) {
+        if (item == null) {
+            EmptyRecentPlayedState(colors = colors)
+        } else {
+            RecentPlayedMiniRow(
+                item = item,
+                colors = colors,
+            )
         }
     }
 }
@@ -1129,7 +1124,7 @@ private fun UrgeTrendCard(
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Urge Trend",
+                        text = "Difficult Moment Trend",
                         color = contentColor,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
@@ -1154,7 +1149,7 @@ private fun UrgeTrendCard(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Your trend appears after recovery checks or app/browser intercepts.",
+                    text = "Your trend appears after support checks or app/browser pauses.",
                     color = contentColor.copy(alpha = if (isDark) 0.68f else 0.60f),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -1372,7 +1367,7 @@ private fun EmptyTimelineState(colors: ScoreScreenColors) {
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Complete a recovery game to build this card.",
+            text = "Complete a pivot game to build this card.",
             color = colors.muted,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -1442,7 +1437,7 @@ private fun TimelineRow(
             }
             Spacer(modifier = Modifier.height(5.dp))
             Text(
-                text = "Score: ${item.score.formatNumber()} • Urge: ${item.urgeLabel()}",
+                text = "Score: ${item.score.formatNumber()}, Intensity: ${item.urgeLabel()}",
                 color = colors.text.copy(alpha = 0.70f),
                 style = MaterialTheme.typography.bodySmall,
             )

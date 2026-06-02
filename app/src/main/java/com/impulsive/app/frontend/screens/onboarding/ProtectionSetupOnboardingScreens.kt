@@ -94,7 +94,7 @@ fun ProtectionSetupOnboardingScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Set up your protection loop",
+            text = "Set up your support loop",
             color = ProtectionPrimaryText,
             fontSize = 30.sp,
             lineHeight = 36.sp,
@@ -106,7 +106,7 @@ fun ProtectionSetupOnboardingScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Impulsive works best when it can step in before the loop continues. Start with the basics now. Anything skipped stays visible later.",
+            text = "Impulsive works best when it can create a pause before a difficult habit moment continues. Start with the basics now. Anything skipped stays visible later.",
             color = ProtectionMutedText,
             fontSize = 15.sp,
             lineHeight = 22.sp,
@@ -124,7 +124,7 @@ fun ProtectionSetupOnboardingScreen(
             ProtectionSetupCard(
                 badge = "1",
                 title = "Choose apps to protect",
-                body = "Pick apps that usually lead into the trigger loop. You can change the list later.",
+                body = "Pick apps that usually lead into difficult habit moments. You can change the list later.",
                 completed = state.isComplete(ProtectionSetupItem.BlockedApps),
                 skipped = ProtectionSetupItem.BlockedApps in state.skippedSetupItems,
                 actionLabel = if (state.blockedAppsSelected) "Edit apps" else "Choose apps",

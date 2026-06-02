@@ -630,7 +630,7 @@ private fun resultLabel(uiState: BlockCascadeUiState, result: TaskCompletionResu
     if (!uiState.completed) {
         return uiState.failureReason ?: "This round did not qualify for a reward."
     }
-    if (!taskLaunch) return "Recovery game complete. Use Task to Complete when you want wait reduction."
+    if (!taskLaunch) return "Pivot game complete. Use Task to Complete when you want wait reduction."
     if (result == null) return "Saving reward..."
     val wait = if (result.waitReductionMinutes > 0) {
         "Wait cut by ${result.waitReductionMinutes.formatMinutes()}"

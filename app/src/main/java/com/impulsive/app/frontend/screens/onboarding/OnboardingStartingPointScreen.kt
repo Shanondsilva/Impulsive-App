@@ -29,7 +29,7 @@ fun OnboardingStartingPointScreen(
     ) { compactHeight ->
         val metrics = rememberQuestionResponsiveMetrics(compactHeight = compactHeight)
         val answers = state.answers
-        val dailyRelapseLabel = if (answers.dailyRelapseUrgeCount == 1) "1 time per day" else "${answers.dailyRelapseUrgeCount} times per day"
+        val dailySupportLabel = if (answers.dailyRelapseUrgeCount == 1) "1 moment per day" else "${answers.dailyRelapseUrgeCount} moments per day"
 
         val summaryItems = listOf(
             StartingPointSummaryItem(
@@ -50,8 +50,8 @@ fun OnboardingStartingPointScreen(
                 emphasized = true,
             ),
             StartingPointSummaryItem(
-                title = "Daily relapse urge count",
-                value = "You chose: $dailyRelapseLabel",
+                title = "Daily support estimate",
+                value = "You chose: $dailySupportLabel",
             ),
         )
 
@@ -72,7 +72,7 @@ fun OnboardingStartingPointScreen(
         Spacer(modifier = Modifier.height(metrics.titleToSubtitleSpacing))
 
         Text(
-            text = "A simple week-one plan based on what you shared. No pressure, just a place to begin.",
+            text = "A simple Notice, Pivot and Understand plan based on what you shared. No pressure, just a place to begin.",
             color = OnboardingMutedText,
             fontSize = metrics.subtitleFontSize,
             lineHeight = metrics.subtitleLineHeight,
@@ -96,7 +96,7 @@ private fun selectedSummary(selectedIds: List<String>, labels: List<Pair<String,
 
 private fun selectedWeekOneLabel(selectedId: String?, emptyText: String): String {
     val label = WeekOneOptions.firstOrNull { it.id == selectedId }?.label ?: return emptyText
-    return label.lowercase().replace("my triggers", "your triggers")
+    return label.lowercase().replace("my cues", "your cues")
 }
 
 private fun List<String>.toNaturalSummary(): String = when {

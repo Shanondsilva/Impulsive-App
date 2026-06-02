@@ -11,7 +11,7 @@ enum class PsychologyTaskType(
 ) {
     ReflexOverride("reflex_override", "Reflex Override"),
     PatternBreak("pattern_break", "Pattern Break"),
-    TriggerDecoder("trigger_decoder", "Trigger Decoder"),
+    TriggerDecoder("trigger_decoder", "Cue Decoder"),
     ThoughtCapture("thought_capture", "Thought Capture"),
     ShortReadingBurst("short_reading_burst", "Short Reading Burst"),
     BlockCascade("block_cascade", "Block Cascade"),
@@ -338,10 +338,10 @@ private fun chooseRecommendedTask(
 }
 
 private fun recommendationReasonFor(taskType: PsychologyTaskType): String = when (taskType) {
-    PsychologyTaskType.ReflexOverride -> "Strong novelty and quick attention interruption."
-    PsychologyTaskType.PatternBreak -> "Interrupts search and loop patterns with logic."
-    PsychologyTaskType.BlockCascade -> "Loads visual attention so the urge image can't form."
-    PsychologyTaskType.MindLesson -> "A short lesson that builds understanding of the urge."
+    PsychologyTaskType.ReflexOverride -> "Strong novelty and a quick attention pivot."
+    PsychologyTaskType.PatternBreak -> "Pivots search and loop patterns into logic."
+    PsychologyTaskType.BlockCascade -> "Loads visual attention so the difficult image has less room."
+    PsychologyTaskType.MindLesson -> "A short lesson that builds understanding of difficult moments."
     PsychologyTaskType.ResetRead -> "A short, focused read to redirect attention."
     PsychologyTaskType.FutureSelfMessage -> "Replays your own reason in your own words."
     PsychologyTaskType.TriggerDecoder -> "Hidden for now; fallback to Mind Lesson in the UI."

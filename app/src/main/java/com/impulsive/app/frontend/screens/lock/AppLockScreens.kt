@@ -161,7 +161,7 @@ fun SetPinScreen(
             text = if (confirming) {
                 "Enter the same 4-digit PIN again."
             } else {
-                "App lock keeps your recovery data private. You will unlock Impulsive with your fingerprint or PIN each time you open it."
+                "App lock keeps your support data private. You will unlock Impulsive with your fingerprint or PIN each time you open it."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
