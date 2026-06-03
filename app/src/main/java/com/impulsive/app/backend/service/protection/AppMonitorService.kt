@@ -177,6 +177,16 @@ class AppMonitorService : Service() {
         handleWindowNotifications(windowSnapshot)
         val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage() ?: return
         if (foregroundPackage == applicationContext.packageName) return
+        // The user has moved off the app we last intercepted (home screen,
+        // launcher, or any other app), so clear the handled latch. This lets the
+        // very next open of a protected app re-trigger the block screen straight
+        // away, instead of being swallowed by the cooldown for up to
+        // BlockHandlingCooldownMillis after the first interception. While our own
+        // block screen is in the foreground we have already returned above, so
+        // the latch is preserved during that transition.
+        if (foregroundPackage != lastHandledPackageName) {
+            lastHandledPackageName = null
+        }
         if (foregroundPackage !in protectedPackages) return
         if (windowSnapshot.isProtectionPaused) return
         val sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage)
@@ -283,6 +293,10 @@ class AppMonitorService : Service() {
         const val ActionStop = "com.impulsive.app.action.STOP_APP_MONITOR"
         private const val CheckIntervalMillis = 1_200L
         private const val ScreenOffIntervalMillis = 30_000L
-        private const val BlockHandlingCooldownMillis = 12_000L
+        // Short guard covering only the gap between launching the block screen
+        // and it actually reaching the foreground, so one interception cannot
+        // fire twice. Leaving the protected app now clears the latch directly in
+        // evaluateForegroundApp, so this no longer needs to be long.
+        private const val BlockHandlingCooldownMillis = 4_000L
     }
 }
