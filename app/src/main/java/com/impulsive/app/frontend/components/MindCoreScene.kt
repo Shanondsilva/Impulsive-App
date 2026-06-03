@@ -128,26 +128,28 @@ fun MindCoreScene(
                 val h = size.height
                 val sunCenter = when (timeOfDay) {
                     TimeOfDay.Morning -> Offset(w * 0.22f, h * 0.18f)
-                    TimeOfDay.Afternoon -> Offset(w * 0.80f, h * 0.16f)
+                    TimeOfDay.Afternoon -> null
                     TimeOfDay.Evening -> Offset(w * 0.74f, h * 0.24f)
                     TimeOfDay.Night -> Offset(w * 0.50f, h * 0.18f)
                 }
-                val glowPulse = 0.92f + 0.08f * calmWave(ambientTime, phase = 0.08f)
-                drawCircle(
-                    color = Color(0xFFFFF3B0).copy(alpha = 0.20f),
-                    radius = 36.dp.toPx() * glowPulse,
-                    center = sunCenter,
-                )
-                drawCircle(
-                    color = Color(0xFFFFF0A0).copy(alpha = 0.30f),
-                    radius = 24.dp.toPx() * glowPulse,
-                    center = sunCenter,
-                )
-                drawCircle(
-                    color = Color(0xFFFFE89A).copy(alpha = 0.92f),
-                    radius = 12.dp.toPx() * glowPulse,
-                    center = sunCenter,
-                )
+                if (sunCenter != null) {
+                    val glowPulse = 0.92f + 0.08f * calmWave(ambientTime, phase = 0.08f)
+                    drawCircle(
+                        color = Color(0xFFFFF3B0).copy(alpha = 0.20f),
+                        radius = 36.dp.toPx() * glowPulse,
+                        center = sunCenter,
+                    )
+                    drawCircle(
+                        color = Color(0xFFFFF0A0).copy(alpha = 0.30f),
+                        radius = 24.dp.toPx() * glowPulse,
+                        center = sunCenter,
+                    )
+                    drawCircle(
+                        color = Color(0xFFFFE89A).copy(alpha = 0.92f),
+                        radius = 12.dp.toPx() * glowPulse,
+                        center = sunCenter,
+                    )
+                }
             }
 
             Canvas(modifier = Modifier.matchParentSize()) {

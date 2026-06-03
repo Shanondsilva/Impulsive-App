@@ -20,6 +20,7 @@ import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotifica
 import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
+import com.impulsive.app.backend.data.repository.UrgeEventRepository
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluator
@@ -52,6 +53,7 @@ class AppMonitorService : Service() {
     private val protectionSetupRepository by lazy { ProtectionSetupRepository(applicationContext) }
     private val onboardingRepository by lazy { OnboardingRepository(applicationContext) }
     private val taskRewardRepository by lazy { TaskRewardRepository(applicationContext) }
+    private val urgeEventRepository by lazy { UrgeEventRepository(applicationContext) }
     private val appSettingsDataSource by lazy { AppSettingsPreferencesDataSource(applicationContext) }
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
 
@@ -229,6 +231,9 @@ class AppMonitorService : Service() {
         if (sameRecentPackage) return
         lastHandledPackageName = sourcePackageName
         lastHandledAtMillis = nowMillis
+        serviceScope.launch {
+            urgeEventRepository.recordEvent(source = "app")
+        }
         val blockIntent = MainActivity.createBlockIntent(
             context = this,
             sourcePackageName = sourcePackageName,

@@ -3,6 +3,7 @@
 
     <!-- Required by Firebase Auth, Google Identity Services, and Facebook Login. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -33,6 +34,7 @@
         <activity
             android:name="com.impulsive.app.MainActivity"
             android:launchMode="singleTop"
+            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -14,6 +15,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -60,6 +62,7 @@ import com.impulsive.app.frontend.screens.tasks.FutureSelfRecordScreen
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 import com.impulsive.app.security.antibypass.UninstallProtectionManager
+import kotlinx.coroutines.launch
 
 object OnboardingRoutes {
     const val Graph = "onboarding_graph"
@@ -553,12 +556,31 @@ fun AppNavHost(
                     com.impulsive.app.backend.data.local.preferences.AppLockPreferencesDataSource(context)
                 }
                 val appLockEnabled by appLockDataSource.enabled.collectAsStateWithLifecycle(initialValue = false)
+                val appSettingsDataSource = remember(context) {
+                    com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource(context)
+                }
+                val hideSensitive by appSettingsDataSource.hideSensitiveNotifications
+                    .collectAsStateWithLifecycle(initialValue = false)
+                val urgeEventScope = rememberCoroutineScope()
+                val urgeEventRepository = remember(context) {
+                    com.impulsive.app.backend.data.repository.UrgeEventRepository(context)
+                }
                 val blockGuard = rememberAppLockGuardController()
+                BackHandler {
+                    val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                        addCategory(android.content.Intent.CATEGORY_HOME)
+                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(homeIntent)
+                }
                 ImpulsiveBlockScreen(
-                    sourcePackageName = sourcePackageName,
-                    sourceLabel = sourceLabel.ifBlank { sourcePackageName },
+                    sourcePackageName = if (hideSensitive) "a protected app" else sourcePackageName,
+                    sourceLabel = if (hideSensitive) "a protected app" else sourceLabel.ifBlank { sourcePackageName },
                     onStartControlTask = {
                         blockGuard.run(appLockEnabled) {
+                            urgeEventScope.launch {
+                                urgeEventRepository.recordEvent(source = "support_task")
+                            }
                             navController.navigate(AppRoutes.TaskToComplete) { launchSingleTop = true }
                         }
                     },

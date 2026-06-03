@@ -10,9 +10,11 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -841,12 +843,15 @@ private fun DashboardCards(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             SmallActionCard(
                 modifier = Modifier
                     .weight(1f)
+                    .fillMaxHeight()
                     .clickable { onOpenRecoveryGames() },
                 label = "PIVOT GAME",
                 title = "Pivot\nGames",
@@ -876,6 +881,7 @@ private fun DashboardCards(
             SmallActionCard(
                 modifier = Modifier
                     .weight(1f)
+                    .fillMaxHeight()
                     .clickable { onOpenJournal() },
                 label = "NOTES",
                 title = "Private\nNotes",
