@@ -72,6 +72,7 @@ import com.impulsive.app.frontend.theme.ImpulsiveSurface
 import com.impulsive.app.frontend.theme.ImpulsiveText
 import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import java.time.LocalDateTime
+import java.time.LocalDate
 
 private data class PsychologyTask(
     val taskType: PsychologyTaskType,
@@ -259,7 +260,7 @@ fun TaskToCompleteScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            val orderedTasks = orderedVisibleTasks(taskRewardState)
+            val orderedTasks = orderedVisibleTasks(taskRewardState, currentNow.toLocalDate())
             val highlightedTaskType = orderedTasks.firstOrNull()?.taskType
             orderedTasks.forEachIndexed { index, task ->
                 val rewardStatus = taskRewardState.taskStatuses.first { it.taskType == task.taskType }
@@ -298,9 +299,12 @@ fun TaskToCompleteScreen(
     }
 }
 
-private fun orderedVisibleTasks(taskRewardState: TaskRewardState): List<PsychologyTask> {
+private fun orderedVisibleTasks(
+    taskRewardState: TaskRewardState,
+    today: LocalDate,
+): List<PsychologyTask> {
     val incompleteTaskTypes = taskRewardState.taskStatuses
-        .filterNot { it.completedEver }
+        .filterNot { it.lastCompletedAt?.toLocalDate() == today }
         .map { it.taskType }
         .toSet()
     val visibleIncompleteTasks = VisiblePsychologyTasks.filter { it.taskType in incompleteTaskTypes }

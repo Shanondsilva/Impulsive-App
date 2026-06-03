@@ -2,6 +2,7 @@ package com.impulsive.app.frontend.screens.lock
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,14 +10,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Backspace
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -77,27 +84,28 @@ fun AppLockGateScreen(
         Text(
             text = "Unlock Impulsive",
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Text(
             text = "App lock is on. Use your fingerprint or PIN to continue.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(40.dp))
         if (showPin) {
             PinDots(pin.length)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(20.dp))
             error?.let {
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(14.dp))
             }
             PinPad(
                 onDigit = { digit ->
@@ -127,7 +135,7 @@ fun AppLockGateScreen(
                 Text("Use PIN")
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(20.dp))
         TextButton(onClick = onForgotPin) {
             Text("Forgot PIN?")
         }
@@ -153,10 +161,11 @@ fun SetPinScreen(
         Text(
             text = if (confirming) "Confirm PIN" else "Set App Lock",
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Text(
             text = if (confirming) {
                 "Enter the same 4-digit PIN again."
@@ -167,16 +176,16 @@ fun SetPinScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(40.dp))
         PinDots(pin.length)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
         error?.let {
             Text(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
         }
         PinPad(
             onDigit = { digit ->
@@ -207,7 +216,7 @@ fun SetPinScreen(
                 error = null
             },
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(20.dp))
         TextButton(onClick = onCancel) {
             Text("Cancel")
         }
@@ -220,39 +229,61 @@ private fun LockScaffold(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-            contentAlignment = Alignment.Center,
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 32.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                content = content,
-            )
+            LockBrandMark()
+            Spacer(Modifier.height(32.dp))
+            content()
         }
     }
 }
 
 @Composable
+private fun LockBrandMark() {
+    Box(
+        modifier = Modifier
+            .size(72.dp)
+            .clip(CircleShape)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.14f),
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Lock,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.82f),
+            modifier = Modifier.size(30.dp),
+        )
+    }
+}
+
+@Composable
 private fun PinDots(count: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         repeat(4) { index ->
+            val filled = index < count
             Box(
                 modifier = Modifier
-                    .size(14.dp)
+                    .size(13.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (index < count) {
-                            MaterialTheme.colorScheme.primary
+                    .then(
+                        if (filled) {
+                            Modifier.background(MaterialTheme.colorScheme.primary)
                         } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f)
+                            Modifier.border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
+                                shape = CircleShape,
+                            )
                         },
                     ),
             )
@@ -271,9 +302,9 @@ private fun PinPad(
         listOf("7", "8", "9"),
         listOf("", "0", "Del"),
     )
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
         rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 row.forEach { label ->
                     PinPadButton(
                         label = label,
@@ -296,19 +327,36 @@ private fun PinPadButton(
     label: String,
     onClick: () -> Unit,
 ) {
+    if (label.isBlank()) {
+        Spacer(modifier = Modifier.size(72.dp))
+        return
+    }
     Box(
         modifier = Modifier
-            .size(width = 74.dp, height = 52.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(enabled = label.isNotBlank(), onClick = onClick),
+            .size(72.dp)
+            .clip(CircleShape)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        if (label == "Del") {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.Backspace,
+                contentDescription = "Delete",
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                modifier = Modifier.size(24.dp),
+            )
+        } else {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Light,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }
