@@ -22,8 +22,6 @@ import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
 import com.impulsive.app.frontend.screens.tasks.FutureSelfMessageScreen
 import com.impulsive.app.frontend.screens.tasks.FutureSelfRecordScreen
-import com.impulsive.app.frontend.screens.tasks.MindLessonScreen
-import com.impulsive.app.frontend.screens.tasks.PatternBreakScreen
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 
@@ -37,12 +35,8 @@ object DemoRoutes {
     const val RecoveryGames = "recovery_games"
     const val ReflexGame = "reflex_game"
     const val ReflexGameTask = "reflex_game_task"
-    const val PatternBreakGame = "pattern_break_game"
-    const val PatternBreakTask = "pattern_break_task"
     const val BlockCascade = "block_cascade"
     const val BlockCascadeTask = "block_cascade_task"
-    const val MindLessonGame = "mind_lesson_game"
-    const val MindLessonTask = "mind_lesson_task"
     const val ResetReadTask = "reset_read_task"
     const val FutureSelfMessageTask = "future_self_message_task"
     const val FutureSelfRecord = "future_self_record"
@@ -96,14 +90,8 @@ fun DemoNavHost(
                 onOpenReflexOverrideTask = {
                     navController.navigate(DemoRoutes.ReflexGameTask)
                 },
-                onOpenPatternBreakTask = {
-                    navController.navigate(DemoRoutes.PatternBreakTask)
-                },
                 onOpenBlockCascadeTask = {
                     navController.navigate(DemoRoutes.BlockCascadeTask)
-                },
-                onOpenMindLessonTask = {
-                    navController.navigate(DemoRoutes.MindLessonTask)
                 },
                 onOpenResetReadTask = {
                     navController.navigate(DemoRoutes.ResetReadTask)
@@ -185,14 +173,8 @@ fun DemoNavHost(
                 onOpenReflexOverrideTask = {
                     navController.navigate(DemoRoutes.ReflexGameTask)
                 },
-                onOpenPatternBreakTask = {
-                    navController.navigate(DemoRoutes.PatternBreakTask)
-                },
                 onOpenBlockCascadeTask = {
                     navController.navigate(DemoRoutes.BlockCascadeTask)
-                },
-                onOpenMindLessonTask = {
-                    navController.navigate(DemoRoutes.MindLessonTask)
                 },
                 onOpenResetReadTask = {
                     navController.navigate(DemoRoutes.ResetReadTask)
@@ -207,23 +189,7 @@ fun DemoNavHost(
             RecoveryGamesScreen(
                 onBack = { navController.popBackStack() },
                 onOpenReflexOverride = { navController.navigate(DemoRoutes.ReflexGame) },
-                onOpenPatternBreak = { navController.navigate(DemoRoutes.PatternBreakGame) },
                 onOpenBlockCascade = { navController.navigate(DemoRoutes.BlockCascade) },
-                onOpenMindLesson = { navController.navigate(DemoRoutes.MindLessonGame) },
-            )
-        }
-
-        composable(DemoRoutes.PatternBreakGame) {
-            PatternBreakScreen(
-                onExit = { navController.popBackStack() },
-                launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
-            )
-        }
-
-        composable(DemoRoutes.MindLessonGame) {
-            MindLessonScreen(
-                onExit = { navController.popBackStack() },
-                launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
             )
         }
 
@@ -241,12 +207,6 @@ fun DemoNavHost(
             )
         }
 
-        composable(DemoRoutes.PatternBreakTask) {
-            PatternBreakScreen(
-                onExit = { navController.popBackStack() },
-            )
-        }
-
         composable(DemoRoutes.BlockCascade) {
             BlockCascadeScreen(
                 onExit = { navController.popBackStack() },
@@ -258,12 +218,6 @@ fun DemoNavHost(
             BlockCascadeScreen(
                 onExit = { navController.popBackStack() },
                 launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
-            )
-        }
-
-        composable(DemoRoutes.MindLessonTask) {
-            MindLessonScreen(
-                onExit = { navController.popBackStack() },
             )
         }
 

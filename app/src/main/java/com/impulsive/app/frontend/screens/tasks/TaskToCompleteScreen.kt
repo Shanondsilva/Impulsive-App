@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Pattern
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,7 +67,6 @@ import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.frontend.theme.ImpulsiveBackground
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
-import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSurface
 import com.impulsive.app.frontend.theme.ImpulsiveText
@@ -157,22 +155,6 @@ private val VisiblePsychologyTasks = listOf(
         iconBackground = ImpulsivePsychological.copy(alpha = 0.58f),
     ),
     PsychologyTask(
-        taskType = PsychologyTaskType.PatternBreak,
-        title = "Pattern Break",
-        description = "Solve quick patterns to pull attention into logic.",
-        chip = "Logic",
-        icon = Icons.Outlined.Pattern,
-        iconBackground = ImpulsivePhysical.copy(alpha = 0.62f),
-    ),
-    PsychologyTask(
-        taskType = PsychologyTaskType.MindLesson,
-        title = "Mind Lesson",
-        description = "Finish one calm lesson and answer the final check.",
-        chip = "Lesson",
-        icon = Icons.AutoMirrored.Outlined.Article,
-        iconBackground = ImpulsivePsychological.copy(alpha = 0.46f),
-    ),
-    PsychologyTask(
         taskType = PsychologyTaskType.ResetRead,
         title = "Reset Read",
         description = "Read for the full timer before choosing the next move.",
@@ -194,9 +176,7 @@ private val VisiblePsychologyTasks = listOf(
 fun TaskToCompleteScreen(
     onBack: () -> Unit,
     onOpenReflexOverrideTask: () -> Unit = {},
-    onOpenPatternBreakTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
-    onOpenMindLessonTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenFutureSelfMessageTask: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -295,9 +275,7 @@ fun TaskToCompleteScreen(
                     onStartTask = {
                         when (task.taskType) {
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
-                            PsychologyTaskType.PatternBreak -> onOpenPatternBreakTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
-                            PsychologyTaskType.MindLesson -> onOpenMindLessonTask()
                             PsychologyTaskType.ResetRead -> onOpenResetReadTask()
                             PsychologyTaskType.FutureSelfMessage -> onOpenFutureSelfMessageTask()
                             PsychologyTaskType.TriggerDecoder,

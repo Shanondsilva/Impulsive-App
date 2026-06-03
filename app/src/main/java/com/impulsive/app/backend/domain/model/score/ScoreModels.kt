@@ -9,9 +9,7 @@ private const val RecentSessionLimit = 10
 
 private val DefaultScoreGameOrder = listOf(
     ScoreGameType.ReflexOverride,
-    ScoreGameType.PatternBreak,
     ScoreGameType.BlockCascade,
-    ScoreGameType.MindLesson,
     ScoreGameType.UrgeSurvival,
     ScoreGameType.FluidRegulation,
 )
@@ -27,9 +25,7 @@ enum class ScoreGameType(
     val displayName: String,
 ) {
     ReflexOverride("REFLEX_OVERRIDE", "Reflex Override"),
-    PatternBreak("PATTERN_BREAK", "Pattern Break"),
     BlockCascade("BLOCK_CASCADE", "Block Cascade"),
-    MindLesson("MIND_LESSON", "Mind Lesson"),
     UrgeSurvival("URGE_SURVIVAL", "Wave Practice"),
     FluidRegulation("FLUID_REGULATION", "Fluid Regulation"),
     PrecisionFocus("PRECISION_FOCUS", "Precision Focus"),

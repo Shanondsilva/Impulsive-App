@@ -1,5 +1,7 @@
 package com.impulsive.app.frontend.screens.dashboard
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -35,9 +37,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,11 +81,11 @@ import com.impulsive.app.frontend.components.MindCoreScene
 import com.impulsive.app.frontend.components.impulsiveGlowBorderStroke
 import com.impulsive.app.frontend.components.impulsiveGlowShadow
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
-import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
 import com.impulsive.app.frontend.theme.ImpulsiveText
 import java.time.LocalDateTime
+import kotlinx.coroutines.delay
 
 private const val DAY_COUNT = 1
 
@@ -132,9 +138,7 @@ fun HomeScreen(
     onOpenRecoveryGames: () -> Unit = {},
     onOpenJournal: () -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
-    onOpenPatternBreakTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
-    onOpenMindLessonTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenFutureSelfMessageTask: () -> Unit = {},
     onOpenTasks: () -> Unit = {},
@@ -237,9 +241,7 @@ fun HomeScreen(
                     onStartTask = {
                         when (taskRewardState.recommendedTaskType) {
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
-                            PsychologyTaskType.PatternBreak -> onOpenPatternBreakTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
-                            PsychologyTaskType.MindLesson -> onOpenMindLessonTask()
                             PsychologyTaskType.ResetRead -> onOpenResetReadTask()
                             PsychologyTaskType.FutureSelfMessage,
                             PsychologyTaskType.TriggerDecoder,
@@ -788,17 +790,9 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
         title = "Reflex Override",
         description = "Break autopilot with a fast control challenge.",
     )
-    PsychologyTaskType.PatternBreak -> HomeRecommendedTask(
-        title = "Pattern Break",
-        description = "Solve quick patterns to shift your attention.",
-    )
     PsychologyTaskType.BlockCascade -> HomeRecommendedTask(
         title = "Block Cascade",
         description = "Load visual focus with a calm falling-block challenge.",
-    )
-    PsychologyTaskType.MindLesson -> HomeRecommendedTask(
-        title = "Mind Lesson",
-        description = "Learn one useful idea, then choose the next action.",
     )
     PsychologyTaskType.ResetRead -> HomeRecommendedTask(
         title = "Reset Read",
@@ -856,7 +850,15 @@ private fun DashboardCards(
                     .clickable { onOpenRecoveryGames() },
                 label = "PIVOT GAME",
                 title = "Pivot\nGames",
-                subtext = "Reflex, Pattern and Mind games",
+                subtext = "Reflex, block and mind games",
+                animatedTitles = listOf(
+                    "Reflex Override",
+                    "Block Cascade",
+                ),
+                animatedSubtitles = listOf(
+                    "Win +50",
+                    "Win +50",
+                ),
                 cta = "Open list ›",
                 iconColor = ImpulsivePsychological.copy(alpha = 0.58f),
                 glowColor = HomeLavenderGlow,
@@ -921,7 +923,9 @@ private fun SmallActionCard(
     modifier: Modifier,
     label: String,
     title: String,
+    animatedTitles: List<String>? = null,
     subtext: String,
+    animatedSubtitles: List<String>? = null,
     cta: String,
     iconColor: Color,
     glowColor: Color,
@@ -983,20 +987,67 @@ private fun SmallActionCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Text(
-                text = title,
-                color = palette.primaryText,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            val hasShowcase = !animatedTitles.isNullOrEmpty() || !animatedSubtitles.isNullOrEmpty()
+            var showcaseIndex by remember { mutableIntStateOf(0) }
+            if (hasShowcase) {
+                LaunchedEffect(animatedTitles, animatedSubtitles) {
+                    while (true) {
+                        delay(2800)
+                        val count = maxOf(animatedTitles?.size ?: 1, animatedSubtitles?.size ?: 1)
+                        showcaseIndex = (showcaseIndex + 1) % count
+                    }
+                }
+            }
+
+            if (animatedTitles.isNullOrEmpty()) {
+                Text(
+                    text = title,
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            } else {
+                androidx.compose.animation.AnimatedContent(
+                    targetState = animatedTitles[showcaseIndex % animatedTitles.size],
+                    transitionSpec = {
+                        androidx.compose.animation.fadeIn(animationSpec = tween(600)) togetherWith
+                            androidx.compose.animation.fadeOut(animationSpec = tween(600))
+                    },
+                    label = "gameTitle",
+                ) { line ->
+                    Text(
+                        text = line,
+                        color = palette.primaryText,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            Text(
-                text = subtext,
-                color = palette.mutedText,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            if (animatedSubtitles.isNullOrEmpty()) {
+                Text(
+                    text = subtext,
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                androidx.compose.animation.AnimatedContent(
+                    targetState = animatedSubtitles[showcaseIndex % animatedSubtitles.size],
+                    transitionSpec = {
+                        androidx.compose.animation.fadeIn(animationSpec = tween(600)) togetherWith
+                            androidx.compose.animation.fadeOut(animationSpec = tween(600))
+                    },
+                    label = "gameShowcase",
+                ) { line ->
+                    Text(
+                        text = line,
+                        color = palette.mutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 

@@ -77,7 +77,7 @@ class AppMonitorService : Service() {
             .stateIn(serviceScope, SharingStarted.Eagerly, ProtectionWindowNotificationState())
     }
 
-    private var monitorStarted = false
+    private var monitorJob: kotlinx.coroutines.Job? = null
     private var lastHandledPackageName: String? = null
     private var lastHandledAtMillis: Long = 0L
 
@@ -85,7 +85,10 @@ class AppMonitorService : Service() {
     private var isScreenOn = true
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            isScreenOn = intent.action == Intent.ACTION_SCREEN_ON
+            when (intent.action) {
+                Intent.ACTION_SCREEN_ON -> wakeMonitorForScreenOn()
+                Intent.ACTION_SCREEN_OFF -> isScreenOn = false
+            }
         }
     }
 
@@ -142,16 +145,26 @@ class AppMonitorService : Service() {
     }
 
     private fun startMonitoringIfNeeded() {
-        if (monitorStarted) return
-        monitorStarted = true
-        serviceScope.launch {
+        if (monitorJob?.isActive == true) return
+        monitorJob = serviceScope.launch {
             while (isActive) {
-                val interval = if (isScreenOn) CheckIntervalMillis else ScreenOffIntervalMillis
                 runCatching { evaluateForegroundApp() }
                     .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
-                delay(interval)
+                delay(if (isScreenOn) CheckIntervalMillis else ScreenOffIntervalMillis)
             }
         }
+    }
+
+    /**
+     * When the screen turns on, the poll loop may be parked in a long screen-off
+     * delay. Restart it so it evaluates the foreground app immediately and resumes
+     * the fast on-screen cadence, instead of waiting out the remaining sleep.
+     */
+    private fun wakeMonitorForScreenOn() {
+        isScreenOn = true
+        monitorJob?.cancel()
+        monitorJob = null
+        startMonitoringIfNeeded()
     }
 
     private suspend fun evaluateForegroundApp() {

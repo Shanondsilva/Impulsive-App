@@ -38,9 +38,6 @@ import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
 import com.impulsive.app.frontend.screens.games.ReflexGameScreen
 import com.impulsive.app.frontend.screens.games.RecoveryGamesScreen
 import com.impulsive.app.frontend.screens.intro.IntroScreen
-import com.impulsive.app.frontend.screens.journal.JournalEditorScreen
-import com.impulsive.app.frontend.screens.journal.JournalHubScreen
-import com.impulsive.app.frontend.screens.journal.JournalListScreen
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
@@ -60,8 +57,6 @@ import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
 import com.impulsive.app.frontend.screens.tasks.FutureSelfMessageScreen
 import com.impulsive.app.frontend.screens.tasks.FutureSelfRecordScreen
-import com.impulsive.app.frontend.screens.tasks.MindLessonScreen
-import com.impulsive.app.frontend.screens.tasks.PatternBreakScreen
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 import com.impulsive.app.security.antibypass.UninstallProtectionManager
@@ -95,9 +90,7 @@ object AppRoutes {
     const val ReflexGameTask = "reflex_game_task"
     const val BlockCascadeGame = "block_cascade_game"
     const val BlockCascadeTask = "block_cascade_task"
-    const val MindLessonTask = "mind_lesson_task"
     const val ResetReadTask = "reset_read_task"
-    const val PatternBreakTask = "pattern_break_task"
     const val TaskToComplete = "task_to_complete"
     const val FutureSelfMessageTask = "future_self_message_task"
     const val FutureSelfRecord = "future_self_record"
@@ -418,19 +411,13 @@ fun AppNavHost(
                         navController.navigateMainTop(AppRoutes.RecoveryGames)
                     },
                     onOpenJournal = {
-                        navController.navigateMainTop(AppRoutes.JournalHub)
+                        navController.navigate(AppRoutes.FutureSelfRecord)
                     },
                     onOpenReflexOverrideTask = {
                         navController.navigate(AppRoutes.ReflexGameTask)
                     },
-                    onOpenPatternBreakTask = {
-                        navController.navigate(AppRoutes.PatternBreakTask)
-                    },
                     onOpenBlockCascadeTask = {
                         navController.navigate(AppRoutes.BlockCascadeTask)
-                    },
-                    onOpenMindLessonTask = {
-                        navController.navigate(AppRoutes.MindLessonTask)
                     },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
@@ -532,18 +519,6 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.PatternBreakTask) {
-                PatternBreakScreen(
-                    onExit = { navController.safePopBackStack() },
-                )
-            }
-
-            composable(AppRoutes.MindLessonTask) {
-                MindLessonScreen(
-                    onExit = { navController.safePopBackStack() },
-                )
-            }
-
             composable(AppRoutes.ResetReadTask) {
                 ResetReadScreen(
                     onExit = { navController.safePopBackStack() },
@@ -560,49 +535,6 @@ fun AppNavHost(
             composable(AppRoutes.FutureSelfRecord) {
                 FutureSelfRecordScreen(
                     onExit = { navController.safePopBackStack() },
-                )
-            }
-
-            composable(AppRoutes.JournalHub) {
-                JournalHubScreen(
-                    onBack = { navController.safePopBackStack() },
-                    onOpenFutureSelf = { navController.navigate(AppRoutes.FutureSelfRecord) },
-                    onOpenNormalJournal = { navController.navigate(AppRoutes.JournalList) },
-                    onCreateNote = { type -> navController.navigate(AppRoutes.journalNoteNew(type)) },
-                    onOpenNote = { noteId -> navController.navigate(AppRoutes.journalNoteEdit(noteId)) },
-                )
-            }
-
-            composable(AppRoutes.JournalList) {
-                JournalListScreen(
-                    onBack = { navController.safePopBackStack() },
-                    onCreateNote = { type -> navController.navigate(AppRoutes.journalNoteNew(type)) },
-                    onOpenNote = { noteId -> navController.navigate(AppRoutes.journalNoteEdit(noteId)) },
-                )
-            }
-
-            composable(
-                route = AppRoutes.JournalNoteNew,
-                arguments = listOf(navArgument("type") { type = NavType.StringType }),
-            ) { backStackEntry ->
-                val noteType = JournalNoteType.fromStorage(
-                    backStackEntry.arguments?.getString("type").orEmpty(),
-                )
-                JournalEditorScreen(
-                    noteId = 0L,
-                    initialType = noteType,
-                    onBack = { navController.safePopBackStack() },
-                )
-            }
-
-            composable(
-                route = AppRoutes.JournalNoteEdit,
-                arguments = listOf(navArgument("noteId") { type = NavType.LongType }),
-            ) { backStackEntry ->
-                JournalEditorScreen(
-                    noteId = backStackEntry.arguments?.getLong("noteId") ?: 0L,
-                    initialType = JournalNoteType.Text,
-                    onBack = { navController.safePopBackStack() },
                 )
             }
 
@@ -649,14 +581,8 @@ fun AppNavHost(
                     onOpenReflexOverrideTask = {
                         navController.navigate(AppRoutes.ReflexGameTask)
                     },
-                    onOpenPatternBreakTask = {
-                        navController.navigate(AppRoutes.PatternBreakTask)
-                    },
                     onOpenBlockCascadeTask = {
                         navController.navigate(AppRoutes.BlockCascadeTask)
-                    },
-                    onOpenMindLessonTask = {
-                        navController.navigate(AppRoutes.MindLessonTask)
                     },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)

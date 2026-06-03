@@ -6,9 +6,7 @@ enum class RecoveryGameId(
     val scoreGameType: ScoreGameType,
 ) {
     ReflexOverride(ScoreGameType.ReflexOverride),
-    PatternBreak(ScoreGameType.PatternBreak),
     BlockCascade(ScoreGameType.BlockCascade),
-    MindLesson(ScoreGameType.MindLesson),
 }
 
 data class RecoveryGameDefinition(
@@ -29,25 +27,11 @@ object RecoveryGameCatalog {
             chipLabel = "Fast control",
         ),
         RecoveryGameDefinition(
-            id = RecoveryGameId.PatternBreak,
-            title = "Pattern Break",
-            description = "Shift attention into quick logic and pattern recognition.",
-            durationLabel = "60 sec",
-            chipLabel = "Logic reset",
-        ),
-        RecoveryGameDefinition(
             id = RecoveryGameId.BlockCascade,
             title = "Block Cascade",
             description = "A time-boxed block round with a clear finish state.",
             durationLabel = "90 sec",
             chipLabel = "Visual focus",
-        ),
-        RecoveryGameDefinition(
-            id = RecoveryGameId.MindLesson,
-            title = "Mind Lesson",
-            description = "A short interactive lesson with attention checks.",
-            durationLabel = "2-3 min",
-            chipLabel = "Mind reset",
         ),
     )
 

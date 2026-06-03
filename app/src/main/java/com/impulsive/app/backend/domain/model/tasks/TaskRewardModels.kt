@@ -10,12 +10,10 @@ enum class PsychologyTaskType(
     val taskTitle: String,
 ) {
     ReflexOverride("reflex_override", "Reflex Override"),
-    PatternBreak("pattern_break", "Pattern Break"),
     TriggerDecoder("trigger_decoder", "Cue Decoder"),
     ThoughtCapture("thought_capture", "Thought Capture"),
     ShortReadingBurst("short_reading_burst", "Short Reading Burst"),
     BlockCascade("block_cascade", "Block Cascade"),
-    MindLesson("mind_lesson", "Mind Lesson"),
     ResetRead("reset_read", "Reset Read"),
     FutureSelfMessage("future_self_message", "Future-Self Message"),
 }
@@ -150,12 +148,10 @@ data class TaskCompletionResult(
 
 val PsychologyTaskRewardDefinitions = listOf(
     TaskRewardDefinition(PsychologyTaskType.ReflexOverride, "Reflex Override", 120, 25, 45, 10, 0, 2),
-    TaskRewardDefinition(PsychologyTaskType.PatternBreak, "Pattern Break", 90, 20, 40, 10, 10, 2),
     TaskRewardDefinition(PsychologyTaskType.TriggerDecoder, "Trigger Decoder", 45, 15, 30, 10, 10, 3, optionalMonitoredTriggerBonusLevelPoints = 5),
     TaskRewardDefinition(PsychologyTaskType.ThoughtCapture, "Thought Capture", 60, 18, 45, 15, 20, 6),
     TaskRewardDefinition(PsychologyTaskType.ShortReadingBurst, "Short Reading Burst", 60, 15, 30, 8, 10, 2),
     TaskRewardDefinition(PsychologyTaskType.BlockCascade, "Block Cascade", 90, 20, 45, 12, 10, 3),
-    TaskRewardDefinition(PsychologyTaskType.MindLesson, "Mind Lesson", 60, 18, 30, 10, 10, 3),
     TaskRewardDefinition(PsychologyTaskType.ResetRead, "Reset Read", 60, 15, 30, 8, 10, 2),
     TaskRewardDefinition(PsychologyTaskType.FutureSelfMessage, "Future-Self Message", 45, 12, 30, 10, 15, 5),
 )
@@ -279,7 +275,6 @@ fun recommendPsychologyTask(
     val candidates = when {
         userEnergyState != null -> listOf(
             PsychologyTaskType.ResetRead,
-            PsychologyTaskType.MindLesson,
             PsychologyTaskType.FutureSelfMessage,
         )
         currentUrgeIntensity != null && currentUrgeIntensity >= 7 ->
@@ -287,9 +282,9 @@ fun recommendPsychologyTask(
                 PsychologyTaskType.BlockCascade,
                 PsychologyTaskType.ReflexOverride,
             )
-        currentTriggerSource != null -> listOf(PsychologyTaskType.BlockCascade, PsychologyTaskType.PatternBreak)
+        currentTriggerSource != null -> listOf(PsychologyTaskType.BlockCascade, PsychologyTaskType.ReflexOverride)
         currentTriggerType == TriggerType.RepeatedThought || currentTriggerType == TriggerType.Memory ->
-            listOf(PsychologyTaskType.FutureSelfMessage, PsychologyTaskType.MindLesson)
+            listOf(PsychologyTaskType.FutureSelfMessage)
         currentTriggerType in setOf(
             TriggerType.Stress,
             TriggerType.Loneliness,
@@ -297,12 +292,10 @@ fun recommendPsychologyTask(
             TriggerType.Sadness,
             TriggerType.Rejection,
         ) -> listOf(PsychologyTaskType.FutureSelfMessage, PsychologyTaskType.ResetRead)
-        currentTriggerType == TriggerType.Unknown -> listOf(PsychologyTaskType.MindLesson, PsychologyTaskType.ResetRead)
+        currentTriggerType == TriggerType.Unknown -> listOf(PsychologyTaskType.ResetRead)
         else -> listOf(
             PsychologyTaskType.ReflexOverride,
             PsychologyTaskType.BlockCascade,
-            PsychologyTaskType.PatternBreak,
-            PsychologyTaskType.MindLesson,
             PsychologyTaskType.ResetRead,
             PsychologyTaskType.FutureSelfMessage,
         )
@@ -339,12 +332,10 @@ private fun chooseRecommendedTask(
 
 private fun recommendationReasonFor(taskType: PsychologyTaskType): String = when (taskType) {
     PsychologyTaskType.ReflexOverride -> "Strong novelty and a quick attention pivot."
-    PsychologyTaskType.PatternBreak -> "Pivots search and loop patterns into logic."
     PsychologyTaskType.BlockCascade -> "Loads visual attention so the difficult image has less room."
-    PsychologyTaskType.MindLesson -> "A short lesson that builds understanding of difficult moments."
     PsychologyTaskType.ResetRead -> "A short, focused read to redirect attention."
     PsychologyTaskType.FutureSelfMessage -> "Replays your own reason in your own words."
-    PsychologyTaskType.TriggerDecoder -> "Hidden for now; fallback to Mind Lesson in the UI."
+    PsychologyTaskType.TriggerDecoder -> "Hidden for now; not shown in the UI."
     PsychologyTaskType.ThoughtCapture -> "Hidden for now; Future-Self Message owns the journal slot."
     PsychologyTaskType.ShortReadingBurst -> "Hidden for now; Reset Read owns the reading slot."
 }

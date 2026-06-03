@@ -23,7 +23,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.AccessTime
@@ -52,7 +51,6 @@ import com.impulsive.app.backend.domain.model.store.GameAccess
 import com.impulsive.app.backend.domain.model.store.GameStoreCatalog
 import com.impulsive.app.backend.domain.model.store.StoreGame
 import com.impulsive.app.backend.session.game.GameStoreViewModel
-import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 
 private data class RecoveryGamesColors(
@@ -102,6 +100,8 @@ private data class RecoveryGameCardModel(
     val chip: String,
     val icon: ImageVector,
     val iconBackground: Color,
+    val gameTypeId: String? = null,
+    val winPoints: Int? = null,
     val onOpen: () -> Unit,
 )
 
@@ -110,14 +110,13 @@ fun RecoveryGamesScreen(
     onBack: () -> Unit,
     onOpenReflexOverride: () -> Unit,
     onOpenBlockCascade: () -> Unit,
-    onOpenPatternBreak: () -> Unit = {},
-    onOpenMindLesson: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = rememberRecoveryGamesColors()
     val storeViewModel: GameStoreViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val points by storeViewModel.spendablePoints.collectAsStateWithLifecycle()
     val access by storeViewModel.accessByGame.collectAsStateWithLifecycle()
+    val playedGameTypeIds by storeViewModel.playedGameTypeIds.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     fun showStoreResult(result: StoreResult, successText: String) {
@@ -137,16 +136,9 @@ fun RecoveryGamesScreen(
             chip = "Fast control",
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.68f),
+            gameTypeId = "REFLEX_OVERRIDE",
+            winPoints = GameStoreCatalog.WinOwned,
             onOpen = onOpenReflexOverride,
-        ),
-        RecoveryGameCardModel(
-            title = "Pattern Break",
-            description = "Shift attention into quick logic and pattern recognition.",
-            duration = "60 sec",
-            chip = "Logic reset",
-            icon = Icons.Filled.AutoAwesome,
-            iconBackground = ImpulsivePhysical.copy(alpha = 0.72f),
-            onOpen = onOpenPatternBreak,
         ),
         RecoveryGameCardModel(
             title = "Block Cascade",
@@ -155,16 +147,9 @@ fun RecoveryGamesScreen(
             chip = "Visual focus",
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.58f),
+            gameTypeId = "BLOCK_CASCADE",
+            winPoints = GameStoreCatalog.WinOwned,
             onOpen = onOpenBlockCascade,
-        ),
-        RecoveryGameCardModel(
-            title = "Mind Lesson",
-            description = "A short interactive lesson with attention checks.",
-            duration = "2-3 min",
-            chip = "Mind reset",
-            icon = Icons.Filled.AutoAwesome,
-            iconBackground = ImpulsivePhysical.copy(alpha = 0.56f),
-            onOpen = onOpenMindLesson,
         ),
     )
 
@@ -240,7 +225,11 @@ fun RecoveryGamesScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         games.forEach { game ->
-            RecoveryGameCard(game = game, colors = colors)
+            RecoveryGameCard(
+                game = game,
+                colors = colors,
+                isUnplayed = game.gameTypeId != null && game.gameTypeId !in playedGameTypeIds,
+            )
             Spacer(modifier = Modifier.height(14.dp))
         }
 
@@ -284,6 +273,7 @@ fun RecoveryGamesScreen(
 private fun RecoveryGameCard(
     game: RecoveryGameCardModel,
     colors: RecoveryGamesColors,
+    isUnplayed: Boolean = false,
 ) {
     val cardShape = RoundedCornerShape(28.dp)
     val isDark = colors.background.luminance() < 0.5f
@@ -345,6 +335,23 @@ private fun RecoveryGameCard(
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                         )
+                    }
+                    if (isUnplayed && game.winPoints != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = ImpulsivePsychological.copy(alpha = if (isDark) 0.32f else 0.5f),
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                text = "Win +${game.winPoints}",
+                                color = colors.text,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
 

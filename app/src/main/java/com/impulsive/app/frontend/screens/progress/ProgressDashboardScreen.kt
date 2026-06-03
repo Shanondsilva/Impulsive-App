@@ -25,7 +25,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MilitaryTech
 import androidx.compose.material.icons.filled.Moving
 import androidx.compose.material.icons.filled.Psychology
@@ -1479,9 +1478,7 @@ private fun OutcomePill(
 
 private fun ScoreGameType.accentColor(): Color = when (this) {
     ScoreGameType.ReflexOverride -> ImpulsivePhysical
-    ScoreGameType.PatternBreak -> ImpulsiveSpiritual
     ScoreGameType.BlockCascade -> ImpulsivePsychological
-    ScoreGameType.MindLesson -> ImpulsiveOverallTheme
     ScoreGameType.UrgeSurvival -> ImpulsiveFocusMode
     ScoreGameType.FluidRegulation -> ImpulsiveOverallTheme
     ScoreGameType.PrecisionFocus -> ImpulsivePhysical
@@ -1493,9 +1490,7 @@ private fun ScoreGameType.accentColor(): Color = when (this) {
 
 private fun ScoreGameType.scoreIcon(): ImageVector = when (this) {
     ScoreGameType.ReflexOverride -> Icons.Filled.SportsEsports
-    ScoreGameType.PatternBreak -> Icons.Filled.AutoAwesome
     ScoreGameType.BlockCascade -> Icons.Filled.ViewModule
-    ScoreGameType.MindLesson -> Icons.Filled.MenuBook
     ScoreGameType.UrgeSurvival -> Icons.Filled.Shield
     ScoreGameType.FluidRegulation -> Icons.Filled.TrendingDown
     ScoreGameType.PrecisionFocus -> Icons.Filled.Psychology
