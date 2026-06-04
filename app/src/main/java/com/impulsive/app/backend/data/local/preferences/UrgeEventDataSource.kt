@@ -8,6 +8,7 @@ import com.impulsive.app.backend.domain.model.score.UrgeEventRecord
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 private const val MaxStoredUrgeEvents = 500
 private const val RecordSeparator = ""
@@ -41,7 +42,12 @@ class UrgeEventDataSource(context: Context) {
     }
 
     private fun UrgeEventRecord.encode(): String =
-        listOf(date.toString(), source).joinToString(FieldSeparator)
+        listOf(
+            date.toString(),
+            source,
+            packageName.orEmpty(),
+            at?.toString().orEmpty(),
+        ).joinToString(FieldSeparator)
 
     private fun String.decodeUrgeEventOrNull(): UrgeEventRecord? {
         if (isBlank()) return null
@@ -51,6 +57,10 @@ class UrgeEventDataSource(context: Context) {
             UrgeEventRecord(
                 date = LocalDate.parse(parts[0]),
                 source = parts.getOrElse(1) { "unknown" },
+                packageName = parts.getOrNull(2)?.takeIf { it.isNotBlank() },
+                at = parts.getOrNull(3)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() },
             )
         }.getOrNull()
     }

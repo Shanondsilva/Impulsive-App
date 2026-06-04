@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.impulsive.app.backend.data.local.device.InstalledAppScanner
 import com.impulsive.app.backend.domain.model.protection.ProtectedAppCandidate
+import com.impulsive.app.backend.domain.model.protection.ProtectedAppCategory
 import com.impulsive.app.backend.domain.model.protection.toSuggestionGroups
 
 @Composable
@@ -45,6 +46,7 @@ fun BlockedAppsSelectionContent(
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
     allowShowMoreApps: Boolean = false,
+    seedRecommendedBrowsers: Boolean = false,
 ) {
     val context = LocalContext.current
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -61,7 +63,22 @@ fun BlockedAppsSelectionContent(
     }
 
     LaunchedEffect(Unit) {
-        candidates = InstalledAppScanner(context).getLaunchableAppCandidates()
+        val loaded = InstalledAppScanner(context).getLaunchableAppCandidates()
+        candidates = loaded
+        // First onboarding pass only: pre-select detected browsers as a default
+        // suggestion. They show ticked and persist when the user saves, exactly
+        // like a manual selection. The empty-selection guard means this never
+        // overwrites an existing or saved set, and the flag defaults off so it
+        // never runs in the Settings sheet.
+        if (seedRecommendedBrowsers && localSelection.isEmpty()) {
+            val browserPackages = loaded
+                .filter { it.category == ProtectedAppCategory.BrowserSearch }
+                .map { it.packageName }
+                .toSet()
+            if (browserPackages.isNotEmpty()) {
+                localSelection = localSelection + browserPackages
+            }
+        }
     }
 
     Column(
@@ -80,6 +97,13 @@ fun BlockedAppsSelectionContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
         )
+        if (seedRecommendedBrowsers) {
+            Text(
+                text = "Impulsive detected your browsers and pre-selected them, since they can open blocked content directly. Untick any you do not want protected.",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         TextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },

@@ -242,7 +242,7 @@ class AppMonitorService : Service() {
         lastHandledPackageName = sourcePackageName
         lastHandledAtMillis = nowMillis
         serviceScope.launch {
-            urgeEventRepository.recordEvent(source = "app")
+            urgeEventRepository.recordEvent(source = "app", packageName = sourcePackageName)
         }
         val blockIntent = MainActivity.createBlockIntent(
             context = this,

@@ -57,6 +57,8 @@ enum class ScoreSessionOutcome(
 data class UrgeEventRecord(
     val date: LocalDate,
     val source: String = "app",
+    val packageName: String? = null,
+    val at: LocalDateTime? = null,
 )
 
 data class UrgeTrendDayBar(

@@ -388,6 +388,7 @@ fun AppNavHost(
                     selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
                     onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
                     onDone = { navController.safePopBackStack() },
+                    seedRecommendedBrowsers = true,
                 )
             }
 
@@ -579,7 +580,7 @@ fun AppNavHost(
                     onStartControlTask = {
                         blockGuard.run(appLockEnabled) {
                             urgeEventScope.launch {
-                                urgeEventRepository.recordEvent(source = "support_task")
+                                urgeEventRepository.recordEvent(source = "support_task", packageName = sourcePackageName)
                             }
                             navController.navigate(AppRoutes.TaskToComplete) { launchSingleTop = true }
                         }
