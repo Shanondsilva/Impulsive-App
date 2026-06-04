@@ -566,6 +566,18 @@ fun AppNavHost(
                 val urgeEventRepository = remember(context) {
                     com.impulsive.app.backend.data.repository.UrgeEventRepository(context)
                 }
+                val scoreRepository = remember(context) {
+                    com.impulsive.app.backend.data.repository.ScoreRepository(context)
+                }
+                val servedGamesRepository = remember(context) {
+                    com.impulsive.app.backend.data.repository.ServedGamesRepository(context)
+                }
+                val gameSessions by scoreRepository.sessions
+                    .collectAsStateWithLifecycle(initialValue = emptyList())
+                val urgeEvents by urgeEventRepository.events
+                    .collectAsStateWithLifecycle(initialValue = emptyList())
+                val recentlyServedGames by servedGamesRepository.served
+                    .collectAsStateWithLifecycle(initialValue = emptyList())
                 val blockGuard = rememberAppLockGuardController()
                 BackHandler {
                     val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
@@ -579,10 +591,20 @@ fun AppNavHost(
                     sourceLabel = if (hideSensitive) "a protected app" else sourceLabel.ifBlank { sourcePackageName },
                     onStartControlTask = {
                         blockGuard.run(appLockEnabled) {
+                            val chosenGame = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.selectNextGame(
+                                sessions = gameSessions,
+                                urgeEvents = urgeEvents,
+                                recentlyServed = recentlyServedGames,
+                            )
                             urgeEventScope.launch {
                                 urgeEventRepository.recordEvent(source = "support_task", packageName = sourcePackageName)
+                                servedGamesRepository.recordServed(chosenGame)
                             }
-                            navController.navigate(AppRoutes.TaskToComplete) { launchSingleTop = true }
+                            val gameRoute = when (chosenGame) {
+                                com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade -> AppRoutes.BlockCascadeTask
+                                else -> AppRoutes.ReflexGameTask
+                            }
+                            navController.navigate(gameRoute) { launchSingleTop = true }
                         }
                     },
                     onReturnHome = {

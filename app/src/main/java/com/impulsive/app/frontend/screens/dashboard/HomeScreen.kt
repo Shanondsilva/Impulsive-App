@@ -60,6 +60,7 @@ import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.formattedPlannedWindows
 import com.impulsive.app.backend.domain.model.release.formattedTimeUntilNextWindow
+import com.impulsive.app.backend.domain.model.release.ReleasePlanDefaults
 import com.impulsive.app.backend.domain.model.release.formattedTodaysWindow
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
@@ -86,6 +87,7 @@ import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
 import com.impulsive.app.frontend.theme.ImpulsiveText
+import java.time.Duration
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
 
@@ -451,8 +453,28 @@ private fun LevelCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val liveNow by produceState(initialValue = LocalDateTime.now()) {
+                    while (true) {
+                        value = LocalDateTime.now()
+                        delay(1000)
+                    }
+                }
+                val activeWindowEnd = releasePlan.plannedWindowsToday
+                    .firstOrNull { start ->
+                        !liveNow.isBefore(start) &&
+                            liveNow.isBefore(start.plusMinutes(ReleasePlanDefaults.ReleaseWindowMinutes))
+                    }
+                    ?.plusMinutes(ReleasePlanDefaults.ReleaseWindowMinutes)
+                val remainingInWindow = activeWindowEnd
+                    ?.let { Duration.between(liveNow, it) }
+                    ?.takeIf { !it.isNegative && !it.isZero }
                 Text(
-                    text = releasePlan.formattedTodaysWindow(),
+                    text = if (remainingInWindow != null) {
+                        val totalSeconds = remainingInWindow.seconds
+                        "Time left: %d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+                    } else {
+                        releasePlan.formattedTodaysWindow()
+                    },
                     color = ImpulsiveText.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.bodyMedium,
                 )

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,7 +54,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -1161,22 +1166,76 @@ private fun UrgeTrendCard(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 val maxVal = (trend.bars.maxOfOrNull { maxOf(it.actual, it.baseline) } ?: 1).coerceAtLeast(1)
-                Row(
+                val lineColor = accent
+                val baselineColor = contentColor.copy(alpha = if (isDark) 0.40f else 0.34f)
+                val points = trend.bars
+                Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.Bottom,
+                        .height(56.dp),
                 ) {
-                    trend.bars.forEach { bar ->
-                        val barAccent = if (bar.aboveBaseline) colors.coralGlow else colors.greenGlow
-                        val height = (8 + (bar.actual.toFloat() / maxVal) * 36).dp
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(height)
-                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                .background(barAccent.copy(alpha = if (isDark) 0.74f else 0.56f)),
+                    val count = points.size
+                    if (count == 0) return@Canvas
+                    val topPad = 6f
+                    val bottomPad = 6f
+                    val usableHeight = (size.height - topPad - bottomPad).coerceAtLeast(1f)
+                    val stepX = if (count > 1) size.width / (count - 1) else 0f
+
+                    fun yFor(value: Int): Float =
+                        topPad + usableHeight * (1f - (value.toFloat() / maxVal.toFloat()))
+
+                    fun xFor(index: Int): Float =
+                        if (count > 1) stepX * index else size.width / 2f
+
+                    // Dashed baseline reference.
+                    if (trend.baselinePerDay > 0) {
+                        val baselineY = yFor(trend.baselinePerDay.coerceAtMost(maxVal))
+                        drawLine(
+                            color = baselineColor,
+                            start = Offset(0f, baselineY),
+                            end = Offset(size.width, baselineY),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(
+                                floatArrayOf(6.dp.toPx(), 6.dp.toPx()),
+                            ),
+                        )
+                    }
+
+                    // Build the actual-values line path.
+                    val linePath = Path()
+                    points.forEachIndexed { index, bar ->
+                        val x = xFor(index)
+                        val y = yFor(bar.actual)
+                        if (index == 0) linePath.moveTo(x, y) else linePath.lineTo(x, y)
+                    }
+
+                    // Soft area fill under the line.
+                    if (count > 1) {
+                        val fillPath = Path().apply {
+                            addPath(linePath)
+                            lineTo(xFor(count - 1), size.height - bottomPad)
+                            lineTo(xFor(0), size.height - bottomPad)
+                            close()
+                        }
+                        drawPath(
+                            path = fillPath,
+                            color = lineColor.copy(alpha = if (isDark) 0.16f else 0.12f),
+                        )
+                    }
+
+                    // The line itself.
+                    drawPath(
+                        path = linePath,
+                        color = lineColor,
+                        style = Stroke(width = 2.5.dp.toPx()),
+                    )
+
+                    // Point dots.
+                    points.forEachIndexed { index, bar ->
+                        drawCircle(
+                            color = lineColor,
+                            radius = 2.5.dp.toPx(),
+                            center = Offset(xFor(index), yFor(bar.actual)),
                         )
                     }
                 }
