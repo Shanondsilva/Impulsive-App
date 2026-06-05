@@ -248,7 +248,7 @@ private fun ReadyView(uiState: ReflexGameUiState, onStart: () -> Unit) {
             shape = RoundedCornerShape(28.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Start 60-second challenge")
+            Text("Start 90-second challenge")
         }
     }
 }
@@ -549,7 +549,7 @@ private fun GameHud(uiState: ReflexGameUiState) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            HudStat("Time", uiState.timeLeft.toString())
+            HudStat("Time", "${uiState.timeLeft}s")
             HudStat("Score", uiState.score.toString())
             HudStat("Combo", uiState.combo.toString())
         }

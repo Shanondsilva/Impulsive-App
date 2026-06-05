@@ -25,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -199,7 +201,7 @@ fun SkylineResetScreen(
                 )
             }
             Text(
-                text = "Skyline Reset",
+                text = "SkyStack",
                 color = Color.White,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
@@ -249,14 +251,7 @@ private fun SkylinePlayArea(
     onDrop: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        val secondsLeft = (SkylineResetRoundSeconds - uiState.secondsPlayed).coerceAtLeast(0)
-        val potentialPoints = uiState.perfectCount.coerceAtLeast(0) * SkylineResetPerPerfectControlPoints
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SkylineHud("Timer", secondsLeft.skylineFormatClock(), Modifier.weight(1f))
-            SkylineHud("Floors", uiState.floorsBuilt.toString(), Modifier.weight(1f))
-            SkylineHud("Perfect", uiState.perfectCount.toString(), Modifier.weight(1f))
-            SkylineHud("Points", potentialPoints.toString(), Modifier.weight(1f))
-        }
+        SkylineProgressHud(uiState = uiState)
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
@@ -485,10 +480,62 @@ private fun DrawScope.drawSkylineFloor(
 }
 
 @Composable
+private fun SkylineProgressHud(uiState: SkylineResetUiState) {
+    val progress = (uiState.secondsPlayed / SkylineResetRoundSeconds.toFloat()).coerceIn(0f, 1f)
+    val potentialPoints = uiState.perfectCount.coerceAtLeast(0) * SkylineResetPerPerfectControlPoints
+
+    Surface(
+        color = ImpulsiveSurface,
+        shape = RoundedCornerShape(24.dp),
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                SkylineHud("Time", "${uiState.secondsPlayed}s")
+                SkylineHud("Floors", uiState.floorsBuilt.toString())
+                SkylineHud("Perfect", uiState.perfectCount.toString())
+                SkylineHud("Points", potentialPoints.toString())
+            }
+            LinearProgressIndicator(
+                progress = { progress },
+                color = ImpulsivePsychological,
+                trackColor = ImpulsivePsychological.copy(alpha = 0.18f),
+                drawStopIndicator = {},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(50)),
+            )
+            Text(
+                text = "Goal: ${SkylineResetRoundSeconds}s. Keep stacking until the round ends.",
+                color = ImpulsiveMutedText,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SkylineHud(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
-        Text(text = value, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            text = label,
+            color = ImpulsiveMutedText,
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Text(
+            text = value,
+            color = ImpulsiveText,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -569,7 +616,7 @@ private fun SkylineResultPanel(
         }
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = if (uiState.completed) "Skyline complete" else "Tower toppled",
+            text = if (uiState.completed) "SkyStack complete" else "Tower toppled",
             color = ImpulsiveText,
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
@@ -646,13 +693,6 @@ private fun SkylineCenterPanel(content: @Composable ColumnScope.() -> Unit) {
             Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, content = content)
         }
     }
-}
-
-private fun Int.skylineFormatClock(): String {
-    val safe = coerceAtLeast(0)
-    val minutes = safe / 60
-    val seconds = safe % 60
-    return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
 private class SkyWin(val x: Float, val y: Float, val on: Boolean, val warm: Boolean)

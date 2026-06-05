@@ -57,7 +57,7 @@ class AppMonitorService : Service() {
     private val appSettingsDataSource by lazy { AppSettingsPreferencesDataSource(applicationContext) }
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
 
-    // Collected once into the service scope — no per-tick disk reads.
+    // Collected once into the service scope, with no per-tick disk reads.
     private val setupState by lazy {
         protectionSetupRepository.state
             .stateIn(serviceScope, SharingStarted.Eagerly, ProtectionSetupState())
@@ -273,6 +273,7 @@ class AppMonitorService : Service() {
         currentLevel = InitialLevel,
         currentLevelPoints = InitialLevelPoints,
         rewardedWindowKey = null,
+        rewardedWaitCutDate = null,
         adjustedNextReleaseWindow = null,
         lastRecommendedTaskType = null,
         lastCompletedTaskType = null,

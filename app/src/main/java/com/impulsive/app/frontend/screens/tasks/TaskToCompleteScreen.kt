@@ -31,16 +31,21 @@ import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -149,7 +154,7 @@ private val VisiblePsychologyTasks = listOf(
     ),
     PsychologyTask(
         taskType = PsychologyTaskType.SkylineReset,
-        title = "Skyline Reset",
+        title = "SkyStack",
         description = "Stack a calm skyscraper, floor by floor, into the night.",
         chip = "Steady focus",
         icon = Icons.Filled.SportsEsports,
@@ -260,7 +265,7 @@ fun TaskToCompleteScreen(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "One wait cut per window",
+                    text = "One wait cut per day",
                     color = colors.mutedText,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
@@ -333,6 +338,30 @@ private fun TaskHeader(
     onBack: () -> Unit,
     colors: TaskModeColors,
 ) {
+    var showTaskInfo by remember { mutableStateOf(false) }
+
+    if (showTaskInfo) {
+        AlertDialog(
+            onDismissRequest = { showTaskInfo = false },
+            title = {
+                Text(
+                    text = "What are Tasks?",
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    text = "Tasks are short control actions that help you pause, redirect your attention, and earn progress before the next window. Complete one real action to reduce waiting time and build Level Points.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showTaskInfo = false }) {
+                    Text(text = "Got it")
+                }
+            },
+        )
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
@@ -350,12 +379,28 @@ private fun TaskHeader(
         }
 
         Column(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
-            Text(
-                text = "Task to Complete",
-                color = colors.accentText,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Tasks",
+                    color = colors.accentText,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                IconButton(
+                    onClick = { showTaskInfo = true },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = "About Tasks",
+                        tint = colors.accentText.copy(alpha = 0.88f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Complete one real action to reduce the wait.",
@@ -390,7 +435,7 @@ private fun CompletionResultCard(
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
-                    text = "Task complete",
+                    text = "Tasks",
                     color = colors.primaryText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
@@ -639,7 +684,7 @@ private fun RewardPillRow(
         } else {
             RewardPill(
                 icon = Icons.Filled.Timer,
-                text = "Wait cut used",
+                text = "Wait cut used today",
                 background = colors.chipBackground,
                 content = colors.mutedText,
             )
@@ -812,7 +857,7 @@ private fun AllTasksCompleteCard(colors: TaskModeColors) {
 }
 
 private fun TaskRewardStatus.visibleWaitCutMinutes(): Int =
-    if (currentWindowRewardAlreadyUsed) 0 else displayWaitReductionMinutes
+    if (waitCutAlreadyUsedToday) 0 else displayWaitReductionMinutes
 
 private fun TaskRewardStatus.visibleLevelPoints(): Int =
     if (currentWindowRewardAlreadyUsed) minOf(2, displayLevelPoints) else displayLevelPoints

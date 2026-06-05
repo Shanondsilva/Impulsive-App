@@ -53,7 +53,8 @@ object ReflexGameConfig {
         DifficultyTier(650, 330, 0.46f),
     )
     val TARGET_COLORS = listOf(0xFFC77DFF, 0xFF4DB8FF, 0xFFFFE45E, 0xFFFF4FA3, 0xFF44FFB2, 0xFFFF8A3D)
-    const val ROUND_SECONDS = 60
+    const val ROUND_SECONDS = 90
+    val DIFFICULTY_STEP_SECONDS: Float = ROUND_SECONDS / DIFFICULTY.size.toFloat()
     const val WALK_AWAY_BONUS = 2000
     const val MAX_BOMBS = 5
 }

@@ -235,7 +235,7 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (taskRewardState.currentWindowRewardAlreadyUsed) {
+            if (taskRewardState.waitCutAlreadyUsedToday) {
                 TaskCompletedPreviewCard(
                     releasePlan = displayReleasePlan,
                     completedTaskName = taskRewardState.lastCompletedTaskType?.taskTitle ?: "Pivot task",
@@ -553,7 +553,7 @@ private fun TaskToCompletePreviewCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Task to Complete",
+                        text = "Tasks",
                         color = palette.primaryText,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
@@ -748,14 +748,14 @@ private fun TaskCompletedPreviewCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Task complete",
+                    text = "Tasks",
                     color = palette.primaryText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "$completedTaskName is logged for this window.",
+                    text = "$completedTaskName is logged for today.",
                     color = palette.mutedText,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -810,7 +810,7 @@ private fun SoftChip(
 
 private fun TaskRewardStatus.displayRewardLabel(): String {
     val points = if (currentWindowRewardAlreadyUsed) minOf(2, displayLevelPoints) else displayLevelPoints
-    val waitReduction = if (currentWindowRewardAlreadyUsed) 0 else displayWaitReductionMinutes
+    val waitReduction = if (waitCutAlreadyUsedToday) 0 else displayWaitReductionMinutes
     return if (waitReduction > 0) {
         "Cuts wait by ${waitReduction.formatMinutes()} • +$points LP"
     } else {
@@ -819,7 +819,7 @@ private fun TaskRewardStatus.displayRewardLabel(): String {
 }
 
 private fun TaskRewardStatus.hasVisibleWaitCut(): Boolean =
-    !currentWindowRewardAlreadyUsed && displayWaitReductionMinutes > 0
+    !waitCutAlreadyUsedToday && displayWaitReductionMinutes > 0
 
 private fun Int.formatMinutes(): String =
     if (this >= 60 && this % 60 == 0) "${this / 60}h" else "$this min"
@@ -839,7 +839,7 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
         description = "Load visual focus with a calm falling-block challenge.",
     )
     PsychologyTaskType.SkylineReset -> HomeRecommendedTask(
-        title = "Skyline Reset",
+        title = "SkyStack",
         description = "Stack a calm skyscraper, floor by floor, into the night.",
     )
     PsychologyTaskType.ResetRead -> HomeRecommendedTask(
@@ -908,7 +908,7 @@ private fun DashboardCards(
                 animatedTitles = listOf(
                     "Reflex Override",
                     "Block Cascade",
-                    "Skyline Reset",
+                    "SkyStack",
                 ),
                 animatedSubtitles = listOf(
                     "Win +50",

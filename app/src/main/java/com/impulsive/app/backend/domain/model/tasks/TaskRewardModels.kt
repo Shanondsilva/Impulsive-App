@@ -4,6 +4,7 @@ import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
+import kotlin.math.roundToInt
 
 enum class PsychologyTaskType(
     val id: String,
@@ -14,7 +15,7 @@ enum class PsychologyTaskType(
     ThoughtCapture("thought_capture", "Thought Capture"),
     ShortReadingBurst("short_reading_burst", "Short Reading Burst"),
     BlockCascade("block_cascade", "Block Cascade"),
-    SkylineReset("skyline_reset", "Skyline Reset"),
+    SkylineReset("skyline_reset", "SkyStack"),
     ResetRead("reset_read", "Reset Read"),
     FutureSelfMessage("future_self_message", "Future-Self Message"),
 }
@@ -61,6 +62,7 @@ data class TaskCompletionRecord(
     val completedEver: Boolean,
     val completedTodayCount: Int,
     val lastCompletedAt: LocalDateTime?,
+    val firstTimeWaitCutClaimed: Boolean = false,
 )
 
 data class TaskRewardStatus(
@@ -76,20 +78,21 @@ data class TaskRewardStatus(
     val completedTodayCount: Int,
     val lastCompletedAt: LocalDateTime?,
     val currentWindowRewardAlreadyUsed: Boolean,
+    val waitCutAlreadyUsedToday: Boolean,
+    val availableWaitReductionMinutes: Int,
     val optionalMonitoredTriggerBonusLevelPoints: Int? = null,
 ) {
     val displayWaitReductionMinutes: Int
-        get() = when {
-            completedTodayCount > 0 -> sameDayWaitReductionMinutes
-            completedEver -> repeatWaitReductionMinutes
-            else -> firstTimeWaitReductionMinutes
-        }
+        get() = availableWaitReductionMinutes
 
     val displayLevelPoints: Int
         get() = when {
+            !completedEver -> firstTimeLevelPoints
+            taskType.isGameTask() &&
+                completedTodayCount >= GameTaskSameDayOveruseThreshold -> GameTaskSameDayOveruseLevelPoints
+            taskType.isGameTask() -> repeatLevelPoints
             completedTodayCount > 0 -> sameDayLevelPoints
-            completedEver -> repeatLevelPoints
-            else -> firstTimeLevelPoints
+            else -> repeatLevelPoints
         }
 
     val isFirstTimeBoostAvailable: Boolean
@@ -105,6 +108,7 @@ data class LevelProgressState(
 data class TaskRewardState(
     val taskStatuses: List<TaskRewardStatus>,
     val currentWindowRewardAlreadyUsed: Boolean,
+    val waitCutAlreadyUsedToday: Boolean,
     val currentLevel: Int,
     val currentLevelPoints: Int,
     val pointsNeededForNextLevel: Int,
@@ -127,6 +131,7 @@ data class TaskRewardStoreState(
     val currentLevel: Int,
     val currentLevelPoints: Int,
     val rewardedWindowKey: String?,
+    val rewardedWaitCutDate: LocalDate?,
     val adjustedNextReleaseWindow: LocalDateTime?,
     val lastRecommendedTaskType: PsychologyTaskType?,
     val lastCompletedTaskType: PsychologyTaskType?,
@@ -148,15 +153,25 @@ data class TaskCompletionResult(
 )
 
 val PsychologyTaskRewardDefinitions = listOf(
-    TaskRewardDefinition(PsychologyTaskType.ReflexOverride, "Reflex Override", 120, 25, 45, 10, 0, 2),
+    // Game Task LP rule:
+    // Easier 90-second games: 10 LP first-time, 2 LP repeat.
+    // Harder 90-second games: 15 LP first-time, 3 LP repeat.
+    // From the 6th same-game completion on the same local day, award 1 LP.
+    // Do not exceed these values for future games without explicit founder approval.
+    TaskRewardDefinition(PsychologyTaskType.ReflexOverride, "Reflex Override", 120, 10, 45, 2, 0, 1),
     TaskRewardDefinition(PsychologyTaskType.TriggerDecoder, "Trigger Decoder", 45, 15, 30, 10, 10, 3, optionalMonitoredTriggerBonusLevelPoints = 5),
     TaskRewardDefinition(PsychologyTaskType.ThoughtCapture, "Thought Capture", 60, 18, 45, 15, 20, 6),
     TaskRewardDefinition(PsychologyTaskType.ShortReadingBurst, "Short Reading Burst", 60, 15, 30, 8, 10, 2),
-    TaskRewardDefinition(PsychologyTaskType.BlockCascade, "Block Cascade", 90, 20, 45, 12, 10, 3),
-    TaskRewardDefinition(PsychologyTaskType.SkylineReset, "Skyline Reset", 90, 20, 45, 12, 10, 3),
+    TaskRewardDefinition(PsychologyTaskType.BlockCascade, "Block Cascade", 90, 15, 45, 3, 10, 1),
+    TaskRewardDefinition(PsychologyTaskType.SkylineReset, "SkyStack", 90, 15, 45, 3, 10, 1),
     TaskRewardDefinition(PsychologyTaskType.ResetRead, "Reset Read", 60, 15, 30, 8, 10, 2),
     TaskRewardDefinition(PsychologyTaskType.FutureSelfMessage, "Future-Self Message", 45, 12, 30, 10, 15, 5),
 )
+
+fun PsychologyTaskType.isGameTask(): Boolean =
+    this == PsychologyTaskType.ReflexOverride ||
+        this == PsychologyTaskType.BlockCascade ||
+        this == PsychologyTaskType.SkylineReset
 
 fun pointsNeededForNextLevel(level: Int): Int = when (level) {
     1 -> 100
@@ -198,6 +213,8 @@ fun rewardStatusFor(
     definition: TaskRewardDefinition,
     record: TaskCompletionRecord,
     currentWindowRewardAlreadyUsed: Boolean,
+    waitCutAlreadyUsedToday: Boolean,
+    availableWaitReductionMinutes: Int,
 ): TaskRewardStatus = TaskRewardStatus(
     taskType = definition.taskType,
     taskTitle = definition.taskTitle,
@@ -211,13 +228,32 @@ fun rewardStatusFor(
     completedTodayCount = record.completedTodayCount,
     lastCompletedAt = record.lastCompletedAt,
     currentWindowRewardAlreadyUsed = currentWindowRewardAlreadyUsed,
+    waitCutAlreadyUsedToday = waitCutAlreadyUsedToday,
+    availableWaitReductionMinutes = availableWaitReductionMinutes,
     optionalMonitoredTriggerBonusLevelPoints = definition.optionalMonitoredTriggerBonusLevelPoints,
 )
+
+fun calculateLevelPointsForTask(
+    definition: TaskRewardDefinition,
+    record: TaskCompletionRecord,
+): Int {
+    return when {
+        !record.completedEver -> definition.firstTimeLevelPoints
+        definition.taskType.isGameTask() &&
+            record.completedTodayCount >= GameTaskSameDayOveruseThreshold -> GameTaskSameDayOveruseLevelPoints
+        definition.taskType.isGameTask() -> definition.repeatLevelPoints
+        record.completedTodayCount > 0 -> definition.sameDayLevelPoints
+        else -> definition.repeatLevelPoints
+    }
+}
 
 fun TaskRewardStoreState.toTaskRewardState(
     releasePlan: ReleasePlanState,
 ): TaskRewardState {
+    val now = LocalDateTime.now()
+    val today = now.toLocalDate()
     val currentWindowRewardAlreadyUsed = rewardedWindowKey == releasePlan.nextReleaseWindow.toString()
+    val waitCutAlreadyUsedToday = rewardedWaitCutDate == today
     val statuses = PsychologyTaskRewardDefinitions.map { definition ->
         val record = records[definition.taskType] ?: TaskCompletionRecord(
             taskType = definition.taskType,
@@ -225,10 +261,23 @@ fun TaskRewardStoreState.toTaskRewardState(
             completedTodayCount = 0,
             lastCompletedAt = null,
         )
+        val firstTimeWaitCutAvailable = !record.firstTimeWaitCutClaimed
+        val requestedWaitCut = calculateDynamicRequestedWaitReductionMinutes(
+            firstTimeWaitCutAvailable = firstTimeWaitCutAvailable,
+            releasePlan = releasePlan,
+        )
+        val availableWaitCut = calculateWaitReductionMinutesToApply(
+            requestedReductionMinutes = requestedWaitCut,
+            now = now,
+            releasePlan = releasePlan,
+            waitCutAlreadyUsedToday = waitCutAlreadyUsedToday,
+        )
         rewardStatusFor(
             definition = definition,
             record = record,
             currentWindowRewardAlreadyUsed = currentWindowRewardAlreadyUsed,
+            waitCutAlreadyUsedToday = waitCutAlreadyUsedToday,
+            availableWaitReductionMinutes = availableWaitCut,
         )
     }
     val recommendation = recommendPsychologyTask(
@@ -243,6 +292,7 @@ fun TaskRewardStoreState.toTaskRewardState(
     return TaskRewardState(
         taskStatuses = statuses,
         currentWindowRewardAlreadyUsed = currentWindowRewardAlreadyUsed,
+        waitCutAlreadyUsedToday = waitCutAlreadyUsedToday,
         currentLevel = currentLevel,
         currentLevelPoints = currentLevelPoints,
         pointsNeededForNextLevel = pointsNeededForNextLevel(currentLevel),
@@ -359,13 +409,47 @@ fun calculateRewardedReleasePlan(
     )
 }
 
+fun calculateDynamicRequestedWaitReductionMinutes(
+    firstTimeWaitCutAvailable: Boolean,
+    releasePlan: ReleasePlanState,
+): Int {
+    val averageGapMinutes = releasePlan.averagePlannedWindowGapMinutes()
+    val scheduleCap = if (firstTimeWaitCutAvailable) {
+        (averageGapMinutes * 0.50f).roundToInt()
+    } else {
+        (averageGapMinutes * 0.18f).roundToInt()
+    }
+    val maximum = if (firstTimeWaitCutAvailable) 90 else 30
+    return minOf(maximum, scheduleCap).coerceAtLeast(0)
+}
+
+private fun ReleasePlanState.averagePlannedWindowGapMinutes(): Int {
+    val gaps = plannedWindowsToday
+        .zipWithNext { first, second -> Duration.between(first, second).toMinutes() }
+        .filter { it > 0L }
+
+    if (gaps.isNotEmpty()) {
+        return gaps.average().roundToInt().coerceAtLeast(1)
+    }
+
+    val start = LocalDateTime.of(nextReleaseWindow.toLocalDate(), activeDayStart)
+    val endDate = if (activeDayEnd.isAfter(activeDayStart)) {
+        nextReleaseWindow.toLocalDate()
+    } else {
+        nextReleaseWindow.toLocalDate().plusDays(1)
+    }
+    val end = LocalDateTime.of(endDate, activeDayEnd)
+    val activeMinutes = Duration.between(start, end).toMinutes().coerceAtLeast(1L)
+    return (activeMinutes / selectedDailyUrgeCount.coerceAtLeast(1)).toInt().coerceAtLeast(1)
+}
+
 fun calculateWaitReductionMinutesToApply(
     requestedReductionMinutes: Int,
     now: LocalDateTime,
     releasePlan: ReleasePlanState,
-    currentWindowRewardAlreadyUsed: Boolean,
+    waitCutAlreadyUsedToday: Boolean,
 ): Int {
-    if (releasePlan.isInsideReleaseWindow || currentWindowRewardAlreadyUsed) return 0
+    if (releasePlan.isInsideReleaseWindow || waitCutAlreadyUsedToday) return 0
     val currentWaitMinutes = Duration.between(now, releasePlan.adjustedNextReleaseWindow).toMinutes()
     if (currentWaitMinutes <= MinimumProtectionFloorMinutes) return 0
     val maximumReduction = currentWaitMinutes - MinimumProtectionFloorMinutes
@@ -378,6 +462,8 @@ fun isSameLocalDay(
 ): Boolean = value?.toLocalDate() == today
 
 const val MinimumProtectionFloorMinutes = 20L
+const val GameTaskSameDayOveruseThreshold = 5
+const val GameTaskSameDayOveruseLevelPoints = 1
 const val InitialLevel = 1
 const val InitialLevelPoints = 0
 

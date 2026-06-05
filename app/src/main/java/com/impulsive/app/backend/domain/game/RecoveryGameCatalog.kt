@@ -24,7 +24,7 @@ object RecoveryGameCatalog {
             id = RecoveryGameId.ReflexOverride,
             title = "Reflex Override",
             description = "Break autopilot with a fast control challenge.",
-            durationLabel = "60 sec",
+            durationLabel = "90 sec",
             chipLabel = "Fast control",
         ),
         RecoveryGameDefinition(
@@ -36,9 +36,9 @@ object RecoveryGameCatalog {
         ),
         RecoveryGameDefinition(
             id = RecoveryGameId.SkylineReset,
-            title = "Skyline Reset",
+            title = "SkyStack",
             description = "Stack a calm skyscraper, floor by floor, into the night.",
-            durationLabel = "Open-ended",
+            durationLabel = "90 sec",
             chipLabel = "Steady focus",
         ),
     )

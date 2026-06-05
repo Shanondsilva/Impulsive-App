@@ -31,6 +31,7 @@ class TaskRewardViewModel(
                 currentLevel = InitialLevel,
                 currentLevelPoints = InitialLevelPoints,
                 rewardedWindowKey = null,
+                rewardedWaitCutDate = null,
                 adjustedNextReleaseWindow = null,
                 lastRecommendedTaskType = null,
                 lastCompletedTaskType = null,

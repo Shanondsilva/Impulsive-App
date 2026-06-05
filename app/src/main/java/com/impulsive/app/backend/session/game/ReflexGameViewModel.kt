@@ -153,7 +153,10 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         val timeLeft = max(0, ceil(ReflexGameConfig.ROUND_SECONDS - elapsedSec).toInt())
-        difficulty = min(4, floor(elapsedSec / 15).toInt() + 1)
+        difficulty = min(
+            ReflexGameConfig.DIFFICULTY.size,
+            floor(elapsedSec / ReflexGameConfig.DIFFICULTY_STEP_SECONDS).toInt() + 1,
+        )
         val tier = ReflexGameConfig.DIFFICULTY[difficulty - 1]
 
         if (now >= nextSpawnMs) {

@@ -26,6 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,8 +35,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +102,7 @@ private fun rememberRecoveryGamesColors(): RecoveryGamesColors {
 private data class RecoveryGameCardModel(
     val title: String,
     val description: String,
+    val infoDescription: String,
     val duration: String,
     val chip: String,
     val icon: ImageVector,
@@ -119,6 +126,7 @@ fun RecoveryGamesScreen(
     val access by storeViewModel.accessByGame.collectAsStateWithLifecycle()
     val playedGameTypeIds by storeViewModel.playedGameTypeIds.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var selectedInfoGame by remember { mutableStateOf<RecoveryGameCardModel?>(null) }
 
     fun showStoreResult(result: StoreResult, successText: String) {
         val msg = when (result) {
@@ -129,11 +137,36 @@ fun RecoveryGamesScreen(
         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
 
+    selectedInfoGame?.let { game ->
+        AlertDialog(
+            onDismissRequest = { selectedInfoGame = null },
+            title = {
+                Text(
+                    text = game.title,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    text = game.infoDescription,
+                    color = colors.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedInfoGame = null }) {
+                    Text(text = "Got it")
+                }
+            },
+        )
+    }
+
     val games = listOf(
         RecoveryGameCardModel(
             title = "Reflex Override",
             description = "Break autopilot with a fast control challenge.",
-            duration = "60 sec",
+            infoDescription = "A fast reaction game that helps you snap out of autopilot. Tap the right targets, avoid mistakes, and bring your attention back under control.",
+            duration = "90 sec",
             chip = "Fast control",
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.68f),
@@ -144,6 +177,7 @@ fun RecoveryGamesScreen(
         RecoveryGameCardModel(
             title = "Block Cascade",
             description = "A time-boxed block round with a clear finish state.",
+            infoDescription = "A steady block-clearing game that helps slow your thoughts and gives your mind something structured to solve. Clear lines, stay calm, and finish the round.",
             duration = "90 sec",
             chip = "Visual focus",
             icon = Icons.Filled.SportsEsports,
@@ -153,9 +187,10 @@ fun RecoveryGamesScreen(
             onOpen = onOpenBlockCascade,
         ),
         RecoveryGameCardModel(
-            title = "Skyline Reset",
+            title = "SkyStack",
             description = "Stack a calm skyscraper, floor by floor, into the night.",
-            duration = "Open-ended",
+            infoDescription = "A careful stacking game that helps you slow down and focus on timing. Place each floor cleanly, keep building, and stay steady until the round ends.",
+            duration = "90 sec",
             chip = "Steady focus",
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.48f),
@@ -241,6 +276,7 @@ fun RecoveryGamesScreen(
                 game = game,
                 colors = colors,
                 isUnplayed = game.gameTypeId != null && game.gameTypeId !in playedGameTypeIds,
+                onInfo = { selectedInfoGame = game },
             )
             Spacer(modifier = Modifier.height(14.dp))
         }
@@ -286,6 +322,7 @@ private fun RecoveryGameCard(
     game: RecoveryGameCardModel,
     colors: RecoveryGamesColors,
     isUnplayed: Boolean = false,
+    onInfo: () -> Unit,
 ) {
     val cardShape = RoundedCornerShape(28.dp)
     val isDark = colors.background.luminance() < 0.5f
@@ -369,12 +406,29 @@ private fun RecoveryGameCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                    text = game.title,
-                    color = colors.text,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = game.title,
+                        color = colors.text,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(
+                        onClick = onInfo,
+                        modifier = Modifier.size(30.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "About ${game.title}",
+                            tint = colors.mutedText,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 

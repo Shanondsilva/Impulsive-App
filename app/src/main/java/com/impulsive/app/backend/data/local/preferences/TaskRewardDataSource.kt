@@ -18,6 +18,8 @@ import com.impulsive.app.backend.domain.model.tasks.TaskRewardStoreState
 import com.impulsive.app.backend.domain.model.tasks.TriggerSource
 import com.impulsive.app.backend.domain.model.tasks.TriggerType
 import com.impulsive.app.backend.domain.model.tasks.addLevelPoints
+import com.impulsive.app.backend.domain.model.tasks.calculateDynamicRequestedWaitReductionMinutes
+import com.impulsive.app.backend.domain.model.tasks.calculateLevelPointsForTask
 import com.impulsive.app.backend.domain.model.tasks.calculateWaitReductionMinutesToApply
 import com.impulsive.app.backend.domain.model.tasks.isSameLocalDay
 import com.impulsive.app.backend.domain.model.tasks.recommendPsychologyTask
@@ -36,6 +38,8 @@ class TaskRewardDataSource(
 
     val storeState: Flow<TaskRewardStoreState> = dataStore.data.map { preferences ->
         val today = LocalDate.now()
+        val rewardedWaitCutDate = preferences[RewardedWaitCutDateKey]
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         val records = PsychologyTaskType.entries.associateWith { taskType ->
             val lastCompletedAt = preferences[lastCompletedAtKey(taskType)]
                 ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
@@ -48,6 +52,7 @@ class TaskRewardDataSource(
                     0
                 },
                 lastCompletedAt = lastCompletedAt,
+                firstTimeWaitCutClaimed = preferences[firstTimeWaitCutClaimedKey(taskType)] == 1,
             )
         }
 
@@ -56,6 +61,7 @@ class TaskRewardDataSource(
             currentLevel = preferences[CurrentLevelKey] ?: InitialLevel,
             currentLevelPoints = preferences[CurrentLevelPointsKey] ?: InitialLevelPoints,
             rewardedWindowKey = preferences[RewardedWindowKey],
+            rewardedWaitCutDate = rewardedWaitCutDate,
             adjustedNextReleaseWindow = preferences[AdjustedNextReleaseWindowKey]
                 ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() },
             lastRecommendedTaskType = preferences[LastRecommendedTaskTypeKey].toTaskTypeOrNull(),
@@ -108,24 +114,30 @@ class TaskRewardDataSource(
             } else {
                 0
             }
-            val rewardWindowAlreadyUsed = preferences[RewardedWindowKey] == releasePlan.nextReleaseWindow.toString()
+            val firstTimeWaitCutClaimed = preferences[firstTimeWaitCutClaimedKey(taskType)] == 1
+            val waitCutAlreadyUsedToday = preferences[RewardedWaitCutDateKey]
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                ?.let { it == now.toLocalDate() } == true
 
-            val requestedWaitReduction = when {
-                completedTodayCount > 0 -> definition.sameDayWaitReductionMinutes
-                completedEver -> definition.repeatWaitReductionMinutes
-                else -> definition.firstTimeWaitReductionMinutes
-            }
-            val levelPointsAwarded = when {
-                rewardWindowAlreadyUsed -> minOf(2, definition.sameDayLevelPoints)
-                completedTodayCount > 0 -> definition.sameDayLevelPoints
-                completedEver -> definition.repeatLevelPoints
-                else -> definition.firstTimeLevelPoints
-            }
+            val requestedWaitReduction = calculateDynamicRequestedWaitReductionMinutes(
+                firstTimeWaitCutAvailable = !firstTimeWaitCutClaimed,
+                releasePlan = releasePlan,
+            )
+            val levelPointsAwarded = calculateLevelPointsForTask(
+                definition = definition,
+                record = TaskCompletionRecord(
+                    taskType = taskType,
+                    completedEver = completedEver,
+                    completedTodayCount = completedTodayCount,
+                    lastCompletedAt = lastCompletedAt,
+                    firstTimeWaitCutClaimed = firstTimeWaitCutClaimed,
+                ),
+            )
             val waitReductionApplied = calculateWaitReductionMinutesToApply(
-                requestedReductionMinutes = if (rewardWindowAlreadyUsed) 0 else requestedWaitReduction,
+                requestedReductionMinutes = requestedWaitReduction,
                 now = now,
                 releasePlan = releasePlan,
-                currentWindowRewardAlreadyUsed = rewardWindowAlreadyUsed,
+                waitCutAlreadyUsedToday = waitCutAlreadyUsedToday,
             )
             val adjustedWindow = if (waitReductionApplied > 0) {
                 releasePlan.adjustedNextReleaseWindow.minusMinutes(waitReductionApplied.toLong())
@@ -150,6 +162,10 @@ class TaskRewardDataSource(
             if (waitReductionApplied > 0) {
                 preferences[RewardedWindowKey] = releasePlan.nextReleaseWindow.toString()
                 preferences[AdjustedNextReleaseWindowKey] = adjustedWindow.toString()
+                preferences[RewardedWaitCutDateKey] = now.toLocalDate().toString()
+                if (!firstTimeWaitCutClaimed) {
+                    preferences[firstTimeWaitCutClaimedKey(taskType)] = 1
+                }
             }
             preferences[LastGameTypeKey] = gameType
             preferences[LastTaskTypeKey] = taskType.id.uppercase()
@@ -182,14 +198,39 @@ class TaskRewardDataSource(
                         0
                     },
                     lastCompletedAt = storedLastCompletedAt,
+                    firstTimeWaitCutClaimed = if (type == taskType) {
+                        if (waitReductionApplied > 0 && !firstTimeWaitCutClaimed) {
+                            true
+                        } else {
+                            firstTimeWaitCutClaimed
+                        }
+                    } else {
+                        preferences[firstTimeWaitCutClaimedKey(type)] == 1
+                    },
                 )
             }
             val currentWindowRewardAlreadyUsed = preferences[RewardedWindowKey] == releasePlan.nextReleaseWindow.toString()
+            val waitCutAlreadyUsedTodayForStatuses = preferences[RewardedWaitCutDateKey]
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                ?.let { it == now.toLocalDate() } == true
             val statuses = PsychologyTaskRewardDefinitions.map { definition ->
+                val record = todayRecords.getValue(definition.taskType)
+                val requestedWaitCut = calculateDynamicRequestedWaitReductionMinutes(
+                    firstTimeWaitCutAvailable = !record.firstTimeWaitCutClaimed,
+                    releasePlan = releasePlan,
+                )
+                val availableWaitCut = calculateWaitReductionMinutesToApply(
+                    requestedReductionMinutes = requestedWaitCut,
+                    now = now,
+                    releasePlan = releasePlan,
+                    waitCutAlreadyUsedToday = waitCutAlreadyUsedTodayForStatuses,
+                )
                 rewardStatusFor(
                     definition = definition,
-                    record = todayRecords.getValue(definition.taskType),
+                    record = record,
                     currentWindowRewardAlreadyUsed = currentWindowRewardAlreadyUsed,
+                    waitCutAlreadyUsedToday = waitCutAlreadyUsedTodayForStatuses,
+                    availableWaitReductionMinutes = availableWaitCut,
                 )
             }
             val currentRecentRecommendations = preferences[RecentRecommendedTaskTypesKey].toTaskTypeList()
@@ -229,6 +270,9 @@ class TaskRewardDataSource(
     private fun lastCompletedAtKey(taskType: PsychologyTaskType) =
         stringPreferencesKey("${taskType.id}_last_completed_at")
 
+    private fun firstTimeWaitCutClaimedKey(taskType: PsychologyTaskType) =
+        intPreferencesKey("first_time_wait_cut_claimed_${taskType.id}")
+
     private fun String?.toTaskTypeOrNull(): PsychologyTaskType? =
         PsychologyTaskType.entries.firstOrNull { it.id == this }
 
@@ -245,6 +289,7 @@ class TaskRewardDataSource(
         val CurrentLevelKey = intPreferencesKey("current_level")
         val CurrentLevelPointsKey = intPreferencesKey("current_level_points")
         val RewardedWindowKey = stringPreferencesKey("rewarded_window_key")
+        val RewardedWaitCutDateKey = stringPreferencesKey("rewarded_wait_cut_date")
         val AdjustedNextReleaseWindowKey = stringPreferencesKey("adjusted_next_release_window")
         val LastRecommendedTaskTypeKey = stringPreferencesKey("last_recommended_task_type")
         val LastCompletedTaskTypeKey = stringPreferencesKey("last_completed_task_type")
