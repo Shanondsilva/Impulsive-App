@@ -809,7 +809,7 @@ private fun SoftChip(
 }
 
 private fun TaskRewardStatus.displayRewardLabel(): String {
-    val points = if (currentWindowRewardAlreadyUsed) minOf(2, displayLevelPoints) else displayLevelPoints
+    val points = displayLevelPoints
     val waitReduction = if (waitCutAlreadyUsedToday) 0 else displayWaitReductionMinutes
     return if (waitReduction > 0) {
         "Cuts wait by ${waitReduction.formatMinutes()} • +$points LP"

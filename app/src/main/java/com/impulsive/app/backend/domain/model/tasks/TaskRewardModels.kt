@@ -152,11 +152,19 @@ data class TaskCompletionResult(
     val pointsNeededForNextLevel: Int,
 )
 
+// Wait-cut source of truth:
+// The wait-reduction numbers inside TaskRewardDefinition are legacy fallback/display values.
+// The real available wait cut is calculated dynamically by calculateDynamicRequestedWaitReductionMinutes.
+// The actual applied cut is then capped by calculateWaitReductionMinutesToApply.
+// Only one real wait cut may be applied per local day through rewardedWaitCutDate.
+// Do not treat firstTimeWaitReductionMinutes, repeatWaitReductionMinutes, or sameDayWaitReductionMinutes
+// as the live source of truth without explicit founder approval.
 val PsychologyTaskRewardDefinitions = listOf(
     // Game Task LP rule:
     // Easier 90-second games: 10 LP first-time, 2 LP repeat.
     // Harder 90-second games: 15 LP first-time, 3 LP repeat.
     // From the 6th same-game completion on the same local day, award 1 LP.
+    // Same-day overuse is per game per day.
     // Do not exceed these values for future games without explicit founder approval.
     TaskRewardDefinition(PsychologyTaskType.ReflexOverride, "Reflex Override", 120, 10, 45, 2, 0, 1),
     TaskRewardDefinition(PsychologyTaskType.TriggerDecoder, "Trigger Decoder", 45, 15, 30, 10, 10, 3, optionalMonitoredTriggerBonusLevelPoints = 5),

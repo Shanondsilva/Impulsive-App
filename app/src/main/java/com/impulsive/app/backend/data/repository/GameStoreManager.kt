@@ -23,12 +23,10 @@ class GameStoreManager(context: Context) {
 
     suspend fun recordPlay(gameId: String, won: Boolean) {
         val state = ds.accessFor(gameId)
-        val points = when (state.access) {
-            GameAccess.OWNED -> if (won) GameStoreCatalog.WinOwned else GameStoreCatalog.LoseOwned
-            GameAccess.RENTED -> if (won) GameStoreCatalog.WinRented else GameStoreCatalog.LoseRented
-            GameAccess.LOCKED -> if (won) GameStoreCatalog.WinOwned else GameStoreCatalog.LoseOwned
-        }
-        ds.addEarned(points)
+        ds.recordGlobalWinStreak(
+            won = won,
+            pointsPerTwoWinStreak = GameStoreCatalog.TwoWinStreakControlPoints,
+        )
         if (state.access == GameAccess.RENTED) {
             val left = state.playsLeft - 1
             if (left <= 0) {

@@ -171,7 +171,7 @@ fun RecoveryGamesScreen(
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.68f),
             gameTypeId = "REFLEX_OVERRIDE",
-            winPoints = GameStoreCatalog.WinOwned,
+            winPoints = GameStoreCatalog.TwoWinStreakControlPoints,
             onOpen = onOpenReflexOverride,
         ),
         RecoveryGameCardModel(
@@ -183,7 +183,7 @@ fun RecoveryGamesScreen(
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.58f),
             gameTypeId = "BLOCK_CASCADE",
-            winPoints = GameStoreCatalog.WinOwned,
+            winPoints = GameStoreCatalog.TwoWinStreakControlPoints,
             onOpen = onOpenBlockCascade,
         ),
         RecoveryGameCardModel(
@@ -195,7 +195,7 @@ fun RecoveryGamesScreen(
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.48f),
             gameTypeId = "SKYLINE_RESET",
-            winPoints = GameStoreCatalog.WinOwned,
+            winPoints = GameStoreCatalog.TwoWinStreakControlPoints,
             onOpen = onOpenSkylineReset,
         ),
     )
@@ -395,7 +395,7 @@ private fun RecoveryGameCard(
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                         ) {
                             Text(
-                                text = "Win +${game.winPoints}",
+                                text = "2 wins +${game.winPoints}",
                                 color = colors.text,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,

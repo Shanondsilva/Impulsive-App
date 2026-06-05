@@ -15,10 +15,11 @@ data class StoreGame(
 object GameStoreCatalog {
     const val RentPlays = 5
 
-    const val WinOwned = 50
-    const val LoseOwned = 20
-    const val WinRented = 80
-    const val LoseRented = 45
+    // Control Points rule:
+    // Award 50 Control Points only after 2 game wins in a row.
+    // The streak is global across all games. A loss resets it.
+    // Do not restore per-win or per-loss Control Points without explicit founder approval.
+    const val TwoWinStreakControlPoints = 50
 
     val games: List<StoreGame> = listOf(
         StoreGame("REFLEX_OVERRIDE", "Reflex Override", buyPrice = 800, rentPrice = 300, defaultOwned = true),

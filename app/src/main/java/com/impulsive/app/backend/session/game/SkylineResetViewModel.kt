@@ -217,6 +217,10 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
                     validCompletion = state.completed,
                 ),
             )
+            gameStoreManager.recordPlay(
+                gameId = "SKYLINE_RESET",
+                won = outcome == ScoreSessionOutcome.Completed,
+            )
         }
     }
 

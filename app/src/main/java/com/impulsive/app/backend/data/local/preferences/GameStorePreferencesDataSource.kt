@@ -48,6 +48,33 @@ class GameStorePreferencesDataSource(context: Context) {
         }
     }
 
+    suspend fun recordGlobalWinStreak(won: Boolean, pointsPerTwoWinStreak: Int): Int {
+        var awarded = 0
+        store.edit { prefs ->
+            if (!won) {
+                prefs[GlobalWinStreakKey] = 0
+                return@edit
+            }
+
+            val nextStreak = (prefs[GlobalWinStreakKey] ?: 0) + 1
+            if (nextStreak >= 2) {
+                prefs[GlobalWinStreakKey] = 0
+                prefs[SpendableKey] = (prefs[SpendableKey] ?: 0) + pointsPerTwoWinStreak
+                prefs[LifetimeKey] = (prefs[LifetimeKey] ?: 0) + pointsPerTwoWinStreak
+
+                val ledger = decodeLedger(prefs[LedgerKey].orEmpty()).toMutableMap()
+                val today = LocalDate.now()
+                ledger[today] = (ledger[today] ?: 0) + pointsPerTwoWinStreak
+                prefs[LedgerKey] = encodeLedger(ledger)
+
+                awarded = pointsPerTwoWinStreak
+            } else {
+                prefs[GlobalWinStreakKey] = nextStreak
+            }
+        }
+        return awarded
+    }
+
     suspend fun tryAwardWeekly(key: String, points: Int): Boolean {
         if (points <= 0) return false
         var awarded = false
@@ -143,5 +170,6 @@ class GameStorePreferencesDataSource(context: Context) {
         val LedgerKey = stringPreferencesKey("daily_earned_ledger")
         val AccessKey = stringPreferencesKey("game_access")
         val WeeklyKey = stringPreferencesKey("weekly_award_days")
+        val GlobalWinStreakKey = intPreferencesKey("global_game_win_streak")
     }
 }

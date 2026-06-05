@@ -859,8 +859,7 @@ private fun AllTasksCompleteCard(colors: TaskModeColors) {
 private fun TaskRewardStatus.visibleWaitCutMinutes(): Int =
     if (waitCutAlreadyUsedToday) 0 else displayWaitReductionMinutes
 
-private fun TaskRewardStatus.visibleLevelPoints(): Int =
-    if (currentWindowRewardAlreadyUsed) minOf(2, displayLevelPoints) else displayLevelPoints
+private fun TaskRewardStatus.visibleLevelPoints(): Int = displayLevelPoints
 
 private fun TaskRewardStatus.firstTimeBonusLevelPoints(): Int =
     if (completedEver) 0 else (firstTimeLevelPoints - repeatLevelPoints).coerceAtLeast(0)
