@@ -148,6 +148,14 @@ private val VisiblePsychologyTasks = listOf(
         iconBackground = ImpulsivePsychological.copy(alpha = 0.70f),
     ),
     PsychologyTask(
+        taskType = PsychologyTaskType.SkylineReset,
+        title = "Skyline Reset",
+        description = "Stack a calm skyscraper, floor by floor, into the night.",
+        chip = "Steady focus",
+        icon = Icons.Filled.SportsEsports,
+        iconBackground = ImpulsivePsychological.copy(alpha = 0.58f),
+    ),
+    PsychologyTask(
         taskType = PsychologyTaskType.ReflexOverride,
         title = "Reflex Override",
         description = "Break autopilot with a fast reaction challenge.",
@@ -178,6 +186,7 @@ fun TaskToCompleteScreen(
     onBack: () -> Unit,
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
+    onOpenSkylineResetTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenFutureSelfMessageTask: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -277,6 +286,7 @@ fun TaskToCompleteScreen(
                         when (task.taskType) {
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+                            PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
                             PsychologyTaskType.ResetRead -> onOpenResetReadTask()
                             PsychologyTaskType.FutureSelfMessage -> onOpenFutureSelfMessageTask()
                             PsychologyTaskType.TriggerDecoder,

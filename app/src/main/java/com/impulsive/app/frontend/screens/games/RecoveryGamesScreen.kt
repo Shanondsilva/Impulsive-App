@@ -110,6 +110,7 @@ fun RecoveryGamesScreen(
     onBack: () -> Unit,
     onOpenReflexOverride: () -> Unit,
     onOpenBlockCascade: () -> Unit,
+    onOpenSkylineReset: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = rememberRecoveryGamesColors()
@@ -150,6 +151,17 @@ fun RecoveryGamesScreen(
             gameTypeId = "BLOCK_CASCADE",
             winPoints = GameStoreCatalog.WinOwned,
             onOpen = onOpenBlockCascade,
+        ),
+        RecoveryGameCardModel(
+            title = "Skyline Reset",
+            description = "Stack a calm skyscraper, floor by floor, into the night.",
+            duration = "Open-ended",
+            chip = "Steady focus",
+            icon = Icons.Filled.SportsEsports,
+            iconBackground = ImpulsivePsychological.copy(alpha = 0.48f),
+            gameTypeId = "SKYLINE_RESET",
+            winPoints = GameStoreCatalog.WinOwned,
+            onOpen = onOpenSkylineReset,
         ),
     )
 

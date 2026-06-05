@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -495,7 +496,10 @@ private fun ScoreCardChart(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clickable { selected = if (isSelected) null else index },
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { selected = if (isSelected) null else index },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box(
@@ -1538,6 +1542,7 @@ private fun OutcomePill(
 private fun ScoreGameType.accentColor(): Color = when (this) {
     ScoreGameType.ReflexOverride -> ImpulsivePhysical
     ScoreGameType.BlockCascade -> ImpulsivePsychological
+    ScoreGameType.SkylineReset -> ImpulsivePsychological
     ScoreGameType.UrgeSurvival -> ImpulsiveFocusMode
     ScoreGameType.FluidRegulation -> ImpulsiveOverallTheme
     ScoreGameType.PrecisionFocus -> ImpulsivePhysical
@@ -1550,6 +1555,7 @@ private fun ScoreGameType.accentColor(): Color = when (this) {
 private fun ScoreGameType.scoreIcon(): ImageVector = when (this) {
     ScoreGameType.ReflexOverride -> Icons.Filled.SportsEsports
     ScoreGameType.BlockCascade -> Icons.Filled.ViewModule
+    ScoreGameType.SkylineReset -> Icons.Filled.SportsEsports
     ScoreGameType.UrgeSurvival -> Icons.Filled.Shield
     ScoreGameType.FluidRegulation -> Icons.Filled.TrendingDown
     ScoreGameType.PrecisionFocus -> Icons.Filled.Psychology

@@ -28,6 +28,7 @@ object GameSelectionEngine {
     val candidates: List<ScoreGameType> = listOf(
         ScoreGameType.ReflexOverride,
         ScoreGameType.BlockCascade,
+        ScoreGameType.SkylineReset,
     )
 
     private const val DefaultMaxRunLength = 3

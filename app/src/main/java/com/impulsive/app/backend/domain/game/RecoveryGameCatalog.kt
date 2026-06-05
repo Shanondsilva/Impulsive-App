@@ -7,6 +7,7 @@ enum class RecoveryGameId(
 ) {
     ReflexOverride(ScoreGameType.ReflexOverride),
     BlockCascade(ScoreGameType.BlockCascade),
+    SkylineReset(ScoreGameType.SkylineReset),
 }
 
 data class RecoveryGameDefinition(
@@ -32,6 +33,13 @@ object RecoveryGameCatalog {
             description = "A time-boxed block round with a clear finish state.",
             durationLabel = "90 sec",
             chipLabel = "Visual focus",
+        ),
+        RecoveryGameDefinition(
+            id = RecoveryGameId.SkylineReset,
+            title = "Skyline Reset",
+            description = "Stack a calm skyscraper, floor by floor, into the night.",
+            durationLabel = "Open-ended",
+            chipLabel = "Steady focus",
         ),
     )
 

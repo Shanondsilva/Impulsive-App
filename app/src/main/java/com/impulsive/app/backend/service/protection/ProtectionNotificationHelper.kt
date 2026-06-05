@@ -12,6 +12,7 @@ import com.impulsive.app.MainActivity
 import com.impulsive.app.R
 import com.impulsive.app.backend.domain.model.protection.toImpulsiveCompactTime
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 class ProtectionNotificationHelper(
     private val context: Context,
@@ -127,12 +128,20 @@ class ProtectionNotificationHelper(
     fun showReleaseWindowPausedNotification(
         windowEnd: LocalDateTime,
     ) {
+        val windowEndMillis = windowEnd
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
         val notification = NotificationCompat.Builder(context, ReleaseWindowChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(context.getString(R.string.notif_release_window_open_title))
             .setContentText(context.getString(R.string.notif_release_window_open_body, windowEnd.toImpulsiveCompactTime()))
             .setContentIntent(homePendingIntent(ReleaseWindowPausedNotificationId))
             .setAutoCancel(true)
+            .setWhen(windowEndMillis)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()

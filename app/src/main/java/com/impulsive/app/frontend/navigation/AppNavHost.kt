@@ -39,6 +39,7 @@ import com.impulsive.app.frontend.screens.dashboard.HomeScreen
 import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
 import com.impulsive.app.frontend.screens.games.ReflexGameScreen
 import com.impulsive.app.frontend.screens.games.RecoveryGamesScreen
+import com.impulsive.app.frontend.screens.games.SkylineResetScreen
 import com.impulsive.app.frontend.screens.intro.IntroScreen
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
@@ -93,6 +94,8 @@ object AppRoutes {
     const val ReflexGameTask = "reflex_game_task"
     const val BlockCascadeGame = "block_cascade_game"
     const val BlockCascadeTask = "block_cascade_task"
+    const val SkylineResetGame = "skyline_reset_game"
+    const val SkylineResetTask = "skyline_reset_task"
     const val ResetReadTask = "reset_read_task"
     const val TaskToComplete = "task_to_complete"
     const val FutureSelfMessageTask = "future_self_message_task"
@@ -423,6 +426,9 @@ fun AppNavHost(
                     onOpenBlockCascadeTask = {
                         navController.navigate(AppRoutes.BlockCascadeTask)
                     },
+                    onOpenSkylineResetTask = {
+                        navController.navigate(AppRoutes.SkylineResetTask)
+                    },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
@@ -492,6 +498,7 @@ fun AppNavHost(
                     onBack = { navController.safePopBackStack() },
                     onOpenReflexOverride = { navController.navigate(AppRoutes.ReflexGame) },
                     onOpenBlockCascade = { navController.navigate(AppRoutes.BlockCascadeGame) },
+                    onOpenSkylineReset = { navController.navigate(AppRoutes.SkylineResetGame) },
                 )
             }
 
@@ -518,6 +525,20 @@ fun AppNavHost(
 
             composable(AppRoutes.BlockCascadeTask) {
                 BlockCascadeScreen(
+                    onExit = { navController.safePopBackStack() },
+                    launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+                )
+            }
+
+            composable(AppRoutes.SkylineResetGame) {
+                SkylineResetScreen(
+                    onExit = { navController.safePopBackStack() },
+                    launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
+                )
+            }
+
+            composable(AppRoutes.SkylineResetTask) {
+                SkylineResetScreen(
                     onExit = { navController.safePopBackStack() },
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
                 )
@@ -602,6 +623,7 @@ fun AppNavHost(
                             }
                             val gameRoute = when (chosenGame) {
                                 com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade -> AppRoutes.BlockCascadeTask
+                                com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset -> AppRoutes.SkylineResetTask
                                 else -> AppRoutes.ReflexGameTask
                             }
                             navController.navigate(gameRoute) { launchSingleTop = true }
@@ -628,6 +650,9 @@ fun AppNavHost(
                     },
                     onOpenBlockCascadeTask = {
                         navController.navigate(AppRoutes.BlockCascadeTask)
+                    },
+                    onOpenSkylineResetTask = {
+                        navController.navigate(AppRoutes.SkylineResetTask)
                     },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)

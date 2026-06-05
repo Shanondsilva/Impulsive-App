@@ -39,6 +39,8 @@ class GameStoreManager(context: Context) {
         }
     }
 
+    suspend fun tryAwardWeekly(key: String, points: Int): Boolean = ds.tryAwardWeekly(key, points)
+
     suspend fun buy(gameId: String): StoreResult {
         val game = GameStoreCatalog.byId(gameId) ?: return StoreResult.Unavailable
         if (!ds.trySpend(game.buyPrice)) return StoreResult.NotEnoughPoints

@@ -14,6 +14,7 @@ enum class PsychologyTaskType(
     ThoughtCapture("thought_capture", "Thought Capture"),
     ShortReadingBurst("short_reading_burst", "Short Reading Burst"),
     BlockCascade("block_cascade", "Block Cascade"),
+    SkylineReset("skyline_reset", "Skyline Reset"),
     ResetRead("reset_read", "Reset Read"),
     FutureSelfMessage("future_self_message", "Future-Self Message"),
 }
@@ -152,6 +153,7 @@ val PsychologyTaskRewardDefinitions = listOf(
     TaskRewardDefinition(PsychologyTaskType.ThoughtCapture, "Thought Capture", 60, 18, 45, 15, 20, 6),
     TaskRewardDefinition(PsychologyTaskType.ShortReadingBurst, "Short Reading Burst", 60, 15, 30, 8, 10, 2),
     TaskRewardDefinition(PsychologyTaskType.BlockCascade, "Block Cascade", 90, 20, 45, 12, 10, 3),
+    TaskRewardDefinition(PsychologyTaskType.SkylineReset, "Skyline Reset", 90, 20, 45, 12, 10, 3),
     TaskRewardDefinition(PsychologyTaskType.ResetRead, "Reset Read", 60, 15, 30, 8, 10, 2),
     TaskRewardDefinition(PsychologyTaskType.FutureSelfMessage, "Future-Self Message", 45, 12, 30, 10, 15, 5),
 )
@@ -280,9 +282,10 @@ fun recommendPsychologyTask(
         currentUrgeIntensity != null && currentUrgeIntensity >= 7 ->
             listOf(
                 PsychologyTaskType.BlockCascade,
+                PsychologyTaskType.SkylineReset,
                 PsychologyTaskType.ReflexOverride,
             )
-        currentTriggerSource != null -> listOf(PsychologyTaskType.BlockCascade, PsychologyTaskType.ReflexOverride)
+        currentTriggerSource != null -> listOf(PsychologyTaskType.BlockCascade, PsychologyTaskType.SkylineReset, PsychologyTaskType.ReflexOverride)
         currentTriggerType == TriggerType.RepeatedThought || currentTriggerType == TriggerType.Memory ->
             listOf(PsychologyTaskType.FutureSelfMessage)
         currentTriggerType in setOf(
@@ -296,6 +299,7 @@ fun recommendPsychologyTask(
         else -> listOf(
             PsychologyTaskType.ReflexOverride,
             PsychologyTaskType.BlockCascade,
+            PsychologyTaskType.SkylineReset,
             PsychologyTaskType.ResetRead,
             PsychologyTaskType.FutureSelfMessage,
         )
@@ -333,6 +337,7 @@ private fun chooseRecommendedTask(
 private fun recommendationReasonFor(taskType: PsychologyTaskType): String = when (taskType) {
     PsychologyTaskType.ReflexOverride -> "Strong novelty and a quick attention pivot."
     PsychologyTaskType.BlockCascade -> "Loads visual attention so the difficult image has less room."
+    PsychologyTaskType.SkylineReset -> "Steady visual stacking gives attention somewhere calm to land."
     PsychologyTaskType.ResetRead -> "A short, focused read to redirect attention."
     PsychologyTaskType.FutureSelfMessage -> "Replays your own reason in your own words."
     PsychologyTaskType.TriggerDecoder -> "Hidden for now; not shown in the UI."

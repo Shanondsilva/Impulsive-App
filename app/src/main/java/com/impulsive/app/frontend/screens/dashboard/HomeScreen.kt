@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -85,8 +86,10 @@ import com.impulsive.app.frontend.components.impulsiveGlowBorderStroke
 import com.impulsive.app.frontend.components.impulsiveGlowShadow
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
+import com.impulsive.app.frontend.theme.ImpulsivePsychologicalDark
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
 import com.impulsive.app.frontend.theme.ImpulsiveText
+import com.impulsive.app.frontend.theme.ImpulsiveTextDark
 import java.time.Duration
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
@@ -143,6 +146,7 @@ fun HomeScreen(
     onOpenJournal: () -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
+    onOpenSkylineResetTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenFutureSelfMessageTask: () -> Unit = {},
     onOpenTasks: () -> Unit = {},
@@ -246,6 +250,7 @@ fun HomeScreen(
                         when (taskRewardState.recommendedTaskType) {
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+                            PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
                             PsychologyTaskType.ResetRead -> onOpenResetReadTask()
                             PsychologyTaskType.FutureSelfMessage,
                             PsychologyTaskType.TriggerDecoder,
@@ -372,8 +377,14 @@ private fun LevelCard(
 ) {
     val isDark = palette.cardSurface != Color.Unspecified
     val cardShape = RoundedCornerShape(28.dp)
+    val levelCardColor = if (isDark) {
+        ImpulsivePsychologicalDark
+    } else {
+        ImpulsivePsychological.copy(alpha = 0.66f)
+    }
+    val levelCardContent = if (isDark) ImpulsiveTextDark else ImpulsiveText
     Surface(
-        color = ImpulsivePsychological.copy(alpha = 0.66f),
+        color = levelCardColor,
         shape = cardShape,
         border = if (isDark) {
             impulsiveGlowBorderStroke(
@@ -409,14 +420,14 @@ private fun LevelCard(
             ) {
                 Text(
                     text = "TODAY",
-                    color = ImpulsiveText.copy(alpha = 0.82f),
+                    color = levelCardContent.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 Icon(
                     imageVector = Icons.Outlined.NightsStay,
                     contentDescription = null,
-                    tint = ImpulsiveText.copy(alpha = 0.86f),
+                    tint = levelCardContent.copy(alpha = 0.86f),
                     modifier = Modifier.size(22.dp),
                 )
             }
@@ -425,7 +436,7 @@ private fun LevelCard(
 
             Text(
                 text = "Level ${taskRewardState.currentLevel}",
-                color = ImpulsiveText,
+                color = levelCardContent,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -475,12 +486,12 @@ private fun LevelCard(
                     } else {
                         releasePlan.formattedTodaysWindow()
                     },
-                    color = ImpulsiveText.copy(alpha = 0.78f),
+                    color = levelCardContent.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
                     text = "${taskRewardState.currentLevelPoints} / ${taskRewardState.pointsNeededForNextLevel} LP",
-                    color = ImpulsiveText.copy(alpha = 0.84f),
+                    color = levelCardContent.copy(alpha = 0.84f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -637,7 +648,10 @@ private fun TaskToCompletePreviewCard(
                     shape = RoundedCornerShape(50),
                     modifier = Modifier
                         .weight(1f)
-                        .clickable { onStartTask() },
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { onStartTask() },
                 ) {
                     Text(
                         text = "Start task",
@@ -654,7 +668,10 @@ private fun TaskToCompletePreviewCard(
                 Surface(
                     color = ImpulsivePsychological.copy(alpha = 0.36f),
                     shape = RoundedCornerShape(50),
-                    modifier = Modifier.clickable { onViewAllTasks() },
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { onViewAllTasks() },
                 ) {
                     Text(
                         text = "All tasks",
@@ -756,7 +773,10 @@ private fun TaskCompletedPreviewCard(
             Surface(
                 color = ImpulsivePsychological.copy(alpha = 0.30f),
                 shape = RoundedCornerShape(50),
-                modifier = Modifier.clickable { onViewAllTasks() },
+                modifier = Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { onViewAllTasks() },
             ) {
                 Text(
                     text = "All tasks",
@@ -818,6 +838,10 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
         title = "Block Cascade",
         description = "Load visual focus with a calm falling-block challenge.",
     )
+    PsychologyTaskType.SkylineReset -> HomeRecommendedTask(
+        title = "Skyline Reset",
+        description = "Stack a calm skyscraper, floor by floor, into the night.",
+    )
     PsychologyTaskType.ResetRead -> HomeRecommendedTask(
         title = "Reset Read",
         description = "Read one focused reset and let the timer finish.",
@@ -874,15 +898,20 @@ private fun DashboardCards(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clickable { onOpenRecoveryGames() },
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { onOpenRecoveryGames() },
                 label = "PIVOT GAME",
                 title = "Pivot\nGames",
                 subtext = "Reflex, block and mind games",
                 animatedTitles = listOf(
                     "Reflex Override",
                     "Block Cascade",
+                    "Skyline Reset",
                 ),
                 animatedSubtitles = listOf(
+                    "Win +50",
                     "Win +50",
                     "Win +50",
                 ),
@@ -904,7 +933,10 @@ private fun DashboardCards(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clickable { onOpenJournal() },
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { onOpenJournal() },
                 label = "NOTES",
                 title = "Private\nNotes",
                 subtext = "Notes, lists and future-self cues",
@@ -926,7 +958,10 @@ private fun DashboardCards(
         SmallActionCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onOpenReading() },
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { onOpenReading() },
             label = "READING",
             title = "Reset Reading",
             subtext = "Short calm cards for low-energy reset moments",

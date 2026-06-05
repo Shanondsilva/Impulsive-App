@@ -48,6 +48,28 @@ class GameStorePreferencesDataSource(context: Context) {
         }
     }
 
+    suspend fun tryAwardWeekly(key: String, points: Int): Boolean {
+        if (points <= 0) return false
+        var awarded = false
+        store.edit { prefs ->
+            val map = decodeWeekly(prefs[WeeklyKey].orEmpty()).toMutableMap()
+            val today = LocalDate.now().toEpochDay()
+            val last = map[key]
+            if (last == null || today - last >= 7L) {
+                prefs[SpendableKey] = (prefs[SpendableKey] ?: 0) + points
+                prefs[LifetimeKey] = (prefs[LifetimeKey] ?: 0) + points
+                val ledger = decodeLedger(prefs[LedgerKey].orEmpty()).toMutableMap()
+                val lkey = LocalDate.now()
+                ledger[lkey] = (ledger[lkey] ?: 0) + points
+                prefs[LedgerKey] = encodeLedger(ledger)
+                map[key] = today
+                prefs[WeeklyKey] = encodeWeekly(map)
+                awarded = true
+            }
+        }
+        return awarded
+    }
+
     suspend fun trySpend(points: Int): Boolean {
         var ok = false
         store.edit { prefs ->
@@ -84,6 +106,19 @@ class GameStorePreferencesDataSource(context: Context) {
             }.toMap()
         }
 
+    private fun encodeWeekly(m: Map<String, Long>): String =
+        m.entries.joinToString(";") { "${it.key}=${it.value}" }
+
+    private fun decodeWeekly(s: String): Map<String, Long> =
+        if (s.isBlank()) {
+            emptyMap()
+        } else {
+            s.split(";").mapNotNull {
+                val p = it.split("=")
+                if (p.size == 2) runCatching { p[0] to p[1].toLong() }.getOrNull() else null
+            }.toMap()
+        }
+
     private fun encodeAccess(m: Map<String, GameAccessState>): String =
         m.entries.joinToString(";") { "${it.key}=${it.value.access.name}:${it.value.playsLeft}" }
 
@@ -107,5 +142,6 @@ class GameStorePreferencesDataSource(context: Context) {
         val LifetimeKey = intPreferencesKey("lifetime_points")
         val LedgerKey = stringPreferencesKey("daily_earned_ledger")
         val AccessKey = stringPreferencesKey("game_access")
+        val WeeklyKey = stringPreferencesKey("weekly_award_days")
     }
 }

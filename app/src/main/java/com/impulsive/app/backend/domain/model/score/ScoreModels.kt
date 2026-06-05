@@ -26,6 +26,7 @@ enum class ScoreGameType(
 ) {
     ReflexOverride("REFLEX_OVERRIDE", "Reflex Override"),
     BlockCascade("BLOCK_CASCADE", "Block Cascade"),
+    SkylineReset("SKYLINE_RESET", "Skyline Reset"),
     UrgeSurvival("URGE_SURVIVAL", "Wave Practice"),
     FluidRegulation("FLUID_REGULATION", "Fluid Regulation"),
     PrecisionFocus("PRECISION_FOCUS", "Precision Focus"),
