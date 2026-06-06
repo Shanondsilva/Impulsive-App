@@ -911,9 +911,9 @@ private fun DashboardCards(
                     "SkyStack",
                 ),
                 animatedSubtitles = listOf(
-                    "Win +50",
-                    "Win +50",
-                    "Win +50",
+                    "2 wins +50",
+                    "2 wins +50",
+                    "2 wins +50",
                 ),
                 cta = "Open list ›",
                 iconColor = ImpulsivePsychological.copy(alpha = 0.58f),

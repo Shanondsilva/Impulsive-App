@@ -127,6 +127,7 @@ fun RecoveryGamesScreen(
     val playedGameTypeIds by storeViewModel.playedGameTypeIds.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var selectedInfoGame by remember { mutableStateOf<RecoveryGameCardModel?>(null) }
+    var showPivotGamesInfo by remember { mutableStateOf(false) }
 
     fun showStoreResult(result: StoreResult, successText: String) {
         val msg = when (result) {
@@ -155,6 +156,30 @@ fun RecoveryGamesScreen(
             },
             confirmButton = {
                 TextButton(onClick = { selectedInfoGame = null }) {
+                    Text(text = "Got it")
+                }
+            },
+        )
+    }
+
+    if (showPivotGamesInfo) {
+        AlertDialog(
+            onDismissRequest = { showPivotGamesInfo = false },
+            title = {
+                Text(
+                    text = "Pivot Games",
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    text = "Choose a short, time-boxed game. Notice the moment, pivot your attention, then return to plan.",
+                    color = colors.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showPivotGamesInfo = false }) {
                     Text(text = "Got it")
                 }
             },
@@ -225,15 +250,19 @@ fun RecoveryGamesScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
             )
+            Spacer(modifier = Modifier.width(6.dp))
+            IconButton(
+                onClick = { showPivotGamesInfo = true },
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = "About Pivot Games",
+                    tint = colors.mutedText,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        Text(
-            text = "Choose a short, time-boxed game. Notice the moment, pivot your attention, then return to plan.",
-            color = colors.mutedText,
-            style = MaterialTheme.typography.bodyLarge,
-        )
 
         Spacer(modifier = Modifier.height(22.dp))
 

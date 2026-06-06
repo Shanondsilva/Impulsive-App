@@ -695,15 +695,6 @@ private fun RewardPillRow(
             background = colors.rewardBackground,
             content = colors.accentText,
         )
-        val firstTimeBonus = rewardStatus.firstTimeBonusLevelPoints()
-        if (firstTimeBonus > 0) {
-            RewardPill(
-                icon = Icons.Filled.AutoAwesome,
-                text = "First-time bonus +$firstTimeBonus",
-                background = if (colors.isDark) colors.chipBackground else Color(0xFFFFF9D8),
-                content = colors.accentText,
-            )
-        }
     }
 }
 
@@ -841,14 +832,14 @@ private fun AllTasksCompleteCard(colors: TaskModeColors) {
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(
-                text = "All first-time tasks complete",
+                text = "All Tasks tried",
                 color = colors.primaryText,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "You have claimed each first-time task bonus. New task choices will appear when more task types are added.",
+                text = "You have tried every current Task. New choices will appear when more task types are added.",
                 color = colors.mutedText,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -860,9 +851,6 @@ private fun TaskRewardStatus.visibleWaitCutMinutes(): Int =
     if (waitCutAlreadyUsedToday) 0 else displayWaitReductionMinutes
 
 private fun TaskRewardStatus.visibleLevelPoints(): Int = displayLevelPoints
-
-private fun TaskRewardStatus.firstTimeBonusLevelPoints(): Int =
-    if (completedEver) 0 else (firstTimeLevelPoints - repeatLevelPoints).coerceAtLeast(0)
 
 private fun Int.formatMinutes(): String =
     if (this >= 60 && this % 60 == 0) "${this / 60}h" else "$this min"

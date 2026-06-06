@@ -84,7 +84,7 @@ import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
 
-private val SkylineBackground = Color(0xFF15121F)
+private val SkylineBackground = Color(0xFF0F0B22)
 private val WindowWarm = Color(0xFFFFE0A0)
 private val WindowCool = Color(0xFFCFE0FF)
 private val WindowOff = Color(0xFF241F40)
@@ -762,25 +762,25 @@ private fun genSkyScene(wPx: Float, hPx: Float): SkyScene {
     val mid = genSkyLayer(rng, wPx, Color(0xFF201B40), 95f, 180f, 11f, 0.62f)
     val near = genSkyLayer(rng, wPx, Color(0xFF15112C), 120f, 230f, 8f, 0.72f)
     val stars = ArrayList<SkyStar>()
-    repeat(58) {
+    repeat(115) {
         stars.add(
             SkyStar(
                 rng.nextFloat() * wPx,
-                rng.nextFloat() * hPx * 0.55f,
-                rng.nextFloat() * 1.5f + 0.4f,
+                rng.nextFloat() * hPx * 0.58f,
+                rng.nextFloat() * 1.8f + 0.55f,
                 rng.nextFloat() * 6.28f,
-                0.02f + rng.nextFloat() * 0.05f,
+                0.025f + rng.nextFloat() * 0.075f,
             ),
         )
     }
     val clouds = ArrayList<SkyCloud>()
-    repeat(4) {
+    repeat(6) {
         clouds.add(
             SkyCloud(
                 rng.nextFloat() * wPx,
-                18f + rng.nextFloat() * hPx * 0.2f,
-                34f + rng.nextFloat() * 30f,
-                0.05f + rng.nextFloat() * 0.07f,
+                20f + rng.nextFloat() * hPx * 0.24f,
+                42f + rng.nextFloat() * 42f,
+                0.035f + rng.nextFloat() * 0.065f,
             ),
         )
     }
@@ -800,6 +800,21 @@ private fun DrawScope.drawSkyLayer(
     for (b in arr) {
         val top = baseY - b.h
         drawRect(color = b.color, topLeft = Offset(b.x, top), size = Size(b.w, hPx - top + 240f))
+        drawRect(
+            color = Color.Black.copy(alpha = 0.10f),
+            topLeft = Offset(b.x + b.w * 0.72f, top),
+            size = Size(b.w * 0.28f, hPx - top + 240f),
+        )
+        drawRect(
+            color = Color.White.copy(alpha = 0.035f),
+            topLeft = Offset(b.x + 2f, top),
+            size = Size(2f, hPx - top + 240f),
+        )
+        drawRect(
+            color = Color.Black.copy(alpha = 0.16f),
+            topLeft = Offset(b.x, top),
+            size = Size(b.w, 2f),
+        )
         if (b.type == 1) {
             drawRect(color = b.color, topLeft = Offset(b.x + b.w * 0.25f, top - 10f), size = Size(b.w * 0.5f, 10f))
         } else if (b.type == 2) {
@@ -808,7 +823,18 @@ private fun DrawScope.drawSkyLayer(
         for (wn in b.wins) {
             if (!wn.on) continue
             val wc = if (wn.warm) Color(0xFFFFD37A) else Color(0xFFBBD2FF)
-            drawRect(color = wc.copy(alpha = 0.9f), topLeft = Offset(b.x + wn.x, top + wn.y), size = Size(3f, 4f))
+            val wx = b.x + wn.x
+            val wy = top + wn.y
+            drawRect(
+                color = wc.copy(alpha = 0.22f),
+                topLeft = Offset(wx - 1f, wy - 1f),
+                size = Size(5f, 6f),
+            )
+            drawRect(
+                color = wc.copy(alpha = 0.92f),
+                topLeft = Offset(wx, wy),
+                size = Size(3f, 4f),
+            )
         }
         if (b.hasLight) {
             val bl = (0.4f + 0.6f * abs(sin(b.blink + t * 0.004f))).coerceIn(0f, 1f)
@@ -821,9 +847,10 @@ private fun DrawScope.drawSkyLayer(
 private fun DrawScope.drawNightCity(scene: SkyScene, cam: Float, wPx: Float, hPx: Float, marginPx: Float) {
     drawRect(
         brush = Brush.verticalGradient(
-            0f to Color(0xFF120C28),
-            0.55f to Color(0xFF241C46),
-            1f to Color(0xFF34264F),
+            0f to SkylineBackground,
+            0.42f to Color(0xFF171236),
+            0.74f to Color(0xFF241A44),
+            1f to Color(0xFF33224D),
         ),
         size = Size(wPx, hPx),
     )
@@ -838,8 +865,26 @@ private fun DrawScope.drawNightCity(scene: SkyScene, cam: Float, wPx: Float, hPx
     drawCircle(color = Color(0x80C8CDEB), radius = 4f, center = Offset(mx - 7f, my - 5f))
     drawCircle(color = Color(0x80C8CDEB), radius = 3f, center = Offset(mx + 6f, my + 4f))
     for (s in scene.stars) {
-        val a = (0.35f + 0.5f * abs(sin(s.tw))).coerceIn(0f, 1f)
-        drawRect(color = Color.White.copy(alpha = a), topLeft = Offset(s.x, s.y), size = Size(s.r, s.r))
+        val a = (0.42f + 0.58f * abs(sin(s.tw))).coerceIn(0f, 1f)
+        drawCircle(
+            color = Color.White.copy(alpha = a),
+            radius = s.r,
+            center = Offset(s.x, s.y),
+        )
+        if (s.r > 1.6f) {
+            drawLine(
+                color = Color.White.copy(alpha = a * 0.42f),
+                start = Offset(s.x - s.r * 2.1f, s.y),
+                end = Offset(s.x + s.r * 2.1f, s.y),
+                strokeWidth = 1f,
+            )
+            drawLine(
+                color = Color.White.copy(alpha = a * 0.36f),
+                start = Offset(s.x, s.y - s.r * 2.1f),
+                end = Offset(s.x, s.y + s.r * 2.1f),
+                strokeWidth = 1f,
+            )
+        }
     }
     val sh = scene.shoot
     if (sh != null) {
@@ -851,11 +896,7 @@ private fun DrawScope.drawNightCity(scene: SkyScene, cam: Float, wPx: Float, hPx
         )
     }
     for (c in scene.clouds) {
-        drawCircle(
-            brush = Brush.radialGradient(listOf(Color(0x4D9696C8), Color(0x009696C8)), center = Offset(c.x, c.y), radius = c.r),
-            radius = c.r,
-            center = Offset(c.x, c.y),
-        )
+        drawMoonlitCloud(c)
     }
     val bird = scene.bird
     if (bird != null) {
@@ -869,11 +910,55 @@ private fun DrawScope.drawNightCity(scene: SkyScene, cam: Float, wPx: Float, hPx
     }
     val hy = (hPx - marginPx) + cam * 0.55f
     drawCircle(
-        brush = Brush.radialGradient(listOf(Color(0x4D785AA0), Color(0x00785AA0)), center = Offset(wPx * 0.5f, hy), radius = 200f),
-        radius = 200f,
+        brush = Brush.radialGradient(listOf(Color(0x59785AA0), Color(0x00785AA0)), center = Offset(wPx * 0.5f, hy), radius = 240f),
+        radius = 240f,
         center = Offset(wPx * 0.5f, hy),
     )
     drawSkyLayer(scene.far, 0.25f, cam, scene.t, wPx, hPx, marginPx)
     drawSkyLayer(scene.mid, 0.40f, cam, scene.t, wPx, hPx, marginPx)
     drawSkyLayer(scene.near, 0.55f, cam, scene.t, wPx, hPx, marginPx)
+}
+
+private fun DrawScope.drawMoonlitCloud(cloud: SkyCloud) {
+    val base = Color(0xFFB7B8DD)
+    val shadow = Color(0xFF5B5688)
+    val x = cloud.x
+    val y = cloud.y
+    val r = cloud.r
+
+    drawOval(
+        brush = Brush.radialGradient(
+            listOf(shadow.copy(alpha = 0.18f), Color.Transparent),
+            center = Offset(x, y + r * 0.16f),
+            radius = r * 1.7f,
+        ),
+        topLeft = Offset(x - r * 1.55f, y - r * 0.32f),
+        size = Size(r * 3.1f, r * 0.96f),
+    )
+
+    val puffs = listOf(
+        Offset(-0.92f, 0.06f) to 0.58f,
+        Offset(-0.45f, -0.18f) to 0.72f,
+        Offset(0.10f, -0.25f) to 0.86f,
+        Offset(0.68f, -0.08f) to 0.62f,
+        Offset(1.08f, 0.10f) to 0.48f,
+    )
+
+    for ((offset, scale) in puffs) {
+        val center = Offset(x + offset.x * r, y + offset.y * r)
+        val radius = r * scale
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(
+                    base.copy(alpha = 0.23f),
+                    shadow.copy(alpha = 0.08f),
+                    Color.Transparent,
+                ),
+                center = center,
+                radius = radius,
+            ),
+            radius = radius,
+            center = center,
+        )
+    }
 }

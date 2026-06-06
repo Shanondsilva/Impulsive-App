@@ -349,6 +349,117 @@ fun MindCoreScene(
                 }
             }
         }
+
+        if (isNight) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val w = size.width
+                val h = size.height
+
+                // Soft core halo that gently breathes, suggesting the core is alive at night.
+                val coreCenter = Offset(w * 0.5f, h * 0.62f)
+                val coreBreath = 0.92f + 0.08f * calmWave(ambientTime, phase = 0.40f)
+                drawCircle(
+                    color = ImpulsivePsychological.copy(alpha = 0.06f),
+                    radius = 96.dp.toPx() * coreBreath,
+                    center = coreCenter,
+                )
+                drawCircle(
+                    color = ImpulsivePsychological.copy(alpha = 0.05f),
+                    radius = 60.dp.toPx() * coreBreath,
+                    center = coreCenter,
+                )
+
+                // Soft moon glow, cool lavender, slow pulse.
+                val moonCenter = Offset(w * 0.5f, h * 0.18f)
+                val moonPulse = 0.94f + 0.06f * calmWave(ambientTime, phase = 0.08f)
+                drawCircle(
+                    color = Color(0xFFCBB8FF).copy(alpha = 0.16f),
+                    radius = 34.dp.toPx() * moonPulse,
+                    center = moonCenter,
+                )
+                drawCircle(
+                    color = Color(0xFFE6DBFF).copy(alpha = 0.24f),
+                    radius = 20.dp.toPx() * moonPulse,
+                    center = moonCenter,
+                )
+                drawCircle(
+                    color = Color(0xFFFFFDF7).copy(alpha = 0.85f),
+                    radius = 11.dp.toPx() * moonPulse,
+                    center = moonCenter,
+                )
+
+                // Gentle starfield with subtle twinkle.
+                val nightStars = listOf(
+                    Triple(0.18f, 0.16f, 0.00f),
+                    Triple(0.32f, 0.10f, 0.22f),
+                    Triple(0.68f, 0.14f, 0.41f),
+                    Triple(0.82f, 0.22f, 0.63f),
+                    Triple(0.46f, 0.30f, 0.85f),
+                )
+                nightStars.forEach { (sx, sy, phase) ->
+                    val twinkle = 0.35f + 0.45f * calmWave(ambientTime, phase = phase)
+                    drawCircle(
+                        color = Color(0xFFF2ECFF).copy(alpha = 0.30f * twinkle),
+                        radius = 4.dp.toPx(),
+                        center = Offset(sx * w, sy * h),
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = twinkle),
+                        radius = 1.5.dp.toPx(),
+                        center = Offset(sx * w, sy * h),
+                    )
+                }
+
+                // Two slow drift sparkles that ease across a short path.
+                val drifters = listOf(
+                    Triple(0.24f, 0.40f, 0.00f),
+                    Triple(0.74f, 0.34f, 0.50f),
+                )
+                drifters.forEach { (bx, by, phase) ->
+                    val t = (ambientTime + phase) % 1f
+                    val dx = bx + sin(t * 2f * PI).toFloat() * 0.03f
+                    val dy = by + cos(t * 2f * PI * 1.3f).toFloat() * 0.02f
+                    val sparkle = 0.4f + 0.6f * calmWave(ambientTime, phase = phase + 0.2f)
+                    drawCircle(
+                        color = Color(0xFFFFF6D8).copy(alpha = 0.7f * sparkle),
+                        radius = 2.dp.toPx(),
+                        center = Offset(dx * w, dy * h),
+                    )
+                }
+
+                // Shooting stars. Motion matched to SkyStack: a white streak that travels
+                // down and to the right, with a tail that brightens then fades out.
+                // Each entry is startXfraction, startYfraction, windowStart, windowLength
+                // measured against the 0..1 ambient loop, so each star appears about once per loop.
+                val shootingStars = listOf(
+                    listOf(0.30f, 0.06f, 0.05f, 0.08f),
+                    listOf(0.64f, 0.11f, 0.58f, 0.08f),
+                )
+                shootingStars.forEach { s ->
+                    val winStart = s[2]
+                    val winLen = s[3]
+                    val raw = ambientTime - winStart
+                    if (raw in 0f..winLen) {
+                        val u = raw / winLen
+                        val dirX = 0.928f
+                        val dirY = 0.371f
+                        val travel = 0.42f * w
+                        val headX = s[0] * w + u * travel * dirX
+                        val headY = s[1] * h + u * travel * dirY
+                        val maxLen = 64.dp.toPx()
+                        val len = (u * 1.8f * maxLen).coerceAtMost(maxLen)
+                        val alpha = sin((u * PI).toFloat()).coerceIn(0f, 1f)
+                        drawLine(
+                            color = Color.White.copy(alpha = alpha),
+                            start = Offset(headX, headY),
+                            end = Offset(headX - len * dirX, headY - len * dirY),
+                            strokeWidth = 2.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

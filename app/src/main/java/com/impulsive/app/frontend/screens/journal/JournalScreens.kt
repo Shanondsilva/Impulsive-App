@@ -49,7 +49,6 @@ import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EditNote
-import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.AlertDialog
@@ -145,15 +144,6 @@ fun JournalHubScreen(
                 )
             }
         }
-
-        JournalModeCard(
-            title = "Future-self message",
-            subtitle = "A small voice or text cue for hard moments.",
-            action = "Open",
-            iconTint = ImpulsivePsychological,
-            icon = { Icon(Icons.Outlined.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) },
-            onClick = onOpenFutureSelf,
-        )
 
         JournalModeCard(
             title = "Notes",
