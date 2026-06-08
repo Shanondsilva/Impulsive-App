@@ -20,8 +20,6 @@ import com.impulsive.app.frontend.screens.journal.JournalListScreen
 import com.impulsive.app.frontend.screens.onboarding.WelcomePrivacyScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
-import com.impulsive.app.frontend.screens.tasks.FutureSelfMessageScreen
-import com.impulsive.app.frontend.screens.tasks.FutureSelfRecordScreen
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 
@@ -38,8 +36,6 @@ object DemoRoutes {
     const val BlockCascade = "block_cascade"
     const val BlockCascadeTask = "block_cascade_task"
     const val ResetReadTask = "reset_read_task"
-    const val FutureSelfMessageTask = "future_self_message_task"
-    const val FutureSelfRecord = "future_self_record"
     const val JournalHub = "journal_hub"
     const val JournalList = "journal_list"
     const val JournalNoteNew = "journal_note_new/{type}"
@@ -96,9 +92,6 @@ fun DemoNavHost(
                 onOpenResetReadTask = {
                     navController.navigate(DemoRoutes.ResetReadTask)
                 },
-                onOpenFutureSelfMessageTask = {
-                    navController.navigate(DemoRoutes.FutureSelfMessageTask)
-                },
                 onOpenTasks = {
                     navController.navigate(DemoRoutes.TaskToComplete)
                 },
@@ -129,7 +122,6 @@ fun DemoNavHost(
         composable(DemoRoutes.JournalHub) {
             JournalHubScreen(
                 onBack = { navController.popBackStack() },
-                onOpenFutureSelf = { navController.navigate(DemoRoutes.FutureSelfRecord) },
                 onOpenNormalJournal = { navController.navigate(DemoRoutes.JournalList) },
                 onCreateNote = { type -> navController.navigate(DemoRoutes.journalNoteNew(type)) },
                 onOpenNote = { noteId -> navController.navigate(DemoRoutes.journalNoteEdit(noteId)) },
@@ -179,9 +171,6 @@ fun DemoNavHost(
                 onOpenResetReadTask = {
                     navController.navigate(DemoRoutes.ResetReadTask)
                 },
-                onOpenFutureSelfMessageTask = {
-                    navController.navigate(DemoRoutes.FutureSelfMessageTask)
-                },
             )
         }
 
@@ -223,19 +212,6 @@ fun DemoNavHost(
 
         composable(DemoRoutes.ResetReadTask) {
             ResetReadScreen(
-                onExit = { navController.popBackStack() },
-            )
-        }
-
-        composable(DemoRoutes.FutureSelfMessageTask) {
-            FutureSelfMessageScreen(
-                onExit = { navController.popBackStack() },
-                onRecordYours = { navController.navigate(DemoRoutes.FutureSelfRecord) },
-            )
-        }
-
-        composable(DemoRoutes.FutureSelfRecord) {
-            FutureSelfRecordScreen(
                 onExit = { navController.popBackStack() },
             )
         }

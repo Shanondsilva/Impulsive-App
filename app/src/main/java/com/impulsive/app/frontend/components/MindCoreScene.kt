@@ -46,6 +46,27 @@ private data class CloudSpec(
     val speed: Float,
 )
 
+private data class NightWindowGlowSpec(
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+    val phase: Float,
+    val speed: Float,
+    val isRound: Boolean = false,
+)
+
+private data class NightCloudDriftSpec(
+    val centerX: Float,
+    val centerY: Float,
+    val width: Float,
+    val height: Float,
+    val phase: Float,
+    val speed: Float,
+    val driftPx: Float,
+    val alpha: Float,
+)
+
 private data class PetalSpec(
     val startX: Float,
     val startY: Float,
@@ -66,6 +87,39 @@ private val PetalSpecs = listOf(
     PetalSpec(startX = 0.58f, startY = -0.06f, delay = 0.50f, duration = 0.12f, drift = -0.08f, size = 0.64f, opacity = 0.24f, rotationTurns = -0.48f),
     PetalSpec(startX = 0.22f, startY = -0.04f, delay = 0.67f, duration = 0.14f, drift = 0.06f, size = 0.52f, opacity = 0.22f, rotationTurns = 0.38f),
     PetalSpec(startX = 0.88f, startY = -0.03f, delay = 0.84f, duration = 0.13f, drift = -0.07f, size = 0.76f, opacity = 0.28f, rotationTurns = -0.42f),
+)
+
+private val NightWindowGlowSpecs = listOf(
+    NightWindowGlowSpec(x = 472f, y = 331f, width = 18f, height = 30f, phase = 0.03f, speed = 8.0f),
+    NightWindowGlowSpec(x = 324f, y = 417f, width = 22f, height = 40f, phase = 0.19f, speed = 9.0f),
+    NightWindowGlowSpec(x = 623f, y = 285f, width = 10f, height = 16f, phase = 0.37f, speed = 7.6f),
+    NightWindowGlowSpec(x = 871f, y = 293f, width = 16f, height = 24f, phase = 0.53f, speed = 8.5f),
+    NightWindowGlowSpec(x = 970f, y = 340f, width = 14f, height = 28f, phase = 0.66f, speed = 8.9f),
+    NightWindowGlowSpec(x = 1028f, y = 443f, width = 30f, height = 30f, phase = 0.71f, speed = 7.2f, isRound = true),
+    NightWindowGlowSpec(x = 1190f, y = 553f, width = 28f, height = 52f, phase = 0.86f, speed = 9.4f),
+)
+
+private val NightCloudDriftSpecs = listOf(
+    NightCloudDriftSpec(
+        centerX = 478f,
+        centerY = 134f,
+        width = 190f,
+        height = 58f,
+        phase = 0.00f,
+        speed = 2.0f,
+        driftPx = 10f,
+        alpha = 0.055f,
+    ),
+    NightCloudDriftSpec(
+        centerX = 1066f,
+        centerY = 122f,
+        width = 300f,
+        height = 82f,
+        phase = 0.50f,
+        speed = 2.3f,
+        driftPx = -12f,
+        alpha = 0.050f,
+    ),
 )
 
 private fun calmWave(progress: Float, phase: Float = 0f): Float =
@@ -354,112 +408,135 @@ fun MindCoreScene(
             Canvas(modifier = Modifier.matchParentSize()) {
                 val w = size.width
                 val h = size.height
+                val sourceWidth = 1448f
+                val sourceHeight = 1086f
+                val sceneScale = maxOf(w / sourceWidth, h / sourceHeight)
+                val drawnWidth = sourceWidth * sceneScale
+                val drawnHeight = sourceHeight * sceneScale
+                val imageLeft = (w - drawnWidth) / 2f
+                val imageTop = (h - drawnHeight) / 2f
 
-                // Soft core halo that gently breathes, suggesting the core is alive at night.
-                val coreCenter = Offset(w * 0.5f, h * 0.62f)
-                val coreBreath = 0.92f + 0.08f * calmWave(ambientTime, phase = 0.40f)
-                drawCircle(
-                    color = ImpulsivePsychological.copy(alpha = 0.06f),
-                    radius = 96.dp.toPx() * coreBreath,
-                    center = coreCenter,
-                )
-                drawCircle(
-                    color = ImpulsivePsychological.copy(alpha = 0.05f),
-                    radius = 60.dp.toPx() * coreBreath,
-                    center = coreCenter,
+                fun sceneOffset(x: Float, y: Float): Offset = Offset(
+                    x = imageLeft + x * sceneScale,
+                    y = imageTop + y * sceneScale,
                 )
 
-                // Soft moon glow, cool lavender, slow pulse.
-                val moonCenter = Offset(w * 0.5f, h * 0.18f)
-                val moonPulse = 0.94f + 0.06f * calmWave(ambientTime, phase = 0.08f)
-                drawCircle(
-                    color = Color(0xFFCBB8FF).copy(alpha = 0.16f),
-                    radius = 34.dp.toPx() * moonPulse,
-                    center = moonCenter,
-                )
-                drawCircle(
-                    color = Color(0xFFE6DBFF).copy(alpha = 0.24f),
-                    radius = 20.dp.toPx() * moonPulse,
-                    center = moonCenter,
-                )
-                drawCircle(
-                    color = Color(0xFFFFFDF7).copy(alpha = 0.85f),
-                    radius = 11.dp.toPx() * moonPulse,
-                    center = moonCenter,
-                )
+                NightCloudDriftSpecs.forEach { cloud ->
+                    val driftWave = sin(((ambientTime * cloud.speed) + cloud.phase) * 2f * PI).toFloat()
+                    val center = sceneOffset(
+                        x = cloud.centerX + driftWave * cloud.driftPx,
+                        y = cloud.centerY,
+                    )
+                    val cloudWidth = cloud.width * sceneScale
+                    val cloudHeight = cloud.height * sceneScale
+                    val cloudColor = Color(0xFFC6A0D8).copy(alpha = cloud.alpha)
 
-                // Gentle starfield with subtle twinkle.
-                val nightStars = listOf(
-                    Triple(0.18f, 0.16f, 0.00f),
-                    Triple(0.32f, 0.10f, 0.22f),
-                    Triple(0.68f, 0.14f, 0.41f),
-                    Triple(0.82f, 0.22f, 0.63f),
-                    Triple(0.46f, 0.30f, 0.85f),
-                )
-                nightStars.forEach { (sx, sy, phase) ->
-                    val twinkle = 0.35f + 0.45f * calmWave(ambientTime, phase = phase)
                     drawCircle(
-                        color = Color(0xFFF2ECFF).copy(alpha = 0.30f * twinkle),
-                        radius = 4.dp.toPx(),
-                        center = Offset(sx * w, sy * h),
+                        color = cloudColor,
+                        radius = cloudHeight * 0.48f,
+                        center = Offset(center.x - cloudWidth * 0.24f, center.y + cloudHeight * 0.03f),
                     )
                     drawCircle(
-                        color = Color.White.copy(alpha = twinkle),
-                        radius = 1.5.dp.toPx(),
-                        center = Offset(sx * w, sy * h),
+                        color = cloudColor.copy(alpha = cloud.alpha * 0.92f),
+                        radius = cloudHeight * 0.62f,
+                        center = Offset(center.x - cloudWidth * 0.02f, center.y - cloudHeight * 0.18f),
+                    )
+                    drawCircle(
+                        color = cloudColor.copy(alpha = cloud.alpha * 0.82f),
+                        radius = cloudHeight * 0.44f,
+                        center = Offset(center.x + cloudWidth * 0.22f, center.y + cloudHeight * 0.02f),
+                    )
+                    drawRoundRect(
+                        color = cloudColor.copy(alpha = cloud.alpha * 0.76f),
+                        topLeft = Offset(center.x - cloudWidth * 0.38f, center.y - cloudHeight * 0.08f),
+                        size = Size(cloudWidth * 0.76f, cloudHeight * 0.38f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cloudHeight * 0.19f),
                     )
                 }
 
-                // Two slow drift sparkles that ease across a short path.
-                val drifters = listOf(
-                    Triple(0.24f, 0.40f, 0.00f),
-                    Triple(0.74f, 0.34f, 0.50f),
-                )
-                drifters.forEach { (bx, by, phase) ->
-                    val t = (ambientTime + phase) % 1f
-                    val dx = bx + sin(t * 2f * PI).toFloat() * 0.03f
-                    val dy = by + cos(t * 2f * PI * 1.3f).toFloat() * 0.02f
-                    val sparkle = 0.4f + 0.6f * calmWave(ambientTime, phase = phase + 0.2f)
-                    drawCircle(
-                        color = Color(0xFFFFF6D8).copy(alpha = 0.7f * sparkle),
-                        radius = 2.dp.toPx(),
-                        center = Offset(dx * w, dy * h),
-                    )
-                }
+                val moonWave = calmWave((ambientTime * 6f) % 1f, phase = 0.19f)
+                val moonCenter = sceneOffset(1345f, 115f)
+                val moonRadius = 85f * sceneScale * (0.95f + 0.05f * moonWave)
+                val moonAlpha = 0.15f + 0.15f * moonWave
 
-                // Shooting stars. Motion matched to SkyStack: a white streak that travels
-                // down and to the right, with a tail that brightens then fades out.
-                // Each entry is startXfraction, startYfraction, windowStart, windowLength
-                // measured against the 0..1 ambient loop, so each star appears about once per loop.
-                val shootingStars = listOf(
-                    listOf(0.30f, 0.06f, 0.05f, 0.08f),
-                    listOf(0.64f, 0.11f, 0.58f, 0.08f),
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFFFE8A3).copy(alpha = moonAlpha),
+                            Color(0xFFFFE8A3).copy(alpha = moonAlpha * 0.30f),
+                            Color.Transparent,
+                        ),
+                        center = moonCenter,
+                        radius = moonRadius,
+                    ),
+                    radius = moonRadius,
+                    center = moonCenter,
                 )
-                shootingStars.forEach { s ->
-                    val winStart = s[2]
-                    val winLen = s[3]
-                    val raw = ambientTime - winStart
-                    if (raw in 0f..winLen) {
-                        val u = raw / winLen
-                        val dirX = 0.928f
-                        val dirY = 0.371f
-                        val travel = 0.42f * w
-                        val headX = s[0] * w + u * travel * dirX
-                        val headY = s[1] * h + u * travel * dirY
-                        val maxLen = 64.dp.toPx()
-                        val len = (u * 1.8f * maxLen).coerceAtMost(maxLen)
-                        val alpha = sin((u * PI).toFloat()).coerceIn(0f, 1f)
-                        drawLine(
-                            color = Color.White.copy(alpha = alpha),
-                            start = Offset(headX, headY),
-                            end = Offset(headX - len * dirX, headY - len * dirY),
-                            strokeWidth = 2.dp.toPx(),
-                            cap = StrokeCap.Round,
+
+                NightWindowGlowSpecs.forEach { window ->
+                    val windowWave = calmWave((ambientTime * window.speed) % 1f, phase = window.phase)
+                    val flicker = 0.85f + 0.15f * windowWave
+                    val center = sceneOffset(window.x, window.y)
+                    val windowWidth = window.width * sceneScale
+                    val windowHeight = window.height * sceneScale
+                    val warmGlow = Color(0xFFFFD98A)
+                    val glowRadius = maxOf(windowWidth, windowHeight) * if (window.isRound) 0.95f else 0.78f
+
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                warmGlow.copy(alpha = 0.08f * flicker),
+                                warmGlow.copy(alpha = 0.03f * flicker),
+                                Color.Transparent,
+                            ),
+                            center = center,
+                            radius = glowRadius * 1.55f,
+                        ),
+                        radius = glowRadius * 1.55f,
+                        center = center,
+                    )
+
+                    if (window.isRound) {
+                        val radius = maxOf(windowWidth, windowHeight) * 0.43f
+                        drawCircle(
+                            color = warmGlow.copy(alpha = 0.13f * flicker),
+                            radius = radius,
+                            center = center,
+                        )
+                    } else {
+                        drawRoundRect(
+                            color = warmGlow.copy(alpha = 0.12f * flicker),
+                            topLeft = Offset(center.x - windowWidth * 0.50f, center.y - windowHeight * 0.50f),
+                            size = Size(windowWidth, windowHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(windowHeight * 0.18f),
                         )
                     }
                 }
+
+                // Tiny sky twinkles. Keep them subtle so they do not look like bubbles.
+                val nightStars = listOf(
+                    Triple(45f, 42f, 0.00f),
+                    Triple(230f, 74f, 0.17f),
+                    Triple(342f, 59f, 0.31f),
+                    Triple(590f, 35f, 0.48f),
+                    Triple(690f, 81f, 0.62f),
+                    Triple(808f, 89f, 0.76f),
+                    Triple(944f, 28f, 0.88f),
+                    Triple(1415f, 82f, 0.12f),
+                )
+                nightStars.forEach { (sx, sy, phase) ->
+                    val twinkle = calmWave(ambientTime, phase = phase)
+                    val alpha = 0.40f + 0.50f * twinkle
+                    val starScale = 0.90f + 0.20f * twinkle
+                    drawCircle(
+                        color = Color(0xFFFFF6D8).copy(alpha = alpha),
+                        radius = 0.95.dp.toPx() * starScale,
+                        center = sceneOffset(sx, sy),
+                    )
+                }
             }
         }
+
     }
 }
 

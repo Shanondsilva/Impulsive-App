@@ -159,9 +159,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private fun handleForgotPin() {
         when (authViewModel.state.value.user?.provider) {
             AuthProvider.Google -> authViewModel.signInWithGoogleForAppLockReset(this) { clearAppLockAfterProviderAuth() }
-            AuthProvider.Apple -> authViewModel.signInWithAppleForAppLockReset(this) { clearAppLockAfterProviderAuth() }
             AuthProvider.Facebook -> authViewModel.signInWithFacebookForAppLockReset(this) { clearAppLockAfterProviderAuth() }
-            AuthProvider.Guest, null -> {
+            AuthProvider.Email, AuthProvider.Guest, null -> {
                 showGuestPinResetDialog.value = true
             }
         }

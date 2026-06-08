@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.SportsEsports
@@ -148,7 +149,6 @@ fun HomeScreen(
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
-    onOpenFutureSelfMessageTask: () -> Unit = {},
     onOpenTasks: () -> Unit = {},
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
@@ -251,11 +251,10 @@ fun HomeScreen(
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
                             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
-                            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
-                            PsychologyTaskType.FutureSelfMessage,
+                            PsychologyTaskType.ResetRead,
                             PsychologyTaskType.TriggerDecoder,
                             PsychologyTaskType.ThoughtCapture,
-                            PsychologyTaskType.ShortReadingBurst -> onOpenFutureSelfMessageTask()
+                            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
                         }
                     },
                     onViewAllTasks = onOpenTasks,
@@ -846,15 +845,11 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
         title = "Reset Read",
         description = "Read one focused reset and let the timer finish.",
     )
-    PsychologyTaskType.FutureSelfMessage -> HomeRecommendedTask(
-        title = "Future-Self Message",
-        description = "Hear your own reason before the moment gets harder.",
-    )
     PsychologyTaskType.TriggerDecoder,
     PsychologyTaskType.ThoughtCapture,
     PsychologyTaskType.ShortReadingBurst -> HomeRecommendedTask(
-        title = "Future-Self Message",
-        description = "Use your saved reason as the next pivot action.",
+        title = "Reset Read",
+        description = "Read one focused reset and let the timer finish.",
     )
 }
 
@@ -939,7 +934,7 @@ private fun DashboardCards(
                     ) { onOpenJournal() },
                 label = "NOTES",
                 title = "Private\nNotes",
-                subtext = "Notes, lists and future-self cues",
+                subtext = "Notes, lists and reminders",
                 cta = "Open notes ›",
                 iconColor = ImpulsiveSpiritual.copy(alpha = 0.78f),
                 glowColor = HomeYellowGlow,
@@ -971,7 +966,7 @@ private fun DashboardCards(
             palette = palette,
             icon = {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.MenuBook,
+                    imageVector = Icons.AutoMirrored.Outlined.Article,
                     contentDescription = null,
                     tint = palette.primaryText.copy(alpha = 0.82f),
                     modifier = Modifier.size(21.dp),

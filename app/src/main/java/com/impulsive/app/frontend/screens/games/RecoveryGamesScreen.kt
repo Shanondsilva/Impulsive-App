@@ -57,6 +57,7 @@ import com.impulsive.app.backend.domain.model.store.GameAccess
 import com.impulsive.app.backend.domain.model.store.GameStoreCatalog
 import com.impulsive.app.backend.domain.model.store.StoreGame
 import com.impulsive.app.backend.session.game.GameStoreViewModel
+import com.impulsive.app.frontend.components.impulsiveGlowBorderStroke
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 
 private data class RecoveryGamesColors(
@@ -358,7 +359,15 @@ private fun RecoveryGameCard(
     Surface(
         color = colors.surface,
         shape = cardShape,
-        border = if (isDark) BorderStroke(1.dp, colors.border) else null,
+        border = if (isDark) {
+            impulsiveGlowBorderStroke(
+                enabled = true,
+                glowColor = ImpulsivePsychological,
+                fallbackColor = Color.Transparent,
+                width = 1.25.dp,
+                darkAlpha = 0.72f,
+            )
+        } else null,
         modifier = Modifier
             .fillMaxWidth()
             .shadow(

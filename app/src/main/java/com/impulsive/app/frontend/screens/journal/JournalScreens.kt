@@ -103,7 +103,6 @@ import kotlin.math.roundToInt
 @Composable
 fun JournalHubScreen(
     onBack: () -> Unit,
-    onOpenFutureSelf: () -> Unit,
     onOpenNormalJournal: () -> Unit,
     onCreateNote: (JournalNoteType) -> Unit,
     onOpenNote: (Long) -> Unit,
@@ -123,27 +122,6 @@ fun JournalHubScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         JournalHeader(title = "Notes", onBack = onBack)
-
-        Surface(
-            color = ImpulsivePsychological.copy(alpha = 0.22f),
-            shape = RoundedCornerShape(30.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    text = "Two private spaces",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Future-self messages stay separate. Normal notes hold thoughts, lists, drawings and reminders.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
 
         JournalModeCard(
             title = "Notes",

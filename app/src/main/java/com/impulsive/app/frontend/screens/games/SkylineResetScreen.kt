@@ -42,6 +42,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -88,6 +89,7 @@ private val SkylineBackground = Color(0xFF0F0B22)
 private val WindowWarm = Color(0xFFFFE0A0)
 private val WindowCool = Color(0xFFCFE0FF)
 private val WindowOff = Color(0xFF241F40)
+private const val SkylineTowerInsetFraction = 0.08f
 
 @Composable
 fun SkylineResetScreen(
@@ -255,18 +257,21 @@ private fun SkylinePlayArea(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .weight(1f)
+                .clipToBounds(),
         ) {
             val density = LocalDensity.current
             val wPx = with(density) { maxWidth.toPx() }
             val hPx = with(density) { maxHeight.toPx() }
             val floorH = with(density) { 26.dp.toPx() }
-            val marginPx = with(density) { 28.dp.toPx() }
+            val marginPx = with(density) { 6.dp.toPx() }
             val fx = remember { SkylineFx() }
             var frameTick by remember { mutableStateOf(0L) }
             val stateNow by rememberUpdatedState(uiState)
 
             fun naturalTop(i: Int): Float = (hPx - marginPx) - (i + 1) * floorH
+            fun towerLeft(left01: Float): Float = wPx * SkylineTowerInsetFraction + left01 * (wPx * (1f - SkylineTowerInsetFraction * 2f))
+            fun towerWidth(width01: Float): Float = width01 * (wPx * (1f - SkylineTowerInsetFraction * 2f))
 
             LaunchedEffect(uiState.dropSeq) {
                 if (uiState.dropSeq <= 0) return@LaunchedEffect
@@ -277,8 +282,8 @@ private fun SkylinePlayArea(
                 if (uiState.lastTrimWidth > 0f) {
                     fx.falls.add(
                         FallPiece(
-                            x = uiState.lastTrimLeft * wPx,
-                            w = uiState.lastTrimWidth * wPx,
+                            x = towerLeft(uiState.lastTrimLeft),
+                            w = towerWidth(uiState.lastTrimWidth),
                             top = topY,
                             vy = 0f,
                             alpha = 1f,
@@ -291,9 +296,9 @@ private fun SkylinePlayArea(
                     if (placed != null) {
                         fx.rings.add(
                             RingFx(
-                                x = (placed.left + placed.width / 2f) * wPx,
+                                x = towerLeft(placed.left + placed.width / 2f),
                                 y = topY + floorH / 2f,
-                                r = placed.width * wPx * 0.4f,
+                                r = towerWidth(placed.width) * 0.4f,
                                 alpha = 0.85f,
                                 hue = hue,
                             ),
@@ -448,33 +453,37 @@ private fun DrawScope.drawSkylineFloor(
     floorH: Float,
     topY: Float,
 ) {
-    val x = left01 * wPx
-    val w = width01 * wPx
+    val inset = wPx * SkylineTowerInsetFraction
+    val field = wPx - inset * 2f
+    val x = inset + left01 * field
+    val w = width01 * field
+    val bh = floorH - 3f
+    val bodyAlpha = if (active) 0.86f else 1f
+    val radius = CornerRadius(6f, 6f)
+
     drawRoundRect(
-        color = Color.hsv(hue.toFloat(), 0.40f, if (active) 0.44f else 0.40f),
+        color = Color.hsv(hue.toFloat(), 0.46f, 0.70f).copy(alpha = bodyAlpha),
         topLeft = Offset(x, topY),
-        size = Size(w, floorH - 3f),
-        cornerRadius = CornerRadius(5f, 5f),
+        size = Size(w, bh),
+        cornerRadius = radius,
     )
-    drawRoundRect(
-        color = Color.hsv(hue.toFloat(), 0.46f, if (active) 0.58f else 0.54f),
-        topLeft = Offset(x, topY),
-        size = Size(w, 4f),
-        cornerRadius = CornerRadius(3f, 3f),
-    )
-    val cols = ((w - 8f) / 9f).toInt()
-    if (cols < 1) return
-    val span = cols * 9f - 3f
-    val sx = x + (w - span) / 2f
-    val wy = topY + 11f
-    for (j in 0 until cols) {
-        val lit = ((idx * 7 + j * 3) % 5) != 0
-        val warm = ((idx + j * 2) % 4) != 0
-        val base = if (lit) (if (warm) WindowWarm else WindowCool) else WindowOff
-        drawRect(
-            color = base.copy(alpha = if (active) 0.32f else 0.95f),
-            topLeft = Offset(sx + j * 9f, wy),
-            size = Size(4f, 5f),
+    val winW = w * 0.21f
+    val winH = bh * 0.30f
+    if (winW < 3f || winH < 3f) return
+    val winAlpha = if (active) 0.5f else 1f
+    val colX = floatArrayOf(x + w * 0.17f, x + w * 0.55f)
+    val rowY = floatArrayOf(topY + bh * 0.26f, topY + bh * 0.58f)
+    for (cell in 0 until 4) {
+        val cx = colX[cell % 2]
+        val cy = rowY[cell / 2]
+        val lit = ((idx * 3 + cell * 5) % 7) != 0
+        val warm = ((idx + cell * 2) % 2) == 0
+        val wc = if (lit) (if (warm) WindowWarm else WindowCool) else WindowOff
+        drawRoundRect(
+            color = wc.copy(alpha = winAlpha),
+            topLeft = Offset(cx, cy),
+            size = Size(winW, winH),
+            cornerRadius = CornerRadius(2f, 2f),
         )
     }
 }
@@ -735,9 +744,9 @@ private fun genSkyLayer(
     winChance: Float,
 ): List<SkyBuilding> {
     val list = ArrayList<SkyBuilding>()
-    var x = -20f
-    while (x < wPx + 50f) {
-        val w = 22f + rng.nextFloat() * 42f
+    var x = -110f
+    while (x < wPx + 130f) {
+        val w = 42f + rng.nextFloat() * 78f
         val h = minH + rng.nextFloat() * (maxH - minH)
         val wins = ArrayList<SkyWin>()
         var wy = 9f
@@ -751,16 +760,16 @@ private fun genSkyLayer(
         }
         val hasLight = h > maxH * 0.7f && rng.nextFloat() < 0.6f
         list.add(SkyBuilding(x, w, h, rng.nextInt(3), wins, hasLight, rng.nextFloat() * 6.28f, color))
-        x += w + 5f + rng.nextFloat() * density
+        x += w * 0.54f + rng.nextFloat() * (density * 0.14f)
     }
     return list
 }
 
 private fun genSkyScene(wPx: Float, hPx: Float): SkyScene {
     val rng = Random(System.nanoTime())
-    val far = genSkyLayer(rng, wPx, Color(0xFF2A2550), 70f, 130f, 16f, 0.5f)
-    val mid = genSkyLayer(rng, wPx, Color(0xFF201B40), 95f, 180f, 11f, 0.62f)
-    val near = genSkyLayer(rng, wPx, Color(0xFF15112C), 120f, 230f, 8f, 0.72f)
+    val far = genSkyLayer(rng, wPx, Color(0xFF2A2550), 135f, 245f, 16f, 0.5f)
+    val mid = genSkyLayer(rng, wPx, Color(0xFF201B40), 190f, 335f, 11f, 0.62f)
+    val near = genSkyLayer(rng, wPx, Color(0xFF15112C), 260f, 455f, 8f, 0.72f)
     val stars = ArrayList<SkyStar>()
     repeat(115) {
         stars.add(
@@ -780,7 +789,7 @@ private fun genSkyScene(wPx: Float, hPx: Float): SkyScene {
                 rng.nextFloat() * wPx,
                 20f + rng.nextFloat() * hPx * 0.24f,
                 42f + rng.nextFloat() * 42f,
-                0.035f + rng.nextFloat() * 0.065f,
+                0.28f + rng.nextFloat() * 0.34f,
             ),
         )
     }
@@ -796,7 +805,9 @@ private fun DrawScope.drawSkyLayer(
     hPx: Float,
     marginPx: Float,
 ) {
+    if (arr.isEmpty()) return
     val baseY = (hPx - marginPx) + cam * parallax
+
     for (b in arr) {
         val top = baseY - b.h
         drawRect(color = b.color, topLeft = Offset(b.x, top), size = Size(b.w, hPx - top + 240f))
@@ -804,11 +815,6 @@ private fun DrawScope.drawSkyLayer(
             color = Color.Black.copy(alpha = 0.10f),
             topLeft = Offset(b.x + b.w * 0.72f, top),
             size = Size(b.w * 0.28f, hPx - top + 240f),
-        )
-        drawRect(
-            color = Color.White.copy(alpha = 0.035f),
-            topLeft = Offset(b.x + 2f, top),
-            size = Size(2f, hPx - top + 240f),
         )
         drawRect(
             color = Color.Black.copy(alpha = 0.16f),

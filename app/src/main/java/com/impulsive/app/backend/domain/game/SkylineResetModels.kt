@@ -4,9 +4,9 @@ import kotlin.math.abs
 
 const val SkylineResetTargetFloors = 10
 const val SkylineResetMinimumFloors = 3
-const val SkylineResetPerfectTolerance = 0.02f
+const val SkylineResetPerfectTolerance = 0.008f
 const val SkylineResetPerfectGrow = 0.018f
-const val SkylineResetBaseWidthFraction = 0.56f
+const val SkylineResetBaseWidthFraction = 0.66f
 const val SkylineResetStartSpeed = 1.7f
 const val SkylineResetMaxSpeed = 4.4f
 const val SkylineResetSpeedStep = 0.06f

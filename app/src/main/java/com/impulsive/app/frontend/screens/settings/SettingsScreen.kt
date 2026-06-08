@@ -144,13 +144,9 @@ fun SettingsScreen(
     onBackHome: () -> Unit,
     onOpenHome: () -> Unit = onBackHome,
     onOpenScore: () -> Unit = {},
-    onOpenFutureSelfRecord: () -> Unit = {},
     onOpenUninstallProtection: () -> Unit = {},
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    futureSelfViewModel: com.impulsive.app.backend.session.tasks.FutureSelfMessageViewModel =
-        androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    val futureSelfRecordState by futureSelfViewModel.recordState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -232,12 +228,6 @@ fun SettingsScreen(
                 onEditTriggers = { onboardingViewModel.setMultiSelectAnswer(OnboardingQuestionId.Triggers, it) },
                 onEditTiming = { onboardingViewModel.setMultiSelectAnswer(OnboardingQuestionId.Timing, it) },
                 onEditWeeklyTarget = { onboardingViewModel.setSingleSelectAnswer(OnboardingQuestionId.WeekOneGoal, it) },
-            )
-            FutureSelfMessageGroup(
-                hasMessage = futureSelfRecordState.message != null,
-                kind = futureSelfRecordState.message?.kind,
-                onRecordOrManage = onOpenFutureSelfRecord,
-                onDelete = futureSelfViewModel::deleteSavedMessage,
             )
             ProtectionFocusGroup(
                 protectionState = protectionSetupState,
@@ -928,41 +918,6 @@ private fun SingleSelectEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
-}
-
-@Composable
-private fun FutureSelfMessageGroup(
-    hasMessage: Boolean,
-    kind: com.impulsive.app.backend.data.local.preferences.FutureSelfMessageKind?,
-    onRecordOrManage: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    val summary = when {
-        !hasMessage -> "Not recorded yet"
-        kind == com.impulsive.app.backend.data.local.preferences.FutureSelfMessageKind.Voice -> "Voice note saved"
-        else -> "Text note saved"
-    }
-    AccordionGroup(
-        title = "Future-self message",
-        summary = summary,
-        icon = Icons.Filled.ChatBubbleOutline,
-        glowSpec = SettingsGlowSpec.single(FutureSelfGlow),
-    ) {
-        SettingsRow(
-            title = if (hasMessage) "Replace or re-record" else "Record a future-self message",
-            subtext = "A short voice note or text you'll hear during a difficult moment.",
-            onClick = onRecordOrManage,
-        )
-        if (hasMessage) {
-            SettingsDivider()
-            SettingsRow(
-                title = "Delete saved message",
-                subtext = "Removes the file from this device.",
-                trailingIcon = Icons.Filled.DeleteOutline,
-                onClick = onDelete,
-            )
-        }
-    }
 }
 
 @Composable
@@ -1910,7 +1865,6 @@ private val SettingsBoxBorder = Color(0xFFD0C3F1)
 private val ProfileGlow = SettingsBoxBorder
 private val AppearanceGlow = SettingsBoxBorder
 private val RecoverySetupGlow = SettingsBoxBorder
-private val FutureSelfGlow = SettingsBoxBorder
 private val ProtectionGlow = SettingsBoxBorder
 private val FocusGlow = SettingsBoxBorder
 private val PrivacyGlow = SettingsBoxBorder

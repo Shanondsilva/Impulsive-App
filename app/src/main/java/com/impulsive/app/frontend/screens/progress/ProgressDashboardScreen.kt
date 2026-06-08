@@ -335,7 +335,7 @@ private fun MainControlScoreCard(
         border = if (isDark) {
             BorderStroke(
                 width = 1.dp,
-                color = colors.greenGlow.copy(alpha = 0.42f),
+                color = colors.lavenderGlow.copy(alpha = 0.72f),
             )
         } else {
             null
@@ -346,8 +346,16 @@ private fun MainControlScoreCard(
                 elevation = if (isDark) 18.dp else 10.dp,
                 shape = RoundedCornerShape(34.dp),
                 clip = false,
-                ambientColor = colors.greenGlow.copy(alpha = if (isDark) 0.18f else 0.12f),
-                spotColor = colors.greenGlow.copy(alpha = if (isDark) 0.10f else 0.10f),
+                ambientColor = if (isDark) {
+                    colors.lavenderGlow.copy(alpha = 0.24f)
+                } else {
+                    colors.greenGlow.copy(alpha = 0.12f)
+                },
+                spotColor = if (isDark) {
+                    colors.lavenderGlow.copy(alpha = 0.16f)
+                } else {
+                    colors.greenGlow.copy(alpha = 0.10f)
+                },
             ),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {

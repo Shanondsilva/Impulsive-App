@@ -7,8 +7,8 @@ package com.impulsive.app.backend.domain.model.auth
  * UI uses it for rendering the right badge, repositories use it as an enum key.
  */
 enum class AuthProvider {
+    Email,
     Google,
-    Apple,
     Facebook,
     Guest,
 }

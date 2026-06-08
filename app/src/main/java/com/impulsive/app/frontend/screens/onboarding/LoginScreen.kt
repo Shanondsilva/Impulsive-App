@@ -34,6 +34,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,7 +53,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +69,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * Sign-in screen with Apple, Google, Facebook, and Continue-as-guest options.
+ * Sign-in screen with Google, Facebook, and Continue-as-guest options.
  *
  * UI-only: all auth logic lives in [AuthViewModel]. The screen needs an
  * [Activity] reference (via [LocalContext]) because the underlying provider
@@ -90,10 +95,6 @@ fun LoginSignupGuestScreen(
     LoginContent(
         state = state,
         message = state.errorMessage ?: localMessage,
-        onSignInWithApple = {
-            localMessage = null
-            activity?.let(authViewModel::signInWithApple)
-        },
         onSignInWithGoogle = {
             localMessage = null
             activity?.let(authViewModel::signInWithGoogle)
@@ -111,10 +112,18 @@ fun LoginSignupGuestScreen(
             authViewModel.consumeError()
         },
         onCreateAccount = {
-            localMessage = EmailAuthComingSoonMessage
+            localMessage = null
         },
         onLogIn = {
-            localMessage = EmailAuthComingSoonMessage
+            localMessage = null
+        },
+        onCreateAccountWithEmail = { email, password ->
+            localMessage = null
+            authViewModel.createAccountWithEmail(email, password)
+        },
+        onSignInWithEmail = { email, password ->
+            localMessage = null
+            authViewModel.signInWithEmail(email, password)
         },
     )
 }
@@ -123,13 +132,14 @@ fun LoginSignupGuestScreen(
 private fun LoginContent(
     state: AuthState,
     message: String?,
-    onSignInWithApple: () -> Unit,
     onSignInWithGoogle: () -> Unit,
     onSignInWithFacebook: () -> Unit,
     onContinueAsGuest: () -> Unit,
     onDismissError: () -> Unit,
     onCreateAccount: () -> Unit,
     onLogIn: () -> Unit,
+    onCreateAccountWithEmail: (String, String) -> Unit,
+    onSignInWithEmail: (String, String) -> Unit,
 ) {
     val context = LocalContext.current
     val reducedMotion = remember(context) {
@@ -143,6 +153,11 @@ private fun LoginContent(
     val titleScale = remember { Animatable(if (reducedMotion) 1f else 0.94f) }
     val actionsAlpha = remember { Animatable(if (reducedMotion) 1f else 0.78f) }
     var subtitleVisible by remember { mutableStateOf(reducedMotion) }
+    var emailFormMode by remember { mutableStateOf<EmailFormMode?>(null) }
+    var emailText by remember { mutableStateOf("") }
+    var passwordText by remember { mutableStateOf("") }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
+    val isGuestLoading = state.inFlightProvider == AuthProvider.Guest
 
     LaunchedEffect(reducedMotion) {
         if (reducedMotion) {
@@ -313,7 +328,11 @@ private fun LoginContent(
                         text = "Create account",
                         enabled = !state.isLoading,
                         height = buttonHeight,
-                        onClick = onCreateAccount,
+                        onClick = {
+                            validationMessage = null
+                            emailFormMode = EmailFormMode.CreateAccount
+                            onCreateAccount()
+                        },
                     )
 
                     Spacer(modifier = Modifier.height(buttonGap))
@@ -322,26 +341,54 @@ private fun LoginContent(
                         text = "Log in",
                         enabled = !state.isLoading,
                         height = buttonHeight,
-                        onClick = onLogIn,
+                        onClick = {
+                            validationMessage = null
+                            emailFormMode = EmailFormMode.LogIn
+                            onLogIn()
+                        },
+                    )
+
+                    EmailAuthForm(
+                        mode = emailFormMode,
+                        email = emailText,
+                        password = passwordText,
+                        validationMessage = validationMessage,
+                        loading = state.inFlightProvider == AuthProvider.Email,
+                        enabled = !state.isLoading || state.inFlightProvider == AuthProvider.Email,
+                        onEmailChange = {
+                            emailText = it
+                            validationMessage = null
+                        },
+                        onPasswordChange = {
+                            passwordText = it
+                            validationMessage = null
+                        },
+                        onSubmit = {
+                            when {
+                                emailText.isBlank() || !emailText.contains("@") -> {
+                                    validationMessage = "Enter a valid email address."
+                                }
+                                passwordText.length < 6 -> {
+                                    validationMessage = "Password must be at least 6 characters."
+                                }
+                                emailFormMode == EmailFormMode.CreateAccount -> {
+                                    validationMessage = null
+                                    onCreateAccountWithEmail(emailText, passwordText)
+                                }
+                                emailFormMode == EmailFormMode.LogIn -> {
+                                    validationMessage = null
+                                    onSignInWithEmail(emailText, passwordText)
+                                }
+                            }
+                        },
+                        onCancel = {
+                            emailFormMode = null
+                            validationMessage = null
+                            passwordText = ""
+                        },
                     )
 
                     LoginDivider(verticalPadding = dividerPadding)
-
-                    LoginNeutralButton(
-                        text = "Continue with Apple",
-                        icon = {
-                            ProviderIcon(
-                                resId = R.drawable.ic_apple,
-                                contentDescription = "Apple",
-                            )
-                        },
-                        enabled = !state.isLoading,
-                        loading = state.inFlightProvider == AuthProvider.Apple,
-                        height = buttonHeight,
-                        onClick = onSignInWithApple,
-                    )
-
-                    Spacer(modifier = Modifier.height(buttonGap))
 
                     LoginNeutralButton(
                         text = "Continue with Google",
@@ -387,16 +434,152 @@ private fun LoginContent(
                     shape = RoundedCornerShape(24.dp),
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = Color(0xFF48454E),
+                        disabledContentColor = Color(0xFF635880),
                     ),
                 ) {
-                    Text(
-                        text = "Continue as guest",
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (isGuestLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF6F5A9A),
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Text(
+                                text = "Continuing as guest...",
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        } else {
+                            Text(
+                                text = "Continue as guest",
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+private enum class EmailFormMode {
+    CreateAccount,
+    LogIn,
+}
+
+@Composable
+private fun EmailAuthForm(
+    mode: EmailFormMode?,
+    email: String,
+    password: String,
+    validationMessage: String?,
+    loading: Boolean,
+    enabled: Boolean,
+    onEmailChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    if (mode == null) return
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color.Black,
+        unfocusedTextColor = Color.Black,
+        disabledTextColor = Color.Black,
+        cursorColor = Color(0xFF6F5A9A),
+        focusedBorderColor = Color(0xFF6F5A9A),
+        unfocusedBorderColor = Color(0xFFD0C3F1),
+        disabledBorderColor = Color(0xFFD0C3F1),
+        focusedLabelColor = Color(0xFF6F5A9A),
+        unfocusedLabelColor = Color(0xFF635880),
+        disabledLabelColor = Color(0xFF635880),
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OutlinedTextField(
+            value = email,
+            onValueChange = onEmailChange,
+            enabled = enabled,
+            singleLine = true,
+            label = { Text("Email") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            colors = textFieldColors,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = password,
+            onValueChange = onPasswordChange,
+            enabled = enabled,
+            singleLine = true,
+            label = { Text("Password") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            colors = textFieldColors,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (validationMessage != null) {
+            Text(
+                text = validationMessage,
+                color = Color(0xFF8E1A1A),
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Button(
+            onClick = onSubmit,
+            enabled = enabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF6F5A9A),
+                contentColor = Color.White,
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+            } else {
+                Text(
+                    text = if (mode == EmailFormMode.CreateAccount) {
+                        "Send verification email"
+                    } else {
+                        "Log in with email"
+                    },
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        TextButton(
+            onClick = onCancel,
+            enabled = enabled,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        ) {
+            Text(
+                text = "Cancel",
+                color = Color(0xFF635880),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
@@ -551,6 +734,8 @@ private fun LoginPrimaryButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = Color(0xFF6F5A9A),
             contentColor = Color(0xFFFFFFFF),
+            disabledContainerColor = Color(0xFFE7DDF8),
+            disabledContentColor = Color(0xFF6F5A9A),
         ),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
     ) {
@@ -589,6 +774,8 @@ private fun LoginOutlinedButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = Color.Transparent,
             contentColor = Color(0xFF635880),
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = Color(0xFF8B7BA8),
         ),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
     ) {
@@ -624,6 +811,8 @@ private fun LoginNeutralButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = Color(0xFFF1ECF0),
             contentColor = Color(0xFF1C1B1E),
+            disabledContainerColor = Color(0xFFF1ECF0),
+            disabledContentColor = Color(0xFF6A6370),
         ),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
     ) {
@@ -712,9 +901,6 @@ private fun ProviderIcon(resId: Int, contentDescription: String) {
         modifier = Modifier.size(20.dp),
     )
 }
-
-private const val EmailAuthComingSoonMessage =
-    "Email sign-up and login are coming soon. Use Apple, Google, Facebook, or continue as guest for now."
 
 /**
  * Walk the ContextWrapper chain to find the host Activity. Necessary because

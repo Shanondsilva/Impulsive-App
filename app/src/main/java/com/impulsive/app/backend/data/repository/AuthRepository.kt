@@ -13,9 +13,9 @@ import kotlinx.coroutines.flow.Flow
  * strict separation rule.
  *
  * All sign-in methods are suspend because each provider's flow involves
- * launching an Activity (Google bottom sheet, Facebook custom tab, Apple OAuth
- * web flow) and awaiting the result. They take an [Activity] because the
- * Facebook and Firebase OAuthProvider flows need a host activity to attach to.
+ * launching an Activity (Google bottom sheet, Facebook custom tab) and awaiting
+ * the result. They take an [Activity] because those SDK flows need a host
+ * activity to attach to.
  */
 interface AuthRepository {
 
@@ -27,7 +27,9 @@ interface AuthRepository {
 
     suspend fun signInWithGoogle(activity: Activity): AuthResult
 
-    suspend fun signInWithApple(activity: Activity): AuthResult
+    suspend fun createAccountWithEmail(email: String, password: String): AuthResult
+
+    suspend fun signInWithEmail(email: String, password: String): AuthResult
 
     suspend fun signInWithFacebook(activity: Activity): AuthResult
 

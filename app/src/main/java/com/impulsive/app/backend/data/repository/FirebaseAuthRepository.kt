@@ -17,14 +17,13 @@ import com.facebook.login.LoginResult
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FacebookAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthWebException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.OAuthProvider
 import com.impulsive.app.R
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.auth.AuthUser
@@ -39,9 +38,8 @@ import kotlin.coroutines.resume
  * Firebase Authentication implementation of [AuthRepository].
  *
  * Google uses Android Credential Manager to retrieve a Google ID token, then
- * exchanges that token for a Firebase credential. Apple uses Firebase's generic
- * OAuth provider. Facebook uses the Facebook Login SDK, then exchanges the
- * AccessToken for a Firebase credential.
+ * exchanges that token for a Firebase credential. Facebook uses the Facebook
+ * Login SDK, then exchanges the AccessToken for a Firebase credential.
  */
 class FirebaseAuthRepository(
     private val appContext: Context,
@@ -101,21 +99,30 @@ class FirebaseAuthRepository(
         }
     }
 
-    override suspend fun signInWithApple(activity: Activity): AuthResult {
-        val provider = OAuthProvider.newBuilder("apple.com").apply {
-            scopes = listOf("email", "name")
-        }.build()
+    override suspend fun createAccountWithEmail(email: String, password: String): AuthResult = try {
+        val result = firebaseAuth.createUserWithEmailAndPassword(email.trim(), password).await()
+        val user = result.user ?: firebaseAuth.currentUser
+            ?: return AuthResult.Error("Email account creation returned no user.")
+        user.sendEmailVerification().await()
+        firebaseAuth.signOut()
+        AuthResult.Error(EmailVerificationSentMessage)
+    } catch (e: Exception) {
+        e.toAuthError(providerName = "Email")
+    }
 
+    override suspend fun signInWithEmail(email: String, password: String): AuthResult {
         return try {
-            val pending = firebaseAuth.pendingAuthResult
-            val resultTask = pending ?: firebaseAuth.startActivityForSignInWithProvider(activity, provider)
-            val result = resultTask.await()
-            val firebaseUser = result.user
-                ?: return AuthResult.Error("Apple sign-in returned no user.")
-            AuthResult.Success(firebaseUser.toAuthUser(forced = AuthProvider.Apple))
+            val result = firebaseAuth.signInWithEmailAndPassword(email.trim(), password).await()
+            val user = result.user ?: firebaseAuth.currentUser
+                ?: return AuthResult.Error("Email login returned no user.")
+            if (!user.isEmailVerified) {
+                user.sendEmailVerification().await()
+                firebaseAuth.signOut()
+                return AuthResult.Error(EmailVerificationRequiredMessage)
+            }
+            AuthResult.Success(user.toAuthUser(forced = AuthProvider.Email))
         } catch (e: Exception) {
-            if (e.isAppleCancellation()) AuthResult.Cancelled
-            else e.toAuthError(providerName = "Apple")
+            e.toAuthError(providerName = "Email")
         }
     }
 
@@ -239,24 +246,11 @@ class FirebaseAuthRepository(
         for (info in user.providerData) {
             when (info.providerId) {
                 GoogleAuthProvider.PROVIDER_ID -> return AuthProvider.Google
+                EmailAuthProvider.PROVIDER_ID -> return AuthProvider.Email
                 FacebookAuthProvider.PROVIDER_ID -> return AuthProvider.Facebook
-                "apple.com" -> return AuthProvider.Apple
             }
         }
         return AuthProvider.Guest
-    }
-
-    // Firebase's generic OAuth flow (Apple) throws FirebaseAuthWebException with this
-    // error code when the user dismisses the sign-in sheet. This is locale-independent.
-    private fun Exception.isAppleCancellation(): Boolean {
-        if (this is FirebaseAuthWebException) {
-            return errorCode == "ERROR_WEB_CONTEXT_CANCELED"
-        }
-        // Last-resort fallback for OS-level cancellations that surface before Firebase
-        // sees them (e.g. activity result RESULT_CANCELED with no FirebaseAuth wrapping).
-        val msg = message ?: return false
-        return msg.contains("cancel", ignoreCase = true) ||
-            msg.contains("dismiss", ignoreCase = true)
     }
 
     private fun Exception.isConfigurationError(): Boolean {
@@ -296,5 +290,9 @@ class FirebaseAuthRepository(
     private companion object {
         const val AuthNotConfiguredMessage =
             "Authentication is not configured yet. Continue as guest for now."
+        const val EmailVerificationSentMessage =
+            "Verification email sent. Thank you for using Impulsive. Please verify your email, then log in."
+        const val EmailVerificationRequiredMessage =
+            "Please verify your email first. We sent the verification link again."
     }
 }

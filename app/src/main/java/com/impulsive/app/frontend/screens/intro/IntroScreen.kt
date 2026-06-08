@@ -6,6 +6,7 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.view.Surface
 import android.view.TextureView
+import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -24,12 +25,13 @@ fun IntroScreen(
     onIntroFinished: () -> Unit,
 ) {
     val context = LocalContext.current
+    val introUri = Uri.parse("android.resource://${context.packageName}/${R.raw.impulsive_intro}")
     val currentOnIntroFinished by rememberUpdatedState(onIntroFinished)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color(0xFFFFFEFC)),
     ) {
         AndroidView(
             factory = { viewContext ->
@@ -40,25 +42,60 @@ fun IntroScreen(
                 )
                 textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     private var mediaPlayer: MediaPlayer? = null
+                    private var surface: Surface? = null
                     private var videoW = 0f
                     private var videoH = 0f
+                    private var hasFinished = false
 
-                    private fun applyTransform(viewWidth: Int, viewHeight: Int) {
-                        if (videoW <= 0f || videoH <= 0f || viewWidth <= 0 || viewHeight <= 0) return
-                        val vw = viewWidth.toFloat()
-                        val vh = viewHeight.toFloat()
-                        // Fit the whole video inside the view (letterbox on black), so the
+                    private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                        applyTransform()
+                    }
+
+                    init {
+                        textureView.addOnLayoutChangeListener(layoutChangeListener)
+                    }
+
+                    private fun finishIntro() {
+                        if (hasFinished) return
+                        hasFinished = true
+                        currentOnIntroFinished()
+                    }
+
+                    private fun releasePlayer() {
+                        mediaPlayer?.release()
+                        mediaPlayer = null
+                        surface?.release()
+                        surface = null
+                    }
+
+                    private fun applyTransform() {
+                        val viewWidth = textureView.width.toFloat()
+                        val viewHeight = textureView.height.toFloat()
+                        val videoWidth = videoW
+                        val videoHeight = videoH
+                        if (
+                            videoWidth <= 0f ||
+                            videoHeight <= 0f ||
+                            viewWidth <= 0f ||
+                            viewHeight <= 0f
+                        ) {
+                            return
+                        }
+                        // Fit the whole video inside the view, so the
                         // composition is preserved in any orientation instead of being cropped.
-                        val scale = minOf(vw / videoW, vh / videoH)
-                        val scaledWidth = videoW * scale
-                        val scaledHeight = videoH * scale
-                        val matrix = Matrix()
-                        matrix.setScale(
-                            scaledWidth / vw,
-                            scaledHeight / vh,
-                            vw / 2f,
-                            vh / 2f,
-                        )
+                        val scale = minOf(viewWidth / videoWidth, viewHeight / videoHeight)
+                        val scaledWidth = videoWidth * scale
+                        val scaledHeight = videoHeight * scale
+                        val matrix = Matrix().apply {
+                            setScale(
+                                scaledWidth / viewWidth,
+                                scaledHeight / viewHeight,
+                            )
+                            postTranslate(
+                                (viewWidth - scaledWidth) / 2f,
+                                (viewHeight - scaledHeight) / 2f,
+                            )
+                        }
                         textureView.setTransform(matrix)
                     }
 
@@ -67,27 +104,34 @@ fun IntroScreen(
                         width: Int,
                         height: Int,
                     ) {
-                        val surface = Surface(surfaceTexture)
-                        mediaPlayer = MediaPlayer().apply {
-                            setDataSource(
-                                viewContext,
-                                Uri.parse(
-                                    "android.resource://${viewContext.packageName}/${R.raw.impulsive_intro}",
-                                ),
-                            )
-                            setSurface(surface)
-                            setVolume(0f, 0f)
-                            isLooping = false
-                            setOnPreparedListener { mp ->
+                        releasePlayer()
+                        val playbackSurface = Surface(surfaceTexture)
+                        surface = playbackSurface
+                        val player = MediaPlayer()
+                        mediaPlayer = player
+                        try {
+                            player.setDataSource(viewContext, introUri)
+                            player.setSurface(playbackSurface)
+                            player.setVolume(0f, 0f)
+                            player.isLooping = false
+                            player.setOnPreparedListener { mp ->
                                 videoW = mp.videoWidth.toFloat()
                                 videoH = mp.videoHeight.toFloat()
-                                applyTransform(textureView.width, textureView.height)
+                                applyTransform()
                                 mp.start()
                             }
-                            setOnCompletionListener {
-                                currentOnIntroFinished()
+                            player.setOnCompletionListener {
+                                finishIntro()
                             }
-                            prepareAsync()
+                            player.setOnErrorListener { _, _, _ ->
+                                releasePlayer()
+                                finishIntro()
+                                true
+                            }
+                            player.prepareAsync()
+                        } catch (_: Exception) {
+                            releasePlayer()
+                            finishIntro()
                         }
                     }
 
@@ -96,12 +140,12 @@ fun IntroScreen(
                         width: Int,
                         height: Int,
                     ) {
-                        applyTransform(width, height)
+                        applyTransform()
                     }
 
                     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
-                        mediaPlayer?.release()
-                        mediaPlayer = null
+                        textureView.removeOnLayoutChangeListener(layoutChangeListener)
+                        releasePlayer()
                         return true
                     }
 

@@ -23,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +52,7 @@ fun BottomNavBar(
     val haptics = rememberImpulsiveHaptics(hapticsEnabled)
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val navGlow = Color(0xFF93E9BE)
-    val selectedGlow = Color(0xFFD0C3F1)
+    val selectedGlow = ImpulsivePsychological
     val navShape = RoundedCornerShape(50)
     Surface(
         modifier = modifier
@@ -69,7 +70,7 @@ fun BottomNavBar(
         tonalElevation = 4.dp,
         border = impulsiveGlowBorderStroke(
             enabled = isDark,
-            glowColor = navGlow,
+            glowColor = selectedGlow,
             fallbackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
         ),
     ) {

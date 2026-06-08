@@ -2,25 +2,24 @@
     <string name="app_name">Impulsive</string>
 
     <!--
-         === Auth provider placeholders ===
+         === Auth provider configuration ===
          These are read by the Facebook SDK and Google Identity Services.
-         Replace the PLACEHOLDER values before building a real APK.
          See AUTH_SETUP.md at the repo root for step-by-step instructions.
     -->
 
     <!-- Facebook App ID from https://developers.facebook.com/apps/<your-app>/settings/basic/ -->
-    <string name="facebook_app_id">PLACEHOLDER_FACEBOOK_APP_ID</string>
+    <string name="facebook_app_id">1307011097757893</string>
 
     <!-- Facebook Client Token from the same Basic Settings page. -->
-    <string name="facebook_client_token">PLACEHOLDER_FACEBOOK_CLIENT_TOKEN</string>
+    <string name="facebook_client_token">7af751911bcc8caf6d717402d1dbdf3d</string>
 
     <!-- Login protocol scheme is literally "fb" + your Facebook App ID. -->
-    <string name="fb_login_protocol_scheme">fbPLACEHOLDER_FACEBOOK_APP_ID</string>
+    <string name="fb_login_protocol_scheme">fb1307011097757893</string>
 
     <!-- Google "Web client (auto created by Google Service)" OAuth client ID.
          Find it in Firebase Console -> Project settings -> General -> SDK setup,
          OR in Google Cloud Console -> APIs & Services -> Credentials. -->
-    <string name="default_web_client_id">PLACEHOLDER_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+    <string name="default_web_client_id">444957206710-hvmhd1rnmnukhddmkjks1k6pjp8a7ctc.apps.googleusercontent.com</string>
 
     <string name="uninstall_protection_admin_label">Impulsive uninstall protection</string>
     <string name="uninstall_protection_admin_description">Adds an extra confirmation step before removing Impulsive during weak moments.</string>

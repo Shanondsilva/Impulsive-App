@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Article
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.SportsEsports
@@ -176,14 +175,6 @@ private val VisiblePsychologyTasks = listOf(
         icon = Icons.AutoMirrored.Outlined.Article,
         iconBackground = Color(0xFFE8E2EA),
     ),
-    PsychologyTask(
-        taskType = PsychologyTaskType.FutureSelfMessage,
-        title = "Future-Self Message",
-        description = "Play your saved reason and make one clear choice.",
-        chip = "Your voice",
-        icon = Icons.AutoMirrored.Outlined.MenuBook,
-        iconBackground = ImpulsivePsychological.copy(alpha = 0.52f),
-    ),
 )
 
 @Composable
@@ -193,7 +184,6 @@ fun TaskToCompleteScreen(
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
-    onOpenFutureSelfMessageTask: () -> Unit = {},
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -292,11 +282,10 @@ fun TaskToCompleteScreen(
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
                             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
-                            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
-                            PsychologyTaskType.FutureSelfMessage -> onOpenFutureSelfMessageTask()
+                            PsychologyTaskType.ResetRead,
                             PsychologyTaskType.TriggerDecoder,
                             PsychologyTaskType.ThoughtCapture,
-                            PsychologyTaskType.ShortReadingBurst -> onOpenFutureSelfMessageTask()
+                            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
                         }
                     },
                 )

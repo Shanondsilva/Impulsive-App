@@ -30,7 +30,11 @@ private class GuestOnlyAuthRepository : AuthRepository {
         return AuthResult.Error(AuthNotConfiguredMessage)
     }
 
-    override suspend fun signInWithApple(activity: Activity): AuthResult {
+    override suspend fun createAccountWithEmail(email: String, password: String): AuthResult {
+        return AuthResult.Error(AuthNotConfiguredMessage)
+    }
+
+    override suspend fun signInWithEmail(email: String, password: String): AuthResult {
         return AuthResult.Error(AuthNotConfiguredMessage)
     }
 

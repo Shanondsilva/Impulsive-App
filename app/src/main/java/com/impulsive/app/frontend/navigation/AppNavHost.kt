@@ -41,6 +41,9 @@ import com.impulsive.app.frontend.screens.games.ReflexGameScreen
 import com.impulsive.app.frontend.screens.games.RecoveryGamesScreen
 import com.impulsive.app.frontend.screens.games.SkylineResetScreen
 import com.impulsive.app.frontend.screens.intro.IntroScreen
+import com.impulsive.app.frontend.screens.journal.JournalEditorScreen
+import com.impulsive.app.frontend.screens.journal.JournalHubScreen
+import com.impulsive.app.frontend.screens.journal.JournalListScreen
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
@@ -58,8 +61,6 @@ import com.impulsive.app.frontend.screens.protection.ImpulsiveBlockScreen
 import com.impulsive.app.frontend.screens.protection.UninstallProtectionScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
-import com.impulsive.app.frontend.screens.tasks.FutureSelfMessageScreen
-import com.impulsive.app.frontend.screens.tasks.FutureSelfRecordScreen
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 import com.impulsive.app.security.antibypass.UninstallProtectionManager
@@ -98,8 +99,6 @@ object AppRoutes {
     const val SkylineResetTask = "skyline_reset_task"
     const val ResetReadTask = "reset_read_task"
     const val TaskToComplete = "task_to_complete"
-    const val FutureSelfMessageTask = "future_self_message_task"
-    const val FutureSelfRecord = "future_self_record"
     const val JournalHub = "journal_hub"
     const val JournalList = "journal_list"
     const val JournalNoteNew = "journal_note_new/{type}"
@@ -217,12 +216,18 @@ fun AppNavHost(
             composable(OnboardingRoutes.LogoIntro) {
                 IntroScreen(
                     onIntroFinished = {
-                        navController.navigateOnboarding(OnboardingRoutes.LoginSignupGuest)
+                        navController.navigate(OnboardingRoutes.LoginSignupGuest) {
+                            popUpTo(OnboardingRoutes.LogoIntro) {
+                                inclusive = true
+                            }
+                            launchSingleTop = true
+                        }
                     },
                 )
             }
 
             composable(OnboardingRoutes.LoginSignupGuest) {
+                BackHandler { }
                 LoginSignupGuestScreen(
                     onAuthenticated = {
                         navController.navigateOnboarding(OnboardingRoutes.WelcomePrivacy)
@@ -418,7 +423,7 @@ fun AppNavHost(
                         navController.navigateMainTop(AppRoutes.RecoveryGames)
                     },
                     onOpenJournal = {
-                        navController.navigate(AppRoutes.FutureSelfRecord)
+                        navController.navigateMainTop(AppRoutes.JournalHub)
                     },
                     onOpenReflexOverrideTask = {
                         navController.navigate(AppRoutes.ReflexGameTask)
@@ -431,9 +436,6 @@ fun AppNavHost(
                     },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
-                    },
-                    onOpenFutureSelfMessageTask = {
-                        navController.navigate(AppRoutes.FutureSelfMessageTask)
                     },
                     onOpenTasks = {
                         navController.navigate(AppRoutes.TaskToComplete)
@@ -460,9 +462,6 @@ fun AppNavHost(
                 SettingsScreen(
                     onOpenScore = {
                         navController.navigateMainTop(AppRoutes.Score)
-                    },
-                    onOpenFutureSelfRecord = {
-                        navController.navigate(AppRoutes.FutureSelfRecord)
                     },
                     onOpenUninstallProtection = {
                         navController.navigate(AppRoutes.UninstallProtection) {
@@ -550,16 +549,43 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.FutureSelfMessageTask) {
-                FutureSelfMessageScreen(
-                    onExit = { navController.safePopBackStack() },
-                    onRecordYours = { navController.navigate(AppRoutes.FutureSelfRecord) },
+            composable(AppRoutes.JournalHub) {
+                JournalHubScreen(
+                    onBack = { navController.safePopBackStack() },
+                    onOpenNormalJournal = { navController.navigate(AppRoutes.JournalList) },
+                    onCreateNote = { type -> navController.navigate(AppRoutes.journalNoteNew(type)) },
+                    onOpenNote = { noteId -> navController.navigate(AppRoutes.journalNoteEdit(noteId)) },
                 )
             }
 
-            composable(AppRoutes.FutureSelfRecord) {
-                FutureSelfRecordScreen(
-                    onExit = { navController.safePopBackStack() },
+            composable(AppRoutes.JournalList) {
+                JournalListScreen(
+                    onBack = { navController.safePopBackStack() },
+                    onCreateNote = { type -> navController.navigate(AppRoutes.journalNoteNew(type)) },
+                    onOpenNote = { noteId -> navController.navigate(AppRoutes.journalNoteEdit(noteId)) },
+                )
+            }
+
+            composable(
+                route = AppRoutes.JournalNoteNew,
+                arguments = listOf(navArgument("type") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val noteType = JournalNoteType.fromStorage(backStackEntry.arguments?.getString("type").orEmpty())
+                JournalEditorScreen(
+                    noteId = 0L,
+                    initialType = noteType,
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(
+                route = AppRoutes.JournalNoteEdit,
+                arguments = listOf(navArgument("noteId") { type = NavType.LongType }),
+            ) { backStackEntry ->
+                JournalEditorScreen(
+                    noteId = backStackEntry.arguments?.getLong("noteId") ?: 0L,
+                    initialType = JournalNoteType.Text,
+                    onBack = { navController.safePopBackStack() },
                 )
             }
 
@@ -656,9 +682,6 @@ fun AppNavHost(
                     },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
-                    },
-                    onOpenFutureSelfMessageTask = {
-                        navController.navigate(AppRoutes.FutureSelfMessageTask)
                     },
                 )
             }

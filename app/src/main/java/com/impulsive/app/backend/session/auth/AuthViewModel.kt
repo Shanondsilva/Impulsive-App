@@ -50,8 +50,12 @@ class AuthViewModel : AndroidViewModel {
         repository.signInWithGoogle(activity)
     }
 
-    fun signInWithApple(activity: Activity) = launchSignIn(AuthProvider.Apple) {
-        repository.signInWithApple(activity)
+    fun createAccountWithEmail(email: String, password: String) = launchSignIn(AuthProvider.Email) {
+        repository.createAccountWithEmail(email, password)
+    }
+
+    fun signInWithEmail(email: String, password: String) = launchSignIn(AuthProvider.Email) {
+        repository.signInWithEmail(email, password)
     }
 
     fun signInWithFacebook(activity: Activity) = launchSignIn(AuthProvider.Facebook) {
@@ -61,11 +65,6 @@ class AuthViewModel : AndroidViewModel {
     fun signInWithGoogleForAppLockReset(activity: Activity, onSuccess: () -> Unit) =
         launchSignIn(AuthProvider.Google, onSuccess) {
             repository.signInWithGoogle(activity)
-        }
-
-    fun signInWithAppleForAppLockReset(activity: Activity, onSuccess: () -> Unit) =
-        launchSignIn(AuthProvider.Apple, onSuccess) {
-            repository.signInWithApple(activity)
         }
 
     fun signInWithFacebookForAppLockReset(activity: Activity, onSuccess: () -> Unit) =
