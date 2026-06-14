@@ -6,7 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.repository.ResetReadRepository
 import com.impulsive.app.backend.domain.model.tasks.ResetReadArticle
-import com.impulsive.app.backend.domain.model.tasks.nextArticleFor
+import com.impulsive.app.backend.domain.model.tasks.resetReadArticleForDay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -129,7 +129,8 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun selectArticle(readIds: Set<String>) {
-        val article = nextArticleFor(readIds, repository.articles)
+        val epochDay = java.time.LocalDate.now().toEpochDay()
+        val article = resetReadArticleForDay(epochDay, repository.articles)
         _uiState.value = ResetReadUiState(
             article = article,
             readArticleIds = readIds,

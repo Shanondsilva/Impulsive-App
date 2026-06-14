@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -154,10 +155,10 @@ private val VisiblePsychologyTasks = listOf(
     PsychologyTask(
         taskType = PsychologyTaskType.SkylineReset,
         title = "SkyStack",
-        description = "Stack a calm skyscraper, floor by floor, into the night.",
-        chip = "Steady focus",
-        icon = Icons.Filled.SportsEsports,
-        iconBackground = ImpulsivePsychological.copy(alpha = 0.58f),
+        description = "Place sliding blocks and keep the tower steady.",
+        chip = "Calm stack",
+        icon = Icons.Filled.AutoAwesome,
+        iconBackground = ImpulsivePsychological.copy(alpha = 0.62f),
     ),
     PsychologyTask(
         taskType = PsychologyTaskType.ReflexOverride,
@@ -176,6 +177,13 @@ private val VisiblePsychologyTasks = listOf(
         iconBackground = Color(0xFFE8E2EA),
     ),
 )
+
+private fun PsychologyTaskType.asVisiblePsychologyTaskType(): PsychologyTaskType = when (this) {
+    PsychologyTaskType.TriggerDecoder,
+    PsychologyTaskType.ThoughtCapture,
+    PsychologyTaskType.ShortReadingBurst -> PsychologyTaskType.ResetRead
+    else -> this
+}
 
 @Composable
 fun TaskToCompleteScreen(
@@ -266,19 +274,21 @@ fun TaskToCompleteScreen(
 
             val orderedTasks = orderedVisibleTasks(taskRewardState, currentNow.toLocalDate())
             val highlightedTaskType = orderedTasks.firstOrNull()?.taskType
+            val recommendedTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
             orderedTasks.forEachIndexed { index, task ->
-                val rewardStatus = taskRewardState.taskStatuses.first { it.taskType == task.taskType }
+                val rewardStatus = taskRewardState.rewardStatusForVisibleTask(task.taskType) ?: return@forEachIndexed
                 TaskChoiceCard(
                     task = task,
                     rewardStatus = rewardStatus,
                     recommended = task.taskType == highlightedTaskType,
                     recommendationReason = taskRewardState.recommendedTaskReason.takeIf {
-                        task.taskType == taskRewardState.recommendedTaskType
+                        task.taskType == recommendedTaskType &&
+                            taskRewardState.recommendedTaskType == recommendedTaskType
                     },
                     haptics = haptics,
                     colors = colors,
                     onStartTask = {
-                        when (task.taskType) {
+                        when (task.taskType.asVisiblePsychologyTaskType()) {
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
                             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
@@ -309,10 +319,10 @@ private fun orderedVisibleTasks(
 ): List<PsychologyTask> {
     val incompleteTaskTypes = taskRewardState.taskStatuses
         .filterNot { it.lastCompletedAt?.toLocalDate() == today }
-        .map { it.taskType }
+        .map { it.taskType.asVisiblePsychologyTaskType() }
         .toSet()
     val visibleIncompleteTasks = VisiblePsychologyTasks.filter { it.taskType in incompleteTaskTypes }
-    val recommendedTaskType = taskRewardState.recommendedTaskType
+    val recommendedTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
     val visibleRecommended = VisiblePsychologyTasks.firstOrNull { it.taskType == recommendedTaskType }
         ?.takeIf { it.taskType in incompleteTaskTypes }
     return if (visibleRecommended == null) {
@@ -321,6 +331,10 @@ private fun orderedVisibleTasks(
         listOf(visibleRecommended) + visibleIncompleteTasks.filterNot { it.taskType == recommendedTaskType }
     }
 }
+
+private fun TaskRewardState.rewardStatusForVisibleTask(taskType: PsychologyTaskType): TaskRewardStatus? =
+    taskStatuses.firstOrNull { it.taskType == taskType } ?:
+        taskStatuses.firstOrNull { it.taskType.asVisiblePsychologyTaskType() == taskType }
 
 @Composable
 private fun TaskHeader(
@@ -344,7 +358,12 @@ private fun TaskHeader(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { showTaskInfo = false }) {
+                TextButton(
+                    onClick = { showTaskInfo = false },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = ImpulsivePsychological,
+                    ),
+                ) {
                     Text(text = "Got it")
                 }
             },

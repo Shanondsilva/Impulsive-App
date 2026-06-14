@@ -32,10 +32,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.NightsStay
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -44,8 +47,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -55,6 +60,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -82,7 +88,12 @@ import com.impulsive.app.core.util.timeOfDayForHour
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.components.BottomNavBar
 import com.impulsive.app.frontend.components.BottomNavItem
+import com.impulsive.app.frontend.components.BodyModeLockedSheet
 import com.impulsive.app.frontend.components.MindCoreScene
+import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
+import com.impulsive.app.frontend.components.MindModeStatusSheet
+import com.impulsive.app.frontend.components.ModeSelectionSheet
+import com.impulsive.app.frontend.components.SoulModeLockedSheet
 import com.impulsive.app.frontend.components.impulsiveGlowBorderStroke
 import com.impulsive.app.frontend.components.impulsiveGlowShadow
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
@@ -98,7 +109,7 @@ import kotlinx.coroutines.delay
 private const val DAY_COUNT = 1
 
 private val HomeLavenderGlow = Color(0xFFD0C3F1)
-private val HomeGreenGlow = Color(0xFF93E9BE)
+private val HomeGreenGlow = Color(0xFFD0C3F1)
 private val HomeYellowGlow = Color(0xFFFEF1AB)
 
 private data class HomeReadablePalette(
@@ -152,6 +163,11 @@ fun HomeScreen(
     onOpenTasks: () -> Unit = {},
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenWebsiteProtectionPlus: () -> Unit = {},
+    onOpenFocus: () -> Unit = {},
+    onNavigateFromModeContext: () -> Unit = {},
+    bottomNavIndicatorStartFrom: BottomNavItem? = null,
+    onBottomNavIndicatorStartConsumed: () -> Unit = {},
     onOpenReading: () -> Unit = onOpenResetReadTask,
 ) {
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
@@ -189,6 +205,30 @@ fun HomeScreen(
         adjustedNextReleaseWindow = taskRewardState.adjustedNextReleaseWindow,
         now = currentNow,
     )
+    val recommendedMindTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
+    var mindModeSheetVisible by remember { mutableStateOf(false) }
+    var modeSelectionSheetVisible by remember { mutableStateOf(false) }
+    var bodyModeSheetVisible by remember { mutableStateOf(false) }
+    var soulModeSheetVisible by remember { mutableStateOf(false) }
+    var websiteProtectionCardDismissedThisSession by rememberSaveable { mutableStateOf(false) }
+    val shouldShowWebsiteProtectionHomeCard =
+        protectionSetupState.isLoaded &&
+            protectionSetupState.usageAccessEnabled &&
+            protectionSetupState.blockedAppsSelected &&
+            !protectionSetupState.websiteProtectionEnabled &&
+            !websiteProtectionCardDismissedThisSession
+    val bottomNavReservedSpace = 104.dp
+    val startRecommendedMindTask = {
+        when (recommendedMindTaskType) {
+            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+            PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+            PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
+            PsychologyTaskType.ResetRead,
+            PsychologyTaskType.TriggerDecoder,
+            PsychologyTaskType.ThoughtCapture,
+            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -196,6 +236,7 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
+        ImpulsiveAmbientBackground()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -246,17 +287,7 @@ fun HomeScreen(
                 TaskToCompletePreviewCard(
                     releasePlan = displayReleasePlan,
                     taskRewardState = taskRewardState,
-                    onStartTask = {
-                        when (taskRewardState.recommendedTaskType) {
-                            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
-                            PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
-                            PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
-                            PsychologyTaskType.ResetRead,
-                            PsychologyTaskType.TriggerDecoder,
-                            PsychologyTaskType.ThoughtCapture,
-                            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
-                        }
-                    },
+                    onStartTask = startRecommendedMindTask,
                     onViewAllTasks = onOpenTasks,
                     palette = palette,
                 )
@@ -270,15 +301,127 @@ fun HomeScreen(
                 onOpenReading = onOpenReading,
                 palette = palette,
             )
+
+            if (shouldShowWebsiteProtectionHomeCard) {
+                Spacer(modifier = Modifier.height(14.dp))
+
+                WebsiteProtectionHomeCard(
+                    onClick = onOpenWebsiteProtectionPlus,
+                    onDismiss = { websiteProtectionCardDismissedThisSession = true },
+                    palette = palette,
+                )
+            }
+        }
+
+        if (mindModeSheetVisible) {
+            MindModeStatusSheet(
+                onDismissRequest = { mindModeSheetVisible = false },
+                onStartMindTask = {
+                    mindModeSheetVisible = false
+                    startRecommendedMindTask()
+                },
+                onViewProgress = {
+                    mindModeSheetVisible = false
+                    onOpenScore()
+                },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (bodyModeSheetVisible) {
+            BodyModeLockedSheet(
+                onDismissRequest = { bodyModeSheetVisible = false },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (soulModeSheetVisible) {
+            SoulModeLockedSheet(
+                onDismissRequest = { soulModeSheetVisible = false },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (modeSelectionSheetVisible) {
+            ModeSelectionSheet(
+                onDismissRequest = { modeSelectionSheetVisible = false },
+                onOpenMindMode = {
+                    mindModeSheetVisible = true
+                    bodyModeSheetVisible = false
+                    soulModeSheetVisible = false
+                },
+                onOpenBodyMode = {
+                    mindModeSheetVisible = false
+                    bodyModeSheetVisible = true
+                    soulModeSheetVisible = false
+                },
+                onOpenSoulMode = {
+                    mindModeSheetVisible = false
+                    bodyModeSheetVisible = false
+                    soulModeSheetVisible = true
+                },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
         }
 
         BottomNavBar(
-            selected = BottomNavItem.Home,
+            selected = if (
+                modeSelectionSheetVisible ||
+                mindModeSheetVisible ||
+                bodyModeSheetVisible ||
+                soulModeSheetVisible
+            ) {
+                BottomNavItem.Trigger
+            } else {
+                BottomNavItem.Home
+            },
             onSelect = { item ->
+                val fromModeContext = modeSelectionSheetVisible ||
+                    mindModeSheetVisible ||
+                    bodyModeSheetVisible ||
+                    soulModeSheetVisible
                 when (item) {
-                    BottomNavItem.Progress -> onOpenScore()
-                    BottomNavItem.Settings -> onOpenSettings()
-                    else -> Unit
+                    BottomNavItem.Home -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                    }
+                    BottomNavItem.Trigger -> {
+                        mindModeSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        modeSelectionSheetVisible = !modeSelectionSheetVisible
+                    }
+                    BottomNavItem.Progress -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        onOpenScore()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                    BottomNavItem.Settings -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        onOpenSettings()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                    BottomNavItem.Focus -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        onOpenFocus()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                }
+            },
+            onLongSelect = { item ->
+                if (item == BottomNavItem.Trigger) {
+                    modeSelectionSheetVisible = !modeSelectionSheetVisible
                 }
             },
             modifier = Modifier
@@ -287,6 +430,12 @@ fun HomeScreen(
                 .padding(horizontal = 24.dp, vertical = 12.dp)
                 .fillMaxWidth(),
             settingsBadgeVisible = protectionSetupState.profileBadgeShouldShow,
+            modeSelectorOpen = modeSelectionSheetVisible ||
+                mindModeSheetVisible ||
+                bodyModeSheetVisible ||
+                soulModeSheetVisible,
+            indicatorStartFrom = bottomNavIndicatorStartFrom,
+            onIndicatorStartConsumed = onBottomNavIndicatorStartConsumed,
         )
     }
 }
@@ -356,7 +505,7 @@ private fun HeaderBlock(
                         shape = RoundedCornerShape(50),
                     ) {
                         Text(
-                            text = "Mind mode",
+                            text = "\u2726 Mind mode",
                             color = ImpulsiveText.copy(alpha = 0.82f),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
@@ -469,7 +618,14 @@ private fun LevelCard(
                         delay(1000)
                     }
                 }
-                val activeWindowEnd = releasePlan.plannedWindowsToday
+                // Earned (wait cut) windows are not part of plannedWindowsToday,
+                // so include the adjusted window as a candidate. This mirrors the
+                // candidate list ProtectionWindowEvaluator uses, keeping the Home
+                // countdown in sync with the actual unblock behaviour.
+                val candidateWindowStarts =
+                    (releasePlan.plannedWindowsToday + listOfNotNull(taskRewardState.adjustedNextReleaseWindow))
+                        .distinct()
+                val activeWindowEnd = candidateWindowStarts
                     .firstOrNull { start ->
                         !liveNow.isBefore(start) &&
                             liveNow.isBefore(start.plusMinutes(ReleasePlanDefaults.ReleaseWindowMinutes))
@@ -506,9 +662,10 @@ private fun TaskToCompletePreviewCard(
     onViewAllTasks: () -> Unit,
     palette: HomeReadablePalette,
 ) {
-    val recommendedTask = taskRewardState.recommendedTaskType.homePreview()
+    val recommendedTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
+    val recommendedTask = recommendedTaskType.homePreview()
     val recommendedReward = taskRewardState.taskStatuses.first {
-        it.taskType == taskRewardState.recommendedTaskType
+        it.taskType.asVisiblePsychologyTaskType() == recommendedTaskType
     }
     val hasWaitCut = recommendedReward.hasVisibleWaitCut()
 
@@ -828,6 +985,13 @@ private data class HomeRecommendedTask(
     val description: String,
 )
 
+private fun PsychologyTaskType.asVisiblePsychologyTaskType(): PsychologyTaskType = when (this) {
+    PsychologyTaskType.TriggerDecoder,
+    PsychologyTaskType.ThoughtCapture,
+    PsychologyTaskType.ShortReadingBurst -> PsychologyTaskType.ResetRead
+    else -> this
+}
+
 private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) {
     PsychologyTaskType.ReflexOverride -> HomeRecommendedTask(
         title = "Reflex Override",
@@ -837,13 +1001,13 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
         title = "Block Cascade",
         description = "Load visual focus with a calm falling-block challenge.",
     )
-    PsychologyTaskType.SkylineReset -> HomeRecommendedTask(
-        title = "SkyStack",
-        description = "Stack a calm skyscraper, floor by floor, into the night.",
-    )
     PsychologyTaskType.ResetRead -> HomeRecommendedTask(
         title = "Reset Read",
         description = "Read one focused reset and let the timer finish.",
+    )
+    PsychologyTaskType.SkylineReset -> HomeRecommendedTask(
+        title = "SkyStack",
+        description = "Place sliding blocks and keep a calm tower steady.",
     )
     PsychologyTaskType.TriggerDecoder,
     PsychologyTaskType.ThoughtCapture,
@@ -896,10 +1060,10 @@ private fun DashboardCards(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                    ) { onOpenRecoveryGames() },
+                ) { onOpenRecoveryGames() },
                 label = "PIVOT GAME",
                 title = "Pivot\nGames",
-                subtext = "Reflex, block and mind games",
+                subtext = "Reflex, block and stack games",
                 animatedTitles = listOf(
                     "Reflex Override",
                     "Block Cascade",
@@ -910,7 +1074,7 @@ private fun DashboardCards(
                     "2 wins +50",
                     "2 wins +50",
                 ),
-                cta = "Open list ›",
+                cta = "Open list >",
                 iconColor = ImpulsivePsychological.copy(alpha = 0.58f),
                 glowColor = HomeLavenderGlow,
                 palette = palette,
@@ -935,7 +1099,7 @@ private fun DashboardCards(
                 label = "NOTES",
                 title = "Private\nNotes",
                 subtext = "Notes, lists and reminders",
-                cta = "Open notes ›",
+                cta = "Open notes >",
                 iconColor = ImpulsiveSpiritual.copy(alpha = 0.78f),
                 glowColor = HomeYellowGlow,
                 palette = palette,
@@ -960,7 +1124,7 @@ private fun DashboardCards(
             label = "READING",
             title = "Reset Reading",
             subtext = "Short calm cards for low-energy reset moments",
-            cta = "Open reading ›",
+            cta = "Open reading >",
             iconColor = Color(0xFFFEF1AB).copy(alpha = if (isDark) 0.34f else 0.78f),
             glowColor = HomeGreenGlow,
             palette = palette,
@@ -973,6 +1137,131 @@ private fun DashboardCards(
                 )
             },
         )
+    }
+}
+
+@Composable
+private fun WebsiteProtectionHomeCard(
+    onClick: () -> Unit,
+    onDismiss: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val surfaceColor = if (palette.cardSurface == Color.Unspecified) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        palette.cardSurface
+    }
+    val isDark = palette.cardSurface != Color.Unspecified
+    val cardShape = RoundedCornerShape(24.dp)
+
+    Surface(
+        color = surfaceColor,
+        shape = cardShape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeLavenderGlow,
+            fallbackColor = palette.subtleBorder,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .shadow(
+                elevation = 6.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = HomeLavenderGlow,
+                elevation = 14.dp,
+                ambientAlpha = 0.12f,
+                spotAlpha = 0.16f,
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Button,
+                        onClick = onClick,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        color = ImpulsivePsychological.copy(alpha = if (isDark) 0.24f else 0.34f),
+                        shape = RoundedCornerShape(17.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Security,
+                    contentDescription = null,
+                    tint = palette.primaryText.copy(alpha = 0.84f),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Website Protection",
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "Plus · £2.99/month",
+                    color = palette.actionText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.height(5.dp))
+                Text(
+                    text = "Block adult and risky websites, not just apps.",
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                    lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Text(
+                text = "Learn more",
+                color = palette.actionText,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Hide Website Protection card",
+                    tint = palette.mutedText,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
     }
 }
 

@@ -58,12 +58,16 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
     private var resultRecorded = false
     private var activeSessionId: Long = newScoreSessionId()
     private var sessionStartedAt: LocalDateTime = LocalDateTime.now()
+    private var urgeBeforeRating: Int? = null
+    private var urgeAfterRating: Int? = null
+    private var lastRecordedSession: ScoreSessionRecord? = null
 
     fun start() {
         bag = BlockCascadeBag(seed = System.nanoTime() xor SystemClock.elapsedRealtimeNanos())
         resultRecorded = false
         activeSessionId = newScoreSessionId()
         sessionStartedAt = LocalDateTime.now()
+        urgeAfterRating = null
         val state = newBlockCascadeState(bag)
         accumulatedForegroundMs = 0L
         fallAccumulatorMs = 0L
@@ -165,22 +169,43 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
         lastFrameMs = null
     }
 
+    fun setUrgeBefore(rating: Int) {
+        urgeBeforeRating = rating.coerceIn(0, 10)
+    }
+
+    /**
+     * Captures the post-game rating. The session has already been recorded by
+     * the time the Result panel shows, so this re-records the same session id
+     * with the rating attached. It calls the repository directly so the game
+     * store play counter is not incremented a second time.
+     */
+    fun setUrgeAfter(rating: Int) {
+        val coerced = rating.coerceIn(0, 10)
+        urgeAfterRating = coerced
+        val recorded = lastRecordedSession ?: return
+        val updated = recorded.copy(urgeAfter = coerced)
+        lastRecordedSession = updated
+        viewModelScope.launch { scoreRepository.recordSession(updated) }
+    }
+
     fun recordCurrentResult(outcome: ScoreSessionOutcome) {
         val state = _uiState.value
         if (state.view != BlockCascadeView.Result) return
+        val record = ScoreSessionRecord(
+            id = activeSessionId,
+            gameType = ScoreGameType.BlockCascade,
+            score = state.blockCascadeScore().coerceAtLeast(0),
+            startedAt = sessionStartedAt,
+            completedAt = LocalDateTime.now(),
+            durationSec = state.secondsPlayed.coerceAtLeast(0),
+            urgeBefore = urgeBeforeRating,
+            urgeAfter = urgeAfterRating,
+            outcome = outcome,
+            validCompletion = state.completed,
+        )
+        lastRecordedSession = record
         viewModelScope.launch {
-            scoreRepository.recordSession(
-                ScoreSessionRecord(
-                    id = activeSessionId,
-                    gameType = ScoreGameType.BlockCascade,
-                    score = state.blockCascadeScore().coerceAtLeast(0),
-                    startedAt = sessionStartedAt,
-                    completedAt = LocalDateTime.now(),
-                    durationSec = state.secondsPlayed.coerceAtLeast(0),
-                    outcome = outcome,
-                    validCompletion = state.completed,
-                ),
-            )
+            scoreRepository.recordSession(record)
             if (outcome != ScoreSessionOutcome.WalkedAway) {
                 gameStoreManager.recordPlay(gameId = "BLOCK_CASCADE", won = outcome == ScoreSessionOutcome.Completed)
             }

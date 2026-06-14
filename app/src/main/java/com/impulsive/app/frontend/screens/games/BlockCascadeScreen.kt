@@ -76,7 +76,10 @@ import com.impulsive.app.backend.session.game.BlockCascadeUiState
 import com.impulsive.app.backend.session.game.BlockCascadeView
 import com.impulsive.app.backend.session.game.BlockCascadeViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.settings.AppSettingsViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
+import com.impulsive.app.frontend.components.GameSoundToggle
+import com.impulsive.app.frontend.components.UrgeRatingRow
 import com.impulsive.app.frontend.theme.ImpulsiveBackground
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
@@ -84,6 +87,7 @@ import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
 import com.impulsive.app.frontend.theme.ImpulsiveSurface
 import com.impulsive.app.frontend.theme.ImpulsiveText
+import com.impulsive.app.frontend.utils.rememberImpulsiveSounds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.time.LocalDateTime
@@ -96,11 +100,32 @@ fun BlockCascadeScreen(
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: BlockCascadeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
+    LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
+    val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    val sounds = rememberImpulsiveSounds(appSettingsState.soundEffectsEnabled)
+    LaunchedEffect(uiState.linesCleared) {
+        if (uiState.linesCleared > 0) {
+            sounds.cascadeClear()
+        }
+    }
+    LaunchedEffect(uiState.view, uiState.failed) {
+        if (uiState.view == BlockCascadeView.Result && uiState.failed) {
+            sounds.cascadeOver()
+        }
+    }
+    LaunchedEffect(uiState.view, appSettingsState.soundEffectsEnabled) {
+        if (uiState.view == BlockCascadeView.Playing && appSettingsState.soundEffectsEnabled) {
+            sounds.startCascadeMusic()
+        } else {
+            sounds.stopCascadeMusic()
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     var rewardLogged by remember { mutableStateOf(false) }
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
@@ -218,22 +243,35 @@ fun BlockCascadeScreen(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
+            Spacer(modifier = Modifier.weight(1f))
+            GameSoundToggle(
+                enabled = appSettingsState.soundEffectsEnabled,
+                tint = ImpulsiveText,
+                onToggle = appSettingsViewModel::setSoundEffectsEnabled,
+            )
         }
 
         Spacer(modifier = Modifier.height(18.dp))
 
         when (uiState.view) {
-            BlockCascadeView.Ready -> ReadyPanel(onStart = viewModel::start)
+            BlockCascadeView.Ready -> ReadyPanel(
+                onStart = viewModel::start,
+                onUrgeBeforeSelected = viewModel::setUrgeBefore,
+            )
             BlockCascadeView.Playing -> PlayingPanel(
                 uiState = uiState,
                 onMoveLeft = viewModel::moveLeft,
                 onMoveRight = viewModel::moveRight,
                 onRotate = viewModel::rotate,
-                onSoftDrop = viewModel::softDrop,
+                onSoftDrop = {
+                    sounds.cascadePlace()
+                    viewModel.softDrop()
+                },
             )
             BlockCascadeView.Paused -> PausedPanel(onResume = viewModel::resume, onExit = ::exitSafely)
             BlockCascadeView.Result -> ResultPanel(
                 uiState = uiState,
+                onUrgeAfterSelected = viewModel::setUrgeAfter,
                 taskCompletionResult = taskCompletionResult,
                 taskLaunch = taskLaunch,
                 onDone = ::exitSafely,
@@ -249,7 +287,10 @@ fun BlockCascadeScreen(
 }
 
 @Composable
-private fun ReadyPanel(onStart: () -> Unit) {
+private fun ReadyPanel(
+    onStart: () -> Unit,
+    onUrgeBeforeSelected: (Int) -> Unit,
+) {
     CenterPanel {
         Text(
             text = "A visual focus game to occupy the image loop.",
@@ -265,7 +306,17 @@ private fun ReadyPanel(onStart: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(22.dp))
+        Spacer(modifier = Modifier.height(18.dp))
+        var selectedUrgeBefore by remember { mutableStateOf<Int?>(null) }
+        UrgeRatingRow(
+            label = "How strong is the urge right now?",
+            selected = selectedUrgeBefore,
+            onSelect = { value ->
+                selectedUrgeBefore = value
+                onUrgeBeforeSelected(value)
+            },
+        )
+        Spacer(modifier = Modifier.height(18.dp))
         Button(
             onClick = onStart,
             shape = RoundedCornerShape(28.dp),
@@ -537,6 +588,10 @@ private fun PausedPanel(
         Button(
             onClick = onResume,
             shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = Color(0xFF281D38),
+            ),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Resume")
@@ -559,6 +614,7 @@ private fun PausedPanel(
 @Composable
 private fun ResultPanel(
     uiState: BlockCascadeUiState,
+    onUrgeAfterSelected: (Int) -> Unit,
     taskCompletionResult: TaskCompletionResult?,
     taskLaunch: Boolean,
     onDone: () -> Unit,
@@ -585,6 +641,16 @@ private fun ResultPanel(
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
             fontWeight = FontWeight.Bold,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        var selectedUrgeAfter by remember { mutableStateOf<Int?>(null) }
+        UrgeRatingRow(
+            label = "How strong is it now?",
+            selected = selectedUrgeAfter,
+            onSelect = { value ->
+                selectedUrgeAfter = value
+                onUrgeAfterSelected(value)
+            },
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(

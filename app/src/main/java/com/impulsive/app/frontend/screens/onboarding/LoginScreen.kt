@@ -125,6 +125,10 @@ fun LoginSignupGuestScreen(
             localMessage = null
             authViewModel.signInWithEmail(email, password)
         },
+        onRefreshEmailVerification = {
+            localMessage = null
+            authViewModel.refreshEmailVerification()
+        },
     )
 }
 
@@ -140,6 +144,7 @@ private fun LoginContent(
     onLogIn: () -> Unit,
     onCreateAccountWithEmail: (String, String) -> Unit,
     onSignInWithEmail: (String, String) -> Unit,
+    onRefreshEmailVerification: () -> Unit,
 ) {
     val context = LocalContext.current
     val reducedMotion = remember(context) {
@@ -158,6 +163,17 @@ private fun LoginContent(
     var passwordText by remember { mutableStateOf("") }
     var validationMessage by remember { mutableStateOf<String?>(null) }
     val isGuestLoading = state.inFlightProvider == AuthProvider.Guest
+
+    if (state.isWaitingForEmailVerification) {
+        EmailVerificationWaitingView(
+            email = state.pendingEmailVerificationAddress,
+            loading = state.inFlightProvider == AuthProvider.Email,
+            message = message,
+            onDismissError = onDismissError,
+            onRefresh = onRefreshEmailVerification,
+        )
+        return
+    }
 
     LaunchedEffect(reducedMotion) {
         if (reducedMotion) {
@@ -475,6 +491,90 @@ private enum class EmailFormMode {
 }
 
 @Composable
+private fun EmailVerificationWaitingView(
+    email: String?,
+    loading: Boolean,
+    message: String?,
+    onDismissError: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFFFFFF))
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = "Check your email",
+                color = Color(0xFF211C33),
+                fontSize = 30.sp,
+                lineHeight = 36.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = if (email.isNullOrBlank()) {
+                    "We sent a verification link. Open it, then return to Impulsive."
+                } else {
+                    "We sent a verification link to $email. Open it, then return to Impulsive."
+                },
+                color = Color(0xFF5F5A68),
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(modifier = Modifier.height(22.dp))
+            Button(
+                onClick = onRefresh,
+                enabled = !loading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(26.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF6F5A9A),
+                    contentColor = Color.White,
+                    disabledContainerColor = Color(0xFFE7DDF8),
+                    disabledContentColor = Color(0xFF6F5A9A),
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Color(0xFF6F5A9A),
+                    )
+                } else {
+                    Text(
+                        text = "I've verified my email",
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+            if (message != null) {
+                Spacer(modifier = Modifier.height(14.dp))
+                ErrorBanner(message = message, onDismiss = onDismissError)
+            }
+        }
+    }
+}
+
+@Composable
 private fun EmailAuthForm(
     mode: EmailFormMode?,
     email: String,
@@ -617,7 +717,7 @@ private fun WelcomeBrandHeader(
                     .background(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                Color(0xFF93E9BE),
+                                Color(0xFFD0C3F1),
                                 Color(0xFFD0C3F1).copy(alpha = 0.42f),
                                 Color.Transparent,
                             ),

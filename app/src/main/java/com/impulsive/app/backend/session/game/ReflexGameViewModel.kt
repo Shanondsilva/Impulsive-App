@@ -72,6 +72,9 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
     private var resultRecorded = false
     private var activeSessionId: Long = newScoreSessionId()
     private var sessionStartedAt: LocalDateTime = LocalDateTime.now()
+    private var urgeBeforeRating: Int? = null
+    private var urgeAfterRating: Int? = null
+    private var lastRecordedSession: ScoreSessionRecord? = null
 
     init {
         viewModelScope.launch {
@@ -114,6 +117,7 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         resultRecorded = false
         activeSessionId = newScoreSessionId()
         sessionStartedAt = LocalDateTime.now()
+        urgeAfterRating = null
         maxCombo = 0
         hits = 0
         misses = 0
@@ -409,6 +413,26 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun setUrgeBefore(rating: Int) {
+        urgeBeforeRating = rating.coerceIn(0, 10)
+    }
+
+    /**
+     * Captures the post-game rating. The session has already been recorded by
+     * the time the Result screen shows, so this re-records the same session id
+     * with the rating attached. It deliberately calls the repository directly
+     * instead of recordScoreSession so the game store play counter is not
+     * incremented a second time.
+     */
+    fun setUrgeAfter(rating: Int) {
+        val coerced = rating.coerceIn(0, 10)
+        urgeAfterRating = coerced
+        val recorded = lastRecordedSession ?: return
+        val updated = recorded.copy(urgeAfter = coerced)
+        lastRecordedSession = updated
+        viewModelScope.launch { scoreRepository.recordSession(updated) }
+    }
+
     fun recordCurrentResult(
         outcome: ScoreSessionOutcome,
         scoreOverride: Int? = null,
@@ -422,22 +446,24 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         scoreValue: Int,
         result: GameResult,
     ) {
+        val record = ScoreSessionRecord(
+            id = activeSessionId,
+            gameType = ScoreGameType.ReflexOverride,
+            score = scoreValue.coerceAtLeast(0),
+            startedAt = sessionStartedAt,
+            completedAt = LocalDateTime.now(),
+            durationSec = result.durationSec.coerceAtLeast(0),
+            urgeBefore = urgeBeforeRating,
+            urgeAfter = urgeAfterRating,
+            outcome = outcome,
+            validCompletion = when (outcome) {
+                ScoreSessionOutcome.Abandoned -> false
+                else -> result.validCompletion || outcome == ScoreSessionOutcome.WalkedAway
+            },
+        )
+        lastRecordedSession = record
         viewModelScope.launch {
-            scoreRepository.recordSession(
-                ScoreSessionRecord(
-                    id = activeSessionId,
-                    gameType = ScoreGameType.ReflexOverride,
-                    score = scoreValue.coerceAtLeast(0),
-                    startedAt = sessionStartedAt,
-                    completedAt = LocalDateTime.now(),
-                    durationSec = result.durationSec.coerceAtLeast(0),
-                    outcome = outcome,
-                    validCompletion = when (outcome) {
-                        ScoreSessionOutcome.Abandoned -> false
-                        else -> result.validCompletion || outcome == ScoreSessionOutcome.WalkedAway
-                    },
-                ),
-            )
+            scoreRepository.recordSession(record)
             if (outcome != ScoreSessionOutcome.WalkedAway) {
                 gameStoreManager.recordPlay(gameId = "REFLEX_OVERRIDE", won = !result.gameOver)
             }

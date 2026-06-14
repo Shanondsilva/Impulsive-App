@@ -37,9 +37,9 @@ object RecoveryGameCatalog {
         RecoveryGameDefinition(
             id = RecoveryGameId.SkylineReset,
             title = "SkyStack",
-            description = "Stack a calm skyscraper, floor by floor, into the night.",
+            description = "Place sliding blocks and build a steady tower.",
             durationLabel = "90 sec",
-            chipLabel = "Steady focus",
+            chipLabel = "Calm stack",
         ),
     )
 

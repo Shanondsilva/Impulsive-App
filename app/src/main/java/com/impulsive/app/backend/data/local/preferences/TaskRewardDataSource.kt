@@ -276,6 +276,20 @@ class TaskRewardDataSource(
     private fun String?.toTaskTypeOrNull(): PsychologyTaskType? =
         PsychologyTaskType.entries.firstOrNull { it.id == this }
 
+    /** Adds Level Points through the same level-up math tasks use. */
+    suspend fun awardLevelPoints(points: Int) {
+        if (points <= 0) return
+        dataStore.edit { preferences ->
+            val levelProgress = addLevelPoints(
+                currentLevel = preferences[CurrentLevelKey] ?: InitialLevel,
+                currentLevelPoints = preferences[CurrentLevelPointsKey] ?: InitialLevelPoints,
+                pointsToAdd = points,
+            )
+            preferences[CurrentLevelKey] = levelProgress.currentLevel
+            preferences[CurrentLevelPointsKey] = levelProgress.currentLevelPoints
+        }
+    }
+
     private fun String?.toTaskTypeList(): List<PsychologyTaskType> {
         if (isNullOrBlank()) return emptyList()
         return split(StoredListSeparator).mapNotNull { it.toTaskTypeOrNull() }

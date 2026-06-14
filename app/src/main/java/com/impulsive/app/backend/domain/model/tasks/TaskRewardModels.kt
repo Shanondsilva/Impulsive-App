@@ -166,13 +166,17 @@ val PsychologyTaskRewardDefinitions = listOf(
     // Same-day overuse is per game per day.
     // Do not exceed these values for future games without explicit founder approval.
     TaskRewardDefinition(PsychologyTaskType.ReflexOverride, "Reflex Override", 120, 10, 45, 2, 0, 1),
-    TaskRewardDefinition(PsychologyTaskType.TriggerDecoder, "Trigger Decoder", 45, 15, 30, 10, 10, 3, optionalMonitoredTriggerBonusLevelPoints = 5),
-    TaskRewardDefinition(PsychologyTaskType.ThoughtCapture, "Thought Capture", 60, 18, 45, 15, 20, 6),
-    TaskRewardDefinition(PsychologyTaskType.ShortReadingBurst, "Short Reading Burst", 60, 15, 30, 8, 10, 2),
     TaskRewardDefinition(PsychologyTaskType.BlockCascade, "Block Cascade", 90, 15, 45, 3, 10, 1),
     TaskRewardDefinition(PsychologyTaskType.SkylineReset, "SkyStack", 90, 15, 45, 3, 10, 1),
     TaskRewardDefinition(PsychologyTaskType.ResetRead, "Reset Read", 60, 15, 30, 8, 10, 2),
 )
+
+private fun PsychologyTaskType.asVisiblePsychologyTaskType(): PsychologyTaskType = when (this) {
+    PsychologyTaskType.TriggerDecoder,
+    PsychologyTaskType.ThoughtCapture,
+    PsychologyTaskType.ShortReadingBurst -> PsychologyTaskType.ResetRead
+    else -> this
+}
 
 fun PsychologyTaskType.isGameTask(): Boolean =
     this == PsychologyTaskType.ReflexOverride ||
@@ -286,9 +290,12 @@ fun TaskRewardStoreState.toTaskRewardState(
             availableWaitReductionMinutes = availableWaitCut,
         )
     }
+    val visibleRecentRecommendedTaskTypes = recentRecommendedTaskTypes.map {
+        it.asVisiblePsychologyTaskType()
+    }
     val recommendation = recommendPsychologyTask(
         taskStatuses = statuses,
-        recentRecommendedTaskTypes = recentRecommendedTaskTypes,
+        recentRecommendedTaskTypes = visibleRecentRecommendedTaskTypes,
         currentUrgeIntensity = currentUrgeIntensity,
         currentTriggerType = currentTriggerType,
         currentTriggerSource = currentTriggerSource,
@@ -305,14 +312,14 @@ fun TaskRewardStoreState.toTaskRewardState(
         nextReleaseWindow = releasePlan.nextReleaseWindow,
         adjustedNextReleaseWindow = adjustedNextReleaseWindow
             ?.takeIf { rewardedWindowKey == releasePlan.nextReleaseWindow.toString() },
-        lastRecommendedTaskType = lastRecommendedTaskType,
-        lastCompletedTaskType = lastCompletedTaskType,
-        recentRecommendedTaskTypes = recentRecommendedTaskTypes,
+        lastRecommendedTaskType = lastRecommendedTaskType?.asVisiblePsychologyTaskType(),
+        lastCompletedTaskType = lastCompletedTaskType?.asVisiblePsychologyTaskType(),
+        recentRecommendedTaskTypes = visibleRecentRecommendedTaskTypes,
         currentUrgeIntensity = currentUrgeIntensity,
         currentTriggerType = currentTriggerType,
         currentTriggerSource = currentTriggerSource,
         userEnergyState = userEnergyState,
-        recommendedTaskType = recommendation.taskType,
+        recommendedTaskType = recommendation.taskType.asVisiblePsychologyTaskType(),
         recommendedTaskReason = recommendation.reason,
     )
 }
@@ -340,7 +347,11 @@ fun recommendPsychologyTask(
                 PsychologyTaskType.SkylineReset,
                 PsychologyTaskType.ReflexOverride,
             )
-        currentTriggerSource != null -> listOf(PsychologyTaskType.BlockCascade, PsychologyTaskType.SkylineReset, PsychologyTaskType.ReflexOverride)
+        currentTriggerSource != null -> listOf(
+            PsychologyTaskType.BlockCascade,
+            PsychologyTaskType.SkylineReset,
+            PsychologyTaskType.ReflexOverride,
+        )
         currentTriggerType == TriggerType.RepeatedThought || currentTriggerType == TriggerType.Memory ->
             listOf(PsychologyTaskType.ResetRead)
         currentTriggerType in setOf(
@@ -364,8 +375,8 @@ fun recommendPsychologyTask(
         recentRecommendedTaskTypes = recentRecommendedTaskTypes,
     )
     return TaskRecommendation(
-        taskType = selected,
-        reason = recommendationReasonFor(selected),
+        taskType = selected.asVisiblePsychologyTaskType(),
+        reason = recommendationReasonFor(selected.asVisiblePsychologyTaskType()),
     )
 }
 

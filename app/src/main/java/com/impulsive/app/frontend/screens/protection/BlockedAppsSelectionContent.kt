@@ -5,18 +5,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -40,6 +46,7 @@ import com.impulsive.app.backend.data.local.device.InstalledAppScanner
 import com.impulsive.app.backend.domain.model.protection.ProtectedAppCandidate
 import com.impulsive.app.backend.domain.model.protection.ProtectedAppCategory
 import com.impulsive.app.backend.domain.model.protection.toSuggestionGroups
+import com.impulsive.app.frontend.theme.ImpulsivePsychological
 
 @Composable
 fun BlockedAppsSelectionContent(
@@ -60,6 +67,7 @@ fun BlockedAppsSelectionContent(
     var localSelection by remember(selectedPackageNames) { mutableStateOf(selectedPackageNames) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showMoreApps by rememberSaveable { mutableStateOf(false) }
+    var showAppsInfo by rememberSaveable { mutableStateOf(false) }
     val groups = remember(candidates, localSelection, searchQuery, showMoreApps) {
         candidates.toSuggestionGroups(
             selectedPackageNames = localSelection,
@@ -78,7 +86,7 @@ fun BlockedAppsSelectionContent(
         // never runs in the Settings sheet.
         if (seedRecommendedBrowsers && localSelection.isEmpty()) {
             val browserPackages = loaded
-                .filter { it.category == ProtectedAppCategory.BrowserSearch }
+                .filter { it.packageName.lowercase() in AutoSelectedBrowserPackageNames }
                 .map { it.packageName }
                 .toSet()
             if (browserPackages.isNotEmpty()) {
@@ -90,23 +98,36 @@ fun BlockedAppsSelectionContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .fillMaxHeight()
             .padding(horizontal = 20.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Choose apps to protect",
+                color = if (isDarkTheme) Color(0xFFF4ECFF) else Color(0xFF1F1B2E),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            IconButton(onClick = { showAppsInfo = true }) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = "About app protection suggestions",
+                    tint = if (isDarkTheme) lavenderColor else accentColor,
+                )
+            }
+        }
         Text(
-            text = "Choose apps to protect",
-            color = primaryTextColor,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = "Impulsive can suggest apps that often lead into the loop. You stay in control of what gets protected.",
+            text = "Review the suggested browsers before continuing.",
             color = secondaryTextColor,
             style = MaterialTheme.typography.bodyMedium,
         )
         if (seedRecommendedBrowsers) {
             Text(
-                text = "Impulsive detected your browsers and pre-selected them, since they can open blocked content directly. Untick any you do not want protected.",
+                text = "Detected browsers are pre-selected. You can untick any.",
                 color = if (isDarkTheme) lavenderColor else accentColor,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -122,7 +143,7 @@ fun BlockedAppsSelectionContent(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(420.dp),
+                .weight(1f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             candidateSection(
@@ -172,6 +193,10 @@ fun BlockedAppsSelectionContent(
                 onDone()
             },
             modifier = Modifier.fillMaxWidth(),
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = accentColor,
+                contentColor = Color.White,
+            ),
         ) {
             Text(if (localSelection.isEmpty()) "Save without protected apps" else "Save protected apps")
         }
@@ -179,9 +204,36 @@ fun BlockedAppsSelectionContent(
         OutlinedButton(
             onClick = onDone,
             modifier = Modifier.fillMaxWidth(),
+            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                contentColor = if (isDarkTheme) lavenderColor else accentColor,
+            ),
+            border = BorderStroke(
+                width = 1.dp,
+                color = if (isDarkTheme) lavenderColor else accentColor.copy(alpha = 0.72f),
+            ),
         ) {
             Text("Cancel")
         }
+    }
+
+    if (showAppsInfo) {
+        AlertDialog(
+            onDismissRequest = { showAppsInfo = false },
+            title = { Text("App suggestions") },
+            text = {
+                Text("Impulsive can suggest apps that often lead into the loop. You stay in control of what gets protected.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showAppsInfo = false },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = ImpulsivePsychological,
+                    ),
+                ) {
+                    Text("Got it")
+                }
+            },
+        )
     }
 }
 
@@ -277,3 +329,22 @@ private fun Set<String>.toggle(value: String): Set<String> =
 
 private fun readableTextColor(isDarkTheme: Boolean): Color =
     if (isDarkTheme) Color.White else Color(0xFF1C1B1E)
+
+private val AutoSelectedBrowserPackageNames = setOf(
+    "com.android.chrome",
+    "com.chrome.beta",
+    "com.chrome.dev",
+    "com.sec.android.app.sbrowser",
+    "org.mozilla.firefox",
+    "org.mozilla.firefox_beta",
+    "com.microsoft.emmx",
+    "com.brave.browser",
+    "com.opera.browser",
+    "com.opera.mini.native",
+    "com.duckduckgo.mobile.android",
+    "com.vivaldi.browser",
+    "com.kiwibrowser.browser",
+    "org.torproject.torbrowser",
+    "com.ucmobile.intl",
+    "com.yandex.browser",
+)

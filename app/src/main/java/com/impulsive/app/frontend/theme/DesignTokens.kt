@@ -6,16 +6,16 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-val ImpulsiveOverallTheme = Color(0xFF93E9BE)
+val ImpulsiveOverallTheme = Color(0xFFD0C3F1)
 val ImpulsivePsychological = Color(0xFFD0C3F1)
 val ImpulsivePhysical = Color(0xFFBDE0FE)
 val ImpulsiveSpiritual = Color(0xFFFEF1AB)
 val ImpulsiveFocusMode = Color(0xFFF5A7A6)
 
-val ImpulsiveBackground = Color(0xFFF3FBF6)
+val ImpulsiveBackground = Color(0xFFFBF8FE)
 val ImpulsiveSurface = Color(0xFFFFFEFC)
-val ImpulsiveText = Color(0xFF25362D)
-val ImpulsiveMutedText = Color(0xFF637369)
+val ImpulsiveText = Color(0xFF2F2637)
+val ImpulsiveMutedText = Color(0xFF706777)
 
 val ImpulsiveBackgroundDark = Color(0xFF11161A)
 val ImpulsiveSurfaceDark = Color(0xFF1A2026)
@@ -24,6 +24,7 @@ val ImpulsiveMutedTextDark = Color(0xFF9BA4AC)
 val ImpulsivePsychologicalDark = Color(0xFF6B5BA3)
 val ImpulsivePhysicalDark = Color(0xFF4A6B8A)
 val ImpulsiveSpiritualDark = Color(0xFFB39833)
+val ImpulsiveFocusModeDark = Color(0xFF9E5B5B)
 
 private val ImpulsiveColorScheme = lightColorScheme(
     primary = ImpulsiveOverallTheme,

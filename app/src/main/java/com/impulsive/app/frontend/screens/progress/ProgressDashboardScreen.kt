@@ -1,5 +1,8 @@
 package com.impulsive.app.frontend.screens.progress
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,17 +38,20 @@ import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,7 +72,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
+import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.score.ScoreDashboardState
 import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScorePersonalBest
@@ -74,10 +84,22 @@ import com.impulsive.app.backend.domain.model.score.ScoreRange
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.score.ScoreTimelineItem
 import com.impulsive.app.backend.domain.model.score.UrgeTrendState
+import com.impulsive.app.backend.domain.model.score.WindowUsageState
+import com.impulsive.app.backend.domain.model.release.TaperProposal
+import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
+import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
+import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.progress.ScoreViewModel
+import com.impulsive.app.backend.session.progress.TaperViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
+import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
+import com.impulsive.app.frontend.components.BodyModeLockedSheet
 import com.impulsive.app.frontend.components.BottomNavBar
 import com.impulsive.app.frontend.components.BottomNavItem
+import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
+import com.impulsive.app.frontend.components.MindModeStatusSheet
+import com.impulsive.app.frontend.components.ModeSelectionSheet
+import com.impulsive.app.frontend.components.SoulModeLockedSheet
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsiveOverallTheme
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
@@ -87,8 +109,11 @@ import java.text.NumberFormat
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private val ScoreStrongCoral = Color(0xFFEF6F72)
 
 private data class ScoreScreenColors(
     val background: Color,
@@ -116,18 +141,56 @@ private data class ScoreScreenColors(
 fun ProgressDashboardScreen(
     onOpenHome: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenFocus: () -> Unit = {},
+    onNavigateFromModeContext: () -> Unit = {},
+    onOpenReflexOverrideTask: () -> Unit = {},
+    onOpenBlockCascadeTask: () -> Unit = {},
+    onOpenSkylineResetTask: () -> Unit = {},
+    onOpenResetReadTask: () -> Unit = {},
     modifier: Modifier = Modifier,
+    bottomNavIndicatorStartFrom: BottomNavItem? = null,
+    onBottomNavIndicatorStartConsumed: () -> Unit = {},
     viewModel: ScoreViewModel = viewModel(),
+    onboardingViewModel: OnboardingViewModel = viewModel(),
     protectionSetupViewModel: ProtectionSetupViewModel = viewModel(),
+    taskRewardViewModel: TaskRewardViewModel = viewModel(),
+    taperViewModel: TaperViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val taperProposal by taperViewModel.proposal.collectAsStateWithLifecycle()
     val colors = rememberScoreColors()
     val context = LocalContext.current
     val storeManager = remember { com.impulsive.app.backend.data.repository.GameStoreManager(context) }
     val dailyEarned by storeManager.dailyEarned.collectAsStateWithLifecycle(initialValue = emptyMap())
     val lifetimePoints by storeManager.lifetimePoints.collectAsStateWithLifecycle(initialValue = 0)
     var showPointsInfo by remember { mutableStateOf(false) }
+    var mindModeSheetVisible by remember { mutableStateOf(false) }
+    var modeSelectionSheetVisible by remember { mutableStateOf(false) }
+    var bodyModeSheetVisible by remember { mutableStateOf(false) }
+    var soulModeSheetVisible by remember { mutableStateOf(false) }
+    val bottomNavReservedSpace = 104.dp
+    val currentNow = LocalDateTime.now()
+    val releasePlan = calculateReleasePlan(
+        selectedDailyUrgeCount = onboardingState.answers.dailyRelapseUrgeCount,
+        now = currentNow,
+        activeDayStart = minuteOfDayToLocalTime(onboardingState.answers.activeDayStartMinute),
+        activeDayEnd = minuteOfDayToLocalTime(onboardingState.answers.activeDayEndMinute),
+    )
+    val taskRewardState = taskRewardStoreState.toTaskRewardState(releasePlan)
+    val startRecommendedMindTask = {
+        when (taskRewardState.recommendedTaskType) {
+            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+            PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+            PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
+            PsychologyTaskType.ResetRead,
+            PsychologyTaskType.TriggerDecoder,
+            PsychologyTaskType.ThoughtCapture,
+            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -135,6 +198,7 @@ fun ProgressDashboardScreen(
             .background(colors.background)
             .statusBarsPadding(),
     ) {
+        ImpulsiveAmbientBackground()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -199,6 +263,17 @@ fun ProgressDashboardScreen(
 
             Spacer(modifier = Modifier.height(26.dp))
 
+            taperProposal?.let { proposal ->
+                TaperProposalCard(
+                    proposal = proposal,
+                    onAccept = { taperViewModel.acceptProposal(proposal) },
+                    onKeepCurrent = { taperViewModel.declineProposal() },
+                    onNeverAsk = { taperViewModel.disableProposals() },
+                    colors = colors,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             SafeExitAndUrgeCards(
                 uiState = uiState,
                 colors = colors,
@@ -209,7 +284,14 @@ fun ProgressDashboardScreen(
             AlertDialog(
                 onDismissRequest = { showPointsInfo = false },
                 confirmButton = {
-                    TextButton(onClick = { showPointsInfo = false }) { Text("Got it") }
+                    TextButton(
+                        onClick = { showPointsInfo = false },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = ImpulsivePsychological,
+                        ),
+                    ) {
+                        Text("Got it")
+                    }
                 },
                 title = { Text("Control points") },
                 text = {
@@ -222,13 +304,106 @@ fun ProgressDashboardScreen(
             )
         }
 
+        if (mindModeSheetVisible) {
+            MindModeStatusSheet(
+                onDismissRequest = { mindModeSheetVisible = false },
+                onStartMindTask = startRecommendedMindTask,
+                onViewProgress = { mindModeSheetVisible = false },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (bodyModeSheetVisible) {
+            BodyModeLockedSheet(
+                onDismissRequest = { bodyModeSheetVisible = false },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (soulModeSheetVisible) {
+            SoulModeLockedSheet(
+                onDismissRequest = { soulModeSheetVisible = false },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (modeSelectionSheetVisible) {
+            ModeSelectionSheet(
+                onDismissRequest = { modeSelectionSheetVisible = false },
+                onOpenMindMode = {
+                    mindModeSheetVisible = true
+                    bodyModeSheetVisible = false
+                    soulModeSheetVisible = false
+                },
+                onOpenBodyMode = {
+                    mindModeSheetVisible = false
+                    bodyModeSheetVisible = true
+                    soulModeSheetVisible = false
+                },
+                onOpenSoulMode = {
+                    mindModeSheetVisible = false
+                    bodyModeSheetVisible = false
+                    soulModeSheetVisible = true
+                },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
         BottomNavBar(
-            selected = BottomNavItem.Progress,
+            selected = if (
+                modeSelectionSheetVisible ||
+                mindModeSheetVisible ||
+                bodyModeSheetVisible ||
+                soulModeSheetVisible
+            ) {
+                BottomNavItem.Trigger
+            } else {
+                BottomNavItem.Progress
+            },
             onSelect = { item ->
+                val fromModeContext = modeSelectionSheetVisible ||
+                    mindModeSheetVisible ||
+                    bodyModeSheetVisible ||
+                    soulModeSheetVisible
                 when (item) {
-                    BottomNavItem.Home -> onOpenHome()
-                    BottomNavItem.Settings -> onOpenSettings()
-                    else -> Unit
+                    BottomNavItem.Home -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        onOpenHome()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                    BottomNavItem.Trigger -> {
+                        mindModeSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        modeSelectionSheetVisible = !modeSelectionSheetVisible
+                    }
+                    BottomNavItem.Settings -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        onOpenSettings()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                    BottomNavItem.Progress -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                    }
+                    BottomNavItem.Focus -> {
+                        modeSelectionSheetVisible = false
+                        onOpenFocus()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                }
+            },
+            onLongSelect = { item ->
+                if (item == BottomNavItem.Trigger) {
+                    modeSelectionSheetVisible = !modeSelectionSheetVisible
                 }
             },
             modifier = Modifier
@@ -237,6 +412,12 @@ fun ProgressDashboardScreen(
                 .padding(horizontal = 24.dp, vertical = 12.dp)
                 .fillMaxWidth(),
             settingsBadgeVisible = protectionSetupState.profileBadgeShouldShow,
+            modeSelectorOpen = modeSelectionSheetVisible ||
+                mindModeSheetVisible ||
+                bodyModeSheetVisible ||
+                soulModeSheetVisible,
+            indicatorStartFrom = bottomNavIndicatorStartFrom,
+            onIndicatorStartConsumed = onBottomNavIndicatorStartConsumed,
         )
     }
 }
@@ -246,9 +427,9 @@ private fun rememberScoreColors(): ScoreScreenColors {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
     return if (isDark) {
-        val darkBackground = Color(0xFF0E1014)
-        val darkSurface = Color(0xFF1D1921)
-        val darkElevatedSurface = Color(0xFF252029)
+        val darkBackground = Color(0xFF11161A)
+        val darkSurface = Color(0xFF171D22)
+        val darkElevatedSurface = Color(0xFF202832)
         val darkText = Color(0xFFF7F2FF)
         val darkMuted = Color(0xFFC9C0D8)
 
@@ -259,23 +440,23 @@ private fun rememberScoreColors(): ScoreScreenColors {
             text = darkText,
             muted = darkMuted,
             faintLine = darkText.copy(alpha = 0.14f),
-            mainCard = Color(0xFF251D33),
+            mainCard = Color(0xFF171D22),
             mainCardText = darkText,
             selectedPill = Color(0xFF6E5A96),
             unselectedPill = Color(0xFF1D2526),
-            safeExitCard = Color(0xFF251D33),
-            urgeCard = Color(0xFF251D33),
-            timelineDot = Color(0xFF2A2233),
+            safeExitCard = Color(0xFF171D22),
+            urgeCard = Color(0xFF171D22),
+            timelineDot = Color(0xFF202832),
             shadow = Color.Black,
             lavenderGlow = ImpulsivePsychological,
             greenGlow = ImpulsiveOverallTheme,
             blueGlow = ImpulsivePhysical,
             yellowGlow = ImpulsiveSpiritual,
-            coralGlow = ImpulsiveFocusMode,
+            coralGlow = ScoreStrongCoral,
         )
     } else {
         ScoreScreenColors(
-            background = Color(0xFFFFF8FC),
+            background = Color(0xFFFBF8FE),
             surface = Color(0xFFFFFFFF),
             elevatedSurface = Color(0xFFF7F1F8),
             text = Color(0xFF2F2637),
@@ -293,7 +474,7 @@ private fun rememberScoreColors(): ScoreScreenColors {
             greenGlow = ImpulsiveOverallTheme,
             blueGlow = ImpulsivePhysical,
             yellowGlow = ImpulsiveSpiritual,
-            coralGlow = ImpulsiveFocusMode,
+            coralGlow = ScoreStrongCoral,
         )
     }
 }
@@ -445,28 +626,66 @@ private fun buildScoreChartBars(
     sessions: List<ScoreTimelineItem>,
     range: ScoreRange,
 ): List<ScoreChartBar> {
-    return if (range == ScoreRange.AllTime) {
-        val year = LocalDate.now().year
-        val monthLetters = listOf("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
-        (1..12).map { month ->
-            val points = dailyEarned.entries
-                .filter { it.key.year == year && it.key.monthValue == month }
-                .sumOf { it.value }
-            val games = sessions.count { it.completedAt.year == year && it.completedAt.monthValue == month }
-            val monthName = java.time.Month.of(month)
-                .getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
-            ScoreChartBar(label = monthLetters[month - 1], value = points, detail = monthName, games = games)
+    return when (range) {
+        ScoreRange.Today,
+        ScoreRange.Week -> {
+            val today = LocalDate.now()
+            val sunday = today.minusDays((today.dayOfWeek.value % 7).toLong())
+            val dayLetters = listOf("S", "M", "T", "W", "T", "F", "S")
+            val monthDayFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
+            (0..6).map { index ->
+                val date = sunday.plusDays(index.toLong())
+                val points = dailyEarned[date] ?: 0
+                val games = sessions.count { it.completedAt.toLocalDate() == date }
+                val dayName = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+                ScoreChartBar(
+                    label = dayLetters[index],
+                    value = points,
+                    detail = "$dayName, ${date.format(monthDayFormatter)}",
+                    games = games,
+                )
+            }
         }
-    } else {
-        val today = LocalDate.now()
-        val sunday = today.minusDays((today.dayOfWeek.value % 7).toLong())
-        val dayLetters = listOf("S", "M", "T", "W", "T", "F", "S")
-        (0..6).map { index ->
-            val date = sunday.plusDays(index.toLong())
-            val points = dailyEarned[date] ?: 0
-            val games = sessions.count { it.completedAt.toLocalDate() == date }
-            val dayName = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
-            ScoreChartBar(label = dayLetters[index], value = points, detail = dayName, games = games)
+        ScoreRange.Month -> {
+            val today = LocalDate.now()
+            val yearMonth = YearMonth.from(today)
+            val monthEnd = yearMonth.lengthOfMonth()
+            val formatter = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
+            listOf(
+                Triple("W1", 1, 7),
+                Triple("W2", 8, 14),
+                Triple("W3", 15, 21),
+                Triple("W4", 22, monthEnd),
+            ).mapIndexed { index, (label, startDay, endDay) ->
+                val start = yearMonth.atDay(startDay)
+                val end = yearMonth.atDay(endDay)
+                val points = dailyEarned.entries
+                    .filter { !it.key.isBefore(start) && !it.key.isAfter(end) }
+                    .sumOf { it.value }
+                val games = sessions.count {
+                    val completedDate = it.completedAt.toLocalDate()
+                    !completedDate.isBefore(start) && !completedDate.isAfter(end)
+                }
+                ScoreChartBar(
+                    label = label,
+                    value = points,
+                    detail = "Week ${index + 1}, ${start.format(formatter)} - ${end.format(formatter)}",
+                    games = games,
+                )
+            }
+        }
+        ScoreRange.Year -> {
+            val year = LocalDate.now().year
+            val monthLetters = listOf("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+            (1..12).map { month ->
+                val points = dailyEarned.entries
+                    .filter { it.key.year == year && it.key.monthValue == month }
+                    .sumOf { it.value }
+                val games = sessions.count { it.completedAt.year == year && it.completedAt.monthValue == month }
+                val monthName = java.time.Month.of(month)
+                    .getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+                ScoreChartBar(label = monthLetters[month - 1], value = points, detail = monthName, games = games)
+            }
         }
     }
 }
@@ -482,12 +701,32 @@ private fun ScoreCardChart(
     val bars = remember(dailyEarned, sessions, range) { buildScoreChartBars(dailyEarned, sessions, range) }
     var selected by remember(bars) { mutableStateOf<Int?>(null) }
     val maxValue = (bars.maxOfOrNull { it.value } ?: 0).coerceAtLeast(1)
+    // One height multiplier per bar: 0 -> 1.08 (rise with slight overshoot)
+    // -> 0.96 (dip) -> 1.0 (settle on the exact real value). Keyed on bars so
+    // the animation replays when the data or selected range changes.
+    val barAnimations = remember(bars) { bars.map { Animatable(0f) } }
+    LaunchedEffect(bars) {
+        barAnimations.forEachIndexed { index, animatable ->
+            launch {
+                delay(index.coerceAtMost(10) * 45L)
+                animatable.animateTo(1.08f, tween(durationMillis = 380, easing = FastOutSlowInEasing))
+                animatable.animateTo(0.96f, tween(durationMillis = 120))
+                animatable.animateTo(1f, tween(durationMillis = 180))
+            }
+        }
+    }
     val selectedBar = selected?.let { bars.getOrNull(it) }
+    val fallbackPrompt = when (range) {
+        ScoreRange.Today -> "Tap a bar to see details"
+        ScoreRange.Week -> "Tap a bar to see that day"
+        ScoreRange.Month -> "Tap a bar to see that week"
+        ScoreRange.Year -> "Tap a bar to see that month"
+    }
 
     Column {
         Text(
             text = selectedBar?.let { "${it.detail}: ${it.value} points - ${it.games} games" }
-                ?: "Tap a bar to see that day",
+                ?: fallbackPrompt,
             color = colors.mainCardText.copy(alpha = 0.75f),
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
@@ -501,6 +740,7 @@ private fun ScoreCardChart(
             bars.forEachIndexed { index, bar ->
                 val isSelected = selected == index
                 val fraction = bar.value.toFloat() / maxValue.toFloat()
+                val animatedFraction = fraction * (barAnimations.getOrNull(index)?.value ?: 1f)
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -519,7 +759,7 @@ private fun ScoreCardChart(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.62f)
-                                .fillMaxHeight(fraction.coerceIn(0.04f, 1f))
+                                .fillMaxHeight(animatedFraction.coerceIn(0.04f, 1f))
                                 .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
                                 .background(
                                     if (isSelected) {
@@ -560,7 +800,7 @@ private fun ScoreFilter(
             modifier = Modifier.padding(5.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            listOf(ScoreRange.Week, ScoreRange.AllTime).forEach { range ->
+            listOf(ScoreRange.Week, ScoreRange.Month, ScoreRange.Year).forEach { range ->
                 val selected = selectedRange == range
                 Box(
                     modifier = Modifier
@@ -626,7 +866,7 @@ private fun ScoreRecordsCard(
     Surface(
         color = colors.mainCard,
         shape = RoundedCornerShape(30.dp),
-        border = if (isDark) BorderStroke(1.dp, accent.copy(alpha = 0.58f)) else null,
+        border = if (isDark) BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.58f)) else null,
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
@@ -901,7 +1141,7 @@ private fun PersonalBestCard(
     Surface(
         color = colors.surface,
         shape = RoundedCornerShape(22.dp),
-        border = if (isDark) BorderStroke(1.dp, accent.copy(alpha = 0.62f)) else null,
+        border = if (isDark) BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.62f)) else null,
         modifier = Modifier
             .width(164.dp)
             .shadow(
@@ -970,6 +1210,115 @@ private fun PersonalBestCard(
 }
 
 @Composable
+private fun TaperProposalCard(
+    proposal: TaperProposal,
+    onAccept: () -> Unit,
+    onKeepCurrent: () -> Unit,
+    onNeverAsk: () -> Unit,
+    colors: ScoreScreenColors,
+) {
+    val isDark = colors.background.luminance() < 0.5f
+    val accent = colors.greenGlow
+    val contentColor = if (isDark) colors.text else Color(0xFF5C4A7D)
+
+    Surface(
+        color = colors.safeExitCard,
+        shape = RoundedCornerShape(24.dp),
+        border = if (isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = colors.lavenderGlow.copy(alpha = 0.72f),
+            )
+        } else {
+            null
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = if (isDark) 16.dp else 2.dp,
+                shape = RoundedCornerShape(24.dp),
+                clip = false,
+                ambientColor = if (isDark) accent.copy(alpha = 0.24f) else Color(0xFF5C4A7D).copy(alpha = 0.08f),
+                spotColor = if (isDark) accent.copy(alpha = 0.16f) else Color(0xFF5C4A7D).copy(alpha = 0.10f),
+            ),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .background(
+                            if (isDark) accent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.32f),
+                            CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.TrendingDown,
+                        contentDescription = null,
+                        tint = if (isDark) accent else contentColor.copy(alpha = 0.78f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Ready for one less?",
+                    color = contentColor,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "You have been using fewer moments than planned for two weeks. " +
+                    "You can move from ${proposal.fromCount} to ${proposal.toCount} planned moments a day. " +
+                    "Nothing changes unless you choose it.",
+                color = contentColor.copy(alpha = if (isDark) 0.78f else 0.74f),
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onKeepCurrent) {
+                    Text(
+                        text = "Not yet",
+                        color = contentColor.copy(alpha = if (isDark) 0.72f else 0.66f),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                TextButton(onClick = onAccept) {
+                    Text(
+                        text = "Move to ${proposal.toCount} a day",
+                        color = if (isDark) accent else contentColor,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+
+            TextButton(
+                onClick = onNeverAsk,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Text(
+                    text = "Don't ask again",
+                    color = contentColor.copy(alpha = if (isDark) 0.55f else 0.50f),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SafeExitAndUrgeCards(
     uiState: ScoreDashboardState,
     colors: ScoreScreenColors,
@@ -978,6 +1327,11 @@ private fun SafeExitAndUrgeCards(
         CompactSafeExitCard(
             walkAwayCount = uiState.safeExitCount,
             bestStreak = uiState.bestSafeExitStreak,
+            rangeSuffix = uiState.selectedRange.metricSuffix(),
+            colors = colors,
+        )
+        WindowUsageCard(
+            usage = uiState.windowUsage,
             rangeSuffix = uiState.selectedRange.metricSuffix(),
             colors = colors,
         )
@@ -997,7 +1351,7 @@ private fun CompactSafeExitCard(
 ) {
     val isDark = colors.background.luminance() < 0.5f
     val accent = colors.greenGlow
-    val contentColor = if (isDark) colors.text else Color(0xFF173B34)
+    val contentColor = if (isDark) colors.text else Color(0xFF5C4A7D)
 
     Surface(
         color = colors.safeExitCard,
@@ -1005,7 +1359,7 @@ private fun CompactSafeExitCard(
         border = if (isDark) {
             BorderStroke(
                 width = 1.dp,
-                color = accent.copy(alpha = 0.72f),
+                color = colors.lavenderGlow.copy(alpha = 0.72f),
             )
         } else {
             null
@@ -1016,8 +1370,8 @@ private fun CompactSafeExitCard(
                 elevation = if (isDark) 16.dp else 2.dp,
                 shape = RoundedCornerShape(24.dp),
                 clip = false,
-                ambientColor = if (isDark) accent.copy(alpha = 0.24f) else Color(0xFF173B34).copy(alpha = 0.08f),
-                spotColor = if (isDark) accent.copy(alpha = 0.16f) else Color(0xFF173B34).copy(alpha = 0.10f),
+                ambientColor = if (isDark) accent.copy(alpha = 0.24f) else Color(0xFF5C4A7D).copy(alpha = 0.08f),
+                spotColor = if (isDark) accent.copy(alpha = 0.16f) else Color(0xFF5C4A7D).copy(alpha = 0.10f),
             ),
     ) {
         Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
@@ -1086,6 +1440,131 @@ private fun CompactSafeExitCard(
 }
 
 @Composable
+private fun WindowUsageCard(
+    usage: WindowUsageState,
+    rangeSuffix: String,
+    colors: ScoreScreenColors,
+) {
+    val isDark = colors.background.luminance() < 0.5f
+    val accent = colors.blueGlow
+    val contentColor = if (isDark) colors.text else Color(0xFF1E3A52)
+
+    Surface(
+        color = colors.urgeCard,
+        shape = RoundedCornerShape(24.dp),
+        border = if (isDark) {
+            BorderStroke(
+                width = 1.dp,
+                color = colors.lavenderGlow.copy(alpha = 0.52f),
+            )
+        } else {
+            null
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = if (isDark) 12.dp else 2.dp,
+                shape = RoundedCornerShape(24.dp),
+                clip = false,
+                ambientColor = if (isDark) accent.copy(alpha = 0.18f) else Color.Transparent,
+                spotColor = if (isDark) accent.copy(alpha = 0.10f) else Color.Transparent,
+            ),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(
+                                if (isDark) accent.copy(alpha = 0.16f) else accent.copy(alpha = 0.20f),
+                                CircleShape,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Schedule,
+                            contentDescription = null,
+                            tint = if (isDark) accent else contentColor.copy(alpha = 0.72f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Planned Moments",
+                        color = contentColor,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text(
+                    text = if (usage.plannedPerDay > 0) "Plan: ${usage.plannedPerDay}/day" else "No plan set",
+                    color = contentColor.copy(alpha = if (isDark) 0.72f else 0.64f),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            if (!usage.hasData) {
+                Text(
+                    text = "No moment data yet",
+                    color = contentColor,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Usage appears after your next planned window passes.",
+                    color = contentColor.copy(alpha = if (isDark) 0.68f else 0.60f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Column {
+                        Text(
+                            text = usage.rangeUsed.formatNumber(),
+                            color = contentColor,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "Used $rangeSuffix",
+                            color = contentColor.copy(alpha = if (isDark) 0.76f else 0.72f),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = usage.rangeSkipped.formatNumber(),
+                            color = contentColor,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "Skipped $rangeSuffix",
+                            color = contentColor.copy(alpha = if (isDark) 0.76f else 0.72f),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun UrgeTrendCard(
     trend: UrgeTrendState,
     colors: ScoreScreenColors,
@@ -1100,7 +1579,7 @@ private fun UrgeTrendCard(
         border = if (isDark) {
             BorderStroke(
                 width = 1.dp,
-                color = accent.copy(alpha = 0.52f),
+                color = colors.lavenderGlow.copy(alpha = 0.52f),
             )
         } else {
             null
@@ -1527,7 +2006,7 @@ private fun OutcomePill(
 ) {
     val isDark = colors.background.luminance() < 0.5f
     val pillColor = when (outcome) {
-        ScoreSessionOutcome.WalkedAway -> if (isDark) colors.greenGlow.copy(alpha = 0.16f) else Color(0xFFE0F7EA)
+        ScoreSessionOutcome.WalkedAway -> if (isDark) colors.greenGlow.copy(alpha = 0.16f) else Color(0xFFF2E9FB)
         ScoreSessionOutcome.ContinuedWithIntention -> if (isDark) colors.lavenderGlow.copy(alpha = 0.14f) else Color(0xFFF0ECF0)
         ScoreSessionOutcome.Completed -> colors.lavenderGlow.copy(alpha = if (isDark) 0.18f else 0.30f)
         ScoreSessionOutcome.Replayed -> if (isDark) colors.blueGlow.copy(alpha = 0.16f) else ImpulsivePhysical.copy(alpha = 0.28f)
@@ -1557,6 +2036,7 @@ private fun ScoreGameType.accentColor(): Color = when (this) {
     ScoreGameType.DopamineRunner -> ImpulsiveFocusMode
     ScoreGameType.BreathControl -> ImpulsivePsychological
     ScoreGameType.RageDischarge -> ImpulsiveFocusMode
+    ScoreGameType.RhythmTiles -> ImpulsivePsychological
     ScoreGameType.Unknown -> ImpulsivePsychological
 }
 
@@ -1570,6 +2050,7 @@ private fun ScoreGameType.scoreIcon(): ImageVector = when (this) {
     ScoreGameType.DopamineRunner -> Icons.Filled.Moving
     ScoreGameType.BreathControl -> Icons.Filled.ShowChart
     ScoreGameType.RageDischarge -> Icons.Filled.AutoAwesome
+    ScoreGameType.RhythmTiles -> Icons.Filled.AutoAwesome
     ScoreGameType.Unknown -> Icons.Filled.SportsEsports
 }
 
@@ -1625,5 +2106,6 @@ private fun Int.formatChange(): String = when {
 private fun ScoreRange.metricSuffix(): String = when (this) {
     ScoreRange.Today -> "today"
     ScoreRange.Week -> "this week"
-    ScoreRange.AllTime -> "all time"
+    ScoreRange.Month -> "this month"
+    ScoreRange.Year -> "this year"
 }

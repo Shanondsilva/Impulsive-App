@@ -29,6 +29,7 @@ object GameSelectionEngine {
         ScoreGameType.ReflexOverride,
         ScoreGameType.BlockCascade,
         ScoreGameType.SkylineReset,
+        ScoreGameType.RhythmTiles,
     )
 
     private const val DefaultMaxRunLength = 3

@@ -6,8 +6,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.impulsive.app.backend.data.local.dao.BlockedDomainDao
 import com.impulsive.app.backend.data.local.dao.JournalNoteDao
 import com.impulsive.app.backend.data.local.dao.RecoverySessionDao
+import com.impulsive.app.backend.data.local.entity.BlockedDomainEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
@@ -17,13 +19,15 @@ import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
         RecoverySessionEntity::class,
         JournalNoteEntity::class,
         JournalChecklistItemEntity::class,
+        BlockedDomainEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recoverySessionDao(): RecoverySessionDao
     abstract fun journalNoteDao(): JournalNoteDao
+    abstract fun blockedDomainDao(): BlockedDomainDao
 
     companion object {
         private const val DatabaseName = "impulsive.db"
@@ -73,6 +77,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val Migration3To4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS blocked_domain (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        domain TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        isDefault INTEGER NOT NULL,
+                        addedByUser INTEGER NOT NULL,
+                        createdAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_blocked_domain_domain ON blocked_domain(domain)",
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -83,7 +107,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DatabaseName,
                 )
-                    .addMigrations(Migration1To2, Migration2To3)
+                    .addMigrations(Migration1To2, Migration2To3, Migration3To4)
                     .build()
                     .also { database ->
                         instance = database

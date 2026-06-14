@@ -1,6 +1,7 @@
 package com.impulsive.app.frontend.screens.settings
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -64,11 +65,13 @@ import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -81,6 +84,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -104,6 +108,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -113,16 +118,25 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 import com.impulsive.app.backend.data.UserDataManager
+import com.impulsive.app.R
+import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
+import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
+import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
+import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
+import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
+import com.impulsive.app.backend.session.auth.AccountDeletionUiState
+import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
-import com.impulsive.app.backend.session.progress.LevelViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
+import com.impulsive.app.backend.session.progress.TaperViewModel
 import com.impulsive.app.backend.session.settings.AppLockViewModel
 import com.impulsive.app.backend.session.settings.AppSettingsViewModel
+import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.backend.service.protection.ProtectionServiceController
 import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
@@ -131,12 +145,18 @@ import com.impulsive.app.frontend.screens.lock.rememberAppLockGuardController
 import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.core.util.ThemeMode
 import com.impulsive.app.frontend.components.AvatarStyle
+import com.impulsive.app.frontend.components.BodyModeLockedSheet
 import com.impulsive.app.frontend.components.BottomNavBar
 import com.impulsive.app.frontend.components.BottomNavItem
+import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
+import com.impulsive.app.frontend.components.MindModeStatusSheet
+import com.impulsive.app.frontend.components.ModeSelectionSheet
+import com.impulsive.app.frontend.components.SoulModeLockedSheet
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.utils.ImpulsiveHaptics
 import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
+import java.time.LocalDateTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -144,28 +164,67 @@ fun SettingsScreen(
     onBackHome: () -> Unit,
     onOpenHome: () -> Unit = onBackHome,
     onOpenScore: () -> Unit = {},
+    onOpenFocus: () -> Unit = {},
+    onNavigateFromModeContext: () -> Unit = {},
+    onOpenReflexOverrideTask: () -> Unit = {},
+    onOpenBlockCascadeTask: () -> Unit = {},
+    onOpenSkylineResetTask: () -> Unit = {},
+    onOpenResetReadTask: () -> Unit = {},
     onOpenUninstallProtection: () -> Unit = {},
+    onOpenWebsiteProtectionPlus: () -> Unit = {},
+    bottomNavIndicatorStartFrom: BottomNavItem? = null,
+    onBottomNavIndicatorStartConsumed: () -> Unit = {},
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appLockViewModel: AppLockViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val levelViewModel: LevelViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val taperViewModel: TaperViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
     val appLockEnabled by appLockViewModel.enabled.collectAsStateWithLifecycle()
-    val currentLevel by levelViewModel.currentLevel.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val taperSuggestionsEnabled by taperViewModel.taperSuggestionsEnabled.collectAsStateWithLifecycle()
+    val currentLevel = taskRewardStoreState.currentLevel
     val storedMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
     val selectedMode = if (storedMode == ThemeMode.System) ThemeMode.AsPerTime else storedMode
     val displayName = onboardingState.answers.name.takeIf { it.isNotBlank() } ?: "Shanon"
     val avatar = AvatarStyle.fromId(onboardingState.answers.avatarId)
     val context = LocalContext.current
+    val authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val authState by authViewModel.state.collectAsStateWithLifecycle()
+    val deletionState by authViewModel.deletionState.collectAsStateWithLifecycle()
+    val activity = context as? Activity
     val protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    var showPlusSheet by remember { mutableStateOf(false) }
     var showBlockedAppsSheet by remember { mutableStateOf(false) }
+    var mindModeSheetVisible by remember { mutableStateOf(false) }
+    var modeSelectionSheetVisible by remember { mutableStateOf(false) }
+    var bodyModeSheetVisible by remember { mutableStateOf(false) }
+    var soulModeSheetVisible by remember { mutableStateOf(false) }
+    val bottomNavReservedSpace = 104.dp
+    val currentNow = LocalDateTime.now()
+    val releasePlan = calculateReleasePlan(
+        selectedDailyUrgeCount = onboardingState.answers.dailyRelapseUrgeCount,
+        now = currentNow,
+        activeDayStart = minuteOfDayToLocalTime(onboardingState.answers.activeDayStartMinute),
+        activeDayEnd = minuteOfDayToLocalTime(onboardingState.answers.activeDayEndMinute),
+    )
+    val taskRewardState = taskRewardStoreState.toTaskRewardState(releasePlan)
+    val startRecommendedMindTask = {
+        when (taskRewardState.recommendedTaskType) {
+            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+            PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
+            PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
+            PsychologyTaskType.ResetRead,
+            PsychologyTaskType.TriggerDecoder,
+            PsychologyTaskType.ThoughtCapture,
+            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
+        }
+    }
     val appLockGuard = rememberAppLockGuardController()
     var notificationsAllowed by remember { mutableStateOf(isNotificationPermissionAllowed(context)) }
     val notificationLauncher = rememberLauncherForActivityResult(
@@ -182,6 +241,7 @@ fun SettingsScreen(
             .background(background)
             .statusBarsPadding(),
     ) {
+        ImpulsiveAmbientBackground()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -212,7 +272,7 @@ fun SettingsScreen(
             }
             PlusGroup(
                 haptics = haptics,
-                onViewPlus = { showPlusSheet = true },
+                onViewPlus = onOpenWebsiteProtectionPlus,
             )
             AppearanceGroup(
                 selectedMode = selectedMode,
@@ -220,14 +280,15 @@ fun SettingsScreen(
                 haptics = haptics,
                 hapticsEnabled = appSettingsState.hapticsEnabled,
                 onHapticsChanged = appSettingsViewModel::setHapticsEnabled,
-                soundEffectsEnabled = appSettingsState.soundEffectsEnabled,
-                onSoundEffectsChanged = appSettingsViewModel::setSoundEffectsEnabled,
             )
             RecoverySetupGroup(
                 answers = onboardingState.answers,
                 onEditTriggers = { onboardingViewModel.setMultiSelectAnswer(OnboardingQuestionId.Triggers, it) },
                 onEditTiming = { onboardingViewModel.setMultiSelectAnswer(OnboardingQuestionId.Timing, it) },
                 onEditWeeklyTarget = { onboardingViewModel.setSingleSelectAnswer(OnboardingQuestionId.WeekOneGoal, it) },
+                taperSuggestionsEnabled = taperSuggestionsEnabled,
+                onTaperSuggestionsChanged = taperViewModel::setTaperSuggestionsEnabled,
+                haptics = haptics,
             )
             ProtectionFocusGroup(
                 protectionState = protectionSetupState,
@@ -235,6 +296,7 @@ fun SettingsScreen(
                 guard = appLockGuard::run,
                 onOpenBlockedApps = { appLockGuard.run(appLockEnabled) { showBlockedAppsSheet = true } },
                 onOpenUninstallProtection = onOpenUninstallProtection,
+                onOpenWebsiteProtectionPlus = onOpenWebsiteProtectionPlus,
             )
             PrivacyAccountGroup(
                 appLockEnabled = appLockEnabled,
@@ -243,25 +305,33 @@ fun SettingsScreen(
                 onHideSensitiveNotificationsChanged = appSettingsViewModel::setHideSensitiveNotifications,
                 notificationsAllowed = notificationsAllowed,
                 haptics = haptics,
+                linkedProviders = authState.user?.linkedProviders.orEmpty(),
+                authInFlightProvider = authState.inFlightProvider,
+                authErrorMessage = authState.errorMessage,
+                onConnectGoogle = {
+                    activity?.let { authViewModel.linkGoogleAccount(it) }
+                },
+                onConnectFacebook = {
+                    activity?.let { authViewModel.linkFacebookAccount(it) }
+                },
+                onDismissAuthError = authViewModel::consumeError,
                 onExportData = {
                     appSettingsViewModel.exportData { uri ->
                         val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
+                            type = "application/json"
                             putExtra(Intent.EXTRA_STREAM, uri)
-                            putExtra(Intent.EXTRA_SUBJECT, "My Impulsive data")
+                            putExtra(Intent.EXTRA_SUBJECT, "My Impulsive export")
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                         runCatching {
                             context.startActivity(
-                                Intent.createChooser(share, "Export your data"),
+                                Intent.createChooser(share, "Export your Impulsive data"),
                             )
                         }
                     }
                 },
                 onDeleteAllData = {
-                    appSettingsViewModel.deleteAllData(
-                        onComplete = { UserDataManager(context).restartApp() },
-                    )
+                    activity?.let { authViewModel.deleteAccount(it) }
                 },
                 onRequestNotifications = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -269,16 +339,125 @@ fun SettingsScreen(
                     }
                 },
             )
-            SupportGroup()
+            SupportGroup(haptics = haptics)
         }
 
+        if (mindModeSheetVisible) {
+            MindModeStatusSheet(
+                onDismissRequest = { mindModeSheetVisible = false },
+                onStartMindTask = startRecommendedMindTask,
+                onViewProgress = {
+                    mindModeSheetVisible = false
+                    onOpenScore()
+                },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (bodyModeSheetVisible) {
+            BodyModeLockedSheet(
+                onDismissRequest = { bodyModeSheetVisible = false },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (soulModeSheetVisible) {
+            SoulModeLockedSheet(
+                onDismissRequest = { soulModeSheetVisible = false },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        if (modeSelectionSheetVisible) {
+            ModeSelectionSheet(
+                onDismissRequest = { modeSelectionSheetVisible = false },
+                onOpenMindMode = {
+                    mindModeSheetVisible = true
+                    bodyModeSheetVisible = false
+                    soulModeSheetVisible = false
+                },
+                onOpenBodyMode = {
+                    mindModeSheetVisible = false
+                    bodyModeSheetVisible = true
+                    soulModeSheetVisible = false
+                },
+                onOpenSoulMode = {
+                    mindModeSheetVisible = false
+                    bodyModeSheetVisible = false
+                    soulModeSheetVisible = true
+                },
+                bottomNavReservedSpace = bottomNavReservedSpace,
+            )
+        }
+
+        AccountDeletionFlow(
+            state = deletionState,
+            onSubmitPassword = { password ->
+                activity?.let { authViewModel.submitPasswordAndDeleteAccount(it, password) }
+            },
+            onDismiss = { authViewModel.cancelAccountDeletion() },
+            onDeleted = {
+                appSettingsViewModel.deleteAllData(
+                    onComplete = { UserDataManager(context).restartApp() },
+                )
+            },
+        )
+
         BottomNavBar(
-            selected = BottomNavItem.Settings,
+            selected = if (
+                modeSelectionSheetVisible ||
+                mindModeSheetVisible ||
+                bodyModeSheetVisible ||
+                soulModeSheetVisible
+            ) {
+                BottomNavItem.Trigger
+            } else {
+                BottomNavItem.Settings
+            },
             onSelect = { item ->
+                val fromModeContext = modeSelectionSheetVisible ||
+                    mindModeSheetVisible ||
+                    bodyModeSheetVisible ||
+                    soulModeSheetVisible
                 when (item) {
-                    BottomNavItem.Home -> onOpenHome()
-                    BottomNavItem.Progress -> onOpenScore()
-                    else -> Unit
+                    BottomNavItem.Home -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        onOpenHome()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                    BottomNavItem.Progress -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        onOpenScore()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                    BottomNavItem.Trigger -> {
+                        mindModeSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                        modeSelectionSheetVisible = !modeSelectionSheetVisible
+                    }
+                    BottomNavItem.Settings -> {
+                        mindModeSheetVisible = false
+                        modeSelectionSheetVisible = false
+                        bodyModeSheetVisible = false
+                        soulModeSheetVisible = false
+                    }
+                    BottomNavItem.Focus -> {
+                        modeSelectionSheetVisible = false
+                        onOpenFocus()
+                        if (fromModeContext) onNavigateFromModeContext()
+                    }
+                }
+            },
+            onLongSelect = { item ->
+                if (item == BottomNavItem.Trigger) {
+                    modeSelectionSheetVisible = !modeSelectionSheetVisible
                 }
             },
             modifier = Modifier
@@ -288,6 +467,12 @@ fun SettingsScreen(
                 .fillMaxWidth(),
             hapticsEnabled = appSettingsState.hapticsEnabled,
             settingsBadgeVisible = protectionSetupState.profileBadgeShouldShow,
+            modeSelectorOpen = modeSelectionSheetVisible ||
+                mindModeSheetVisible ||
+                bodyModeSheetVisible ||
+                soulModeSheetVisible,
+            indicatorStartFrom = bottomNavIndicatorStartFrom,
+            onIndicatorStartConsumed = onBottomNavIndicatorStartConsumed,
         )
 
         if (showBlockedAppsSheet) {
@@ -300,38 +485,6 @@ fun SettingsScreen(
                     onDone = { showBlockedAppsSheet = false },
                     allowShowMoreApps = true,
                 )
-            }
-        }
-
-        if (showPlusSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showPlusSheet = false },
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .padding(bottom = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = "Impulsive Plus",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "Impulsive Plus will unlock stronger pivot tools when payments are connected.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedButton(
-                        onClick = { showPlusSheet = false },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(text = "Close")
-                    }
-                }
             }
         }
 
@@ -467,7 +620,7 @@ private fun ProfileGroup(
 
     AccordionGroup(
         title = "Profile",
-        summary = "$displayName • Psychological Core",
+        summary = "$displayName • Mind mode ",
         icon = Icons.Filled.Person,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(ProfileGlow),
@@ -484,7 +637,7 @@ private fun ProfileGroup(
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             ProfileMetric(label = "Level", value = "$currentLevel")
-            ProfileMetric(label = "Path", value = "Psychological Core")
+            ProfileMetric(label = "Path", value = "Mind mode")
         }
         Spacer(modifier = Modifier.height(12.dp))
         PillLabel(text = "Private on this device")
@@ -670,12 +823,10 @@ private fun AppearanceGroup(
     haptics: ImpulsiveHaptics,
     hapticsEnabled: Boolean,
     onHapticsChanged: (Boolean) -> Unit,
-    soundEffectsEnabled: Boolean,
-    onSoundEffectsChanged: (Boolean) -> Unit,
 ) {
     AccordionGroup(
         title = "Appearance",
-        summary = "Theme, haptics, and sound",
+        summary = "Theme and haptics",
         icon = Icons.Filled.Palette,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(AppearanceGlow),
@@ -699,17 +850,6 @@ private fun AppearanceGroup(
                     checked = hapticsEnabled,
                     haptics = haptics,
                     onCheckedChange = onHapticsChanged,
-                )
-            },
-        )
-        SettingsDivider()
-        SettingsRow(
-            title = "Sound effects",
-            trailing = {
-                SettingsSwitch(
-                    checked = soundEffectsEnabled,
-                    haptics = haptics,
-                    onCheckedChange = onSoundEffectsChanged,
                 )
             },
         )
@@ -778,6 +918,9 @@ private fun RecoverySetupGroup(
     onEditTriggers: (List<String>) -> Unit,
     onEditTiming: (List<String>) -> Unit,
     onEditWeeklyTarget: (String?) -> Unit,
+    taperSuggestionsEnabled: Boolean,
+    onTaperSuggestionsChanged: (Boolean) -> Unit,
+    haptics: ImpulsiveHaptics,
 ) {
     var editing by remember { mutableStateOf<RecoveryEditTarget?>(null) }
 
@@ -809,6 +952,18 @@ private fun RecoverySetupGroup(
         )
         SettingsDivider()
         SettingsRow(title = "Daily support estimate", value = "${answers.dailyRelapseUrgeCount} moments per day")
+        SettingsDivider()
+        SettingsRow(
+            title = "Taper suggestions",
+            subtext = "Suggest one less moment when your pattern shows progress",
+            trailing = {
+                SettingsSwitch(
+                    checked = taperSuggestionsEnabled,
+                    haptics = haptics,
+                    onCheckedChange = onTaperSuggestionsChanged,
+                )
+            },
+        )
 
         when (editing) {
             RecoveryEditTarget.Triggers -> MultiSelectEditDialog(
@@ -927,6 +1082,7 @@ private fun ProtectionFocusGroup(
     guard: (enabled: Boolean, action: () -> Unit) -> Unit,
     onOpenBlockedApps: () -> Unit,
     onOpenUninstallProtection: () -> Unit,
+    onOpenWebsiteProtectionPlus: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val selectedCount = protectionState.selectedBlockedAppPackageNames.size
@@ -959,6 +1115,42 @@ private fun ProtectionFocusGroup(
                 val intent = UsageAccessPermissionChecker(context).createUsageAccessSettingsIntent()
                 runCatching { context.startActivity(intent) }
             },
+        )
+        SettingsDivider()
+        val blockScreenEnabled = protectionState.interruptionPermissionEnabled
+        val hasProtectedApps = protectionState.selectedBlockedAppPackageNames.isNotEmpty()
+        SettingsRow(
+            title = "Show block screen over apps",
+            value = if (blockScreenEnabled) "Enabled" else "Not enabled",
+            valueColor = if (blockScreenEnabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+            subtext = when {
+                blockScreenEnabled ->
+                    "Lets Impulsive show the full block screen when you open a protected app."
+                hasProtectedApps ->
+                    "The block screen will not appear until you turn this on."
+                else ->
+                    "Required for the block screen to appear over a protected app."
+            },
+            onClick = {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + context.packageName),
+                )
+                runCatching { context.startActivity(intent) }
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Website Protection",
+            value = "Plus",
+            valueColor = ImpulsivePsychological,
+            subtext = "Blocks adult and risky websites using local DNS-based filtering.",
+            trailingIcon = Icons.Filled.Lock,
+            onClick = onOpenWebsiteProtectionPlus,
         )
         SettingsDivider()
         SettingsRow(
@@ -1010,14 +1202,20 @@ private fun PrivacyAccountGroup(
     onHideSensitiveNotificationsChanged: (Boolean) -> Unit,
     notificationsAllowed: Boolean,
     haptics: ImpulsiveHaptics,
+    linkedProviders: Set<AuthProvider>,
+    authInFlightProvider: AuthProvider?,
+    authErrorMessage: String?,
+    onConnectGoogle: () -> Unit,
+    onConnectFacebook: () -> Unit,
+    onDismissAuthError: () -> Unit,
     onExportData: () -> Unit,
     onDeleteAllData: () -> Unit,
     onRequestNotifications: () -> Unit,
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var showLocalDataInfo by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showSetPin by remember { mutableStateOf(false) }
+    val googleConnected = linkedProviders.contains(AuthProvider.Google)
+    val facebookConnected = linkedProviders.contains(AuthProvider.Facebook)
     val notificationValue = when {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> "Allowed by system"
         notificationsAllowed -> "Allowed"
@@ -1026,7 +1224,7 @@ private fun PrivacyAccountGroup(
 
     AccordionGroup(
         title = "Privacy & account",
-        summary = "Permissions, local data, and account links",
+        summary = "Permissions, export, and account links",
         icon = Icons.Filled.PrivacyTip,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(PrivacyGlow),
@@ -1077,52 +1275,75 @@ private fun PrivacyAccountGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Local data",
-            subtext = "Stored privately on this device",
-            onClick = { showLocalDataInfo = true },
-        )
-        SettingsDivider()
-        SettingsRow(
             title = "Export data",
-            subtext = "Save a readable copy and share it anywhere",
+            subtext = "Save a restorable export file and keep it anywhere",
             onClick = onExportData,
         )
         SettingsDivider()
         SettingsRow(
             title = "Delete data",
-            subtext = "Permanently erase all data on this device",
+            subtext = "Delete your account and erase everything on this device",
             trailingIcon = Icons.Filled.DeleteOutline,
             onClick = { showDeleteConfirm = true },
         )
         SettingsDivider()
-        SettingsRow(title = "Link Google account", subtext = "Not connected")
-        SettingsDivider()
-        SettingsRow(title = "Link Facebook account", subtext = "Not connected")
-        SettingsDivider()
-        SettingsRow(title = "Backup & sync", subtext = "Not connected")
-        if (showLocalDataInfo) {
-            AlertDialog(
-                onDismissRequest = { showLocalDataInfo = false },
-                confirmButton = { TextButton(onClick = { showLocalDataInfo = false }) { Text("Got it") } },
-                title = { Text("Where your data is stored") },
-                text = {
-                    Text(
-                        "All your notes, sessions, and settings stay in Impulsive's private storage on " +
-                            "this device only:\n\n${context.applicationInfo.dataDir}\n\nNothing is uploaded. " +
-                            "Other apps cannot read this folder. Use Delete data to remove everything."
+        SettingsRow(
+            title = "Link Google account",
+            subtext = if (googleConnected) "Connected" else "Not connected",
+            trailing = {
+                when {
+                    googleConnected -> PillLabel("Connected")
+                    authInFlightProvider == AuthProvider.Google -> PillLabel("Connecting")
+                    else -> TextButtonPill(
+                        text = "Connect",
+                        haptics = haptics,
+                        onClick = onConnectGoogle,
                     )
+                }
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Link Facebook account",
+            subtext = if (facebookConnected) "Connected" else "Not connected",
+            trailing = {
+                when {
+                    facebookConnected -> PillLabel("Connected")
+                    authInFlightProvider == AuthProvider.Facebook -> PillLabel("Connecting")
+                    else -> TextButtonPill(
+                        text = "Connect",
+                        haptics = haptics,
+                        onClick = onConnectFacebook,
+                    )
+                }
+            },
+        )
+        if (authErrorMessage != null) {
+            AlertDialog(
+                onDismissRequest = onDismissAuthError,
+                title = { Text("Account connection failed") },
+                text = { Text(authErrorMessage) },
+                confirmButton = {
+                    TextButton(
+                        onClick = onDismissAuthError,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = ImpulsivePsychological,
+                        ),
+                    ) {
+                        Text("Got it")
+                    }
                 },
             )
         }
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
-                title = { Text("Delete all data?") },
+                title = { Text("Delete account and data?") },
                 text = {
                     Text(
-                        "This permanently erases your notes, sessions, scores, settings, and " +
-                            "everything else stored on this device. This cannot be undone, and the app " +
-                            "will restart."
+                        "This permanently deletes your Impulsive account and erases your notes, " +
+                            "sessions, scores, settings, and everything else stored on this device. " +
+                            "This cannot be undone, and the app will restart."
                     )
                 },
                 confirmButton = {
@@ -1151,7 +1372,9 @@ private fun PrivacyAccountGroup(
 }
 
 @Composable
-private fun SupportGroup() {
+private fun SupportGroup(
+    haptics: ImpulsiveHaptics,
+) {
     val context = LocalContext.current
     var showAbout by remember { mutableStateOf(false) }
 
@@ -1159,16 +1382,17 @@ private fun SupportGroup() {
         title = "Support",
         summary = "Help, feedback, and about",
         icon = Icons.Filled.AutoAwesome,
-        haptics = null,
+        haptics = haptics,
         glowSpec = SettingsGlowSpec.single(SupportGlow),
     ) {
         SettingsRow(
-            title = "Help centre",
+            title = "Help",
             trailingIcon = Icons.AutoMirrored.Filled.HelpOutline,
             onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://useimpulsive.com/help.html"))
+                haptics.light()
+                val helpIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://useimpulsive.com/help"))
                     .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                runCatching { context.startActivity(intent) }
+                runCatching { context.startActivity(helpIntent) }
             },
         )
         SettingsDivider()
@@ -1232,12 +1456,29 @@ private fun PlusGroup(
     haptics: ImpulsiveHaptics,
     onViewPlus: () -> Unit,
 ) {
+    val plusFlow = rememberInfiniteTransition(label = "PlusFlow")
+    val plusPhase by plusFlow.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 5200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "PlusFlowPhase",
+    )
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val plusSurfaceAlpha = if (isDarkTheme) 0.42f else 0.34f
+    val plusButtonAlpha = if (isDarkTheme) 0.78f else 0.64f
+
     AccordionGroup(
         title = "Impulsive Plus",
-        summary = "Unlock stronger pivot tools",
+        summary = "Website protection for risky sites",
         icon = Icons.Filled.AutoAwesome,
         haptics = haptics,
-        headerExtra = { PlusBadge() },
+        leadingContent = {
+            PlusLeadingIcon(phase = plusPhase, alpha = plusSurfaceAlpha)
+        },
+        headerExtra = { PlusBadge(phase = plusPhase) },
         glowSpec = SettingsGlowSpec.rainbow(PlusRainbowGlow),
     ) {
         Text(
@@ -1247,43 +1488,71 @@ private fun PlusGroup(
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(modifier = Modifier.height(10.dp))
-        PlusFeatureRow(title = "Advanced Nexus routing")
-        SettingsDivider()
-        PlusFeatureRow(title = "Physical and Spiritual paths")
-        SettingsDivider()
-        PlusFeatureRow(title = "Temperature Focus")
-        SettingsDivider()
-        PlusFeatureRow(title = "Premium pivot games")
-        SettingsDivider()
-        PlusFeatureRow(title = "Deeper weekly insights")
-        SettingsDivider()
         PlusFeatureRow(
-            title = "Website protection",
-            note = "DNS-based filtering, stronger anti-bypass tools, and future cloud protection",
+            title = "Website Protection",
+            note = "Blocks adult and risky websites using local DNS-based filtering.",
         )
         SettingsDivider()
-        PlusFeatureRow(title = "Restore purchases", note = "Available when billing is connected")
+        PlusFeatureRow(
+            title = "Safer browser protection",
+            note = "Adds another layer when browser searches or websites become a trigger.",
+        )
+        SettingsDivider()
+        PlusFeatureRow(
+            title = "Stronger anti-bypass support",
+            note = "Helps reduce quick access to risky sites during protected windows.",
+        )
+        SettingsDivider()
+        PlusFeatureRow(
+            title = "£2.99/month",
+            note = "Monthly subscription. Cancel anytime through Google Play.",
+        )
+        SettingsDivider()
+        PlusFeatureRow(
+            title = "Restore purchases",
+            note = "Available when billing is connected.",
+        )
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        Button(
-            onClick = {
-                haptics.confirm()
-                onViewPlus()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = ImpulsivePsychological,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ),
+        val plusButtonShape = RoundedCornerShape(16.dp)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(plusButtonShape)
+                .plusRainbowRoundedBackground(
+                    phase = plusPhase,
+                    cornerRadius = 16.dp,
+                    alpha = plusButtonAlpha,
+                )
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.26f),
+                    shape = plusButtonShape,
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    role = Role.Button,
+                ) {
+                    haptics.confirm()
+                    onViewPlus()
+                },
+            contentAlignment = Alignment.Center,
         ) {
-            Text(text = "View Plus")
+            Text(
+                text = "View Website Protection",
+                color = Color(0xFF281D38),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Calm upgrade only. Never during a difficult habit moment.",
+            text = "Shown only in calm places like Settings. Never during a difficult habit moment.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelSmall,
         )
@@ -1303,7 +1572,7 @@ private fun AccordionGroup(
 ) {
     var expanded by rememberSaveable(title) { mutableStateOf(false) }
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val borderFlowRotation = if (isDarkTheme && glowSpec?.animated == true) {
+    val borderFlowRotation = if (glowSpec?.animated == true) {
         val infiniteTransition = rememberInfiniteTransition(label = "$title-border-flow")
         val rotation by infiniteTransition.animateFloat(
             initialValue = 0f,
@@ -1337,7 +1606,7 @@ private fun AccordionGroup(
                 ambientColor = Color.Black.copy(alpha = 0.06f),
                 spotColor = Color.Black.copy(alpha = 0.08f),
             )
-            .settingsDarkGlowBorder(
+            .settingsGlowBorder(
                 isDarkTheme = isDarkTheme,
                 glowSpec = glowSpec,
                 borderFlowRotation = borderFlowRotation,
@@ -1466,12 +1735,26 @@ private data class SettingsGlowSpec(
     }
 }
 
-private fun Modifier.settingsDarkGlowBorder(
+private fun Modifier.settingsGlowBorder(
     isDarkTheme: Boolean,
     glowSpec: SettingsGlowSpec?,
     borderFlowRotation: Float,
 ): Modifier {
-    if (!isDarkTheme || glowSpec == null) return this
+    if (glowSpec == null) return this
+    if (!isDarkTheme && !glowSpec.animated) return this
+
+    val glowAlpha = when {
+        isDarkTheme -> 0.20f
+        glowSpec.animated -> 0.10f
+        else -> 0f
+    }
+
+    val borderAlpha = when {
+        isDarkTheme && glowSpec.animated -> 0.95f
+        isDarkTheme -> 0.78f
+        glowSpec.animated -> 0.62f
+        else -> 0f
+    }
 
     return drawWithContent {
         drawContent()
@@ -1495,14 +1778,14 @@ private fun Modifier.settingsDarkGlowBorder(
             width = size.width,
             height = size.height,
             rotationDegrees = borderFlowRotation,
-            alpha = 0.20f,
+            alpha = glowAlpha,
         )
         val borderBrush = settingsGlowBrush(
             spec = glowSpec,
             width = size.width,
             height = size.height,
             rotationDegrees = borderFlowRotation,
-            alpha = if (glowSpec.animated) 0.95f else 0.78f,
+            alpha = borderAlpha,
         )
 
         drawRoundRect(
@@ -1520,6 +1803,29 @@ private fun Modifier.settingsDarkGlowBorder(
             style = Stroke(width = borderWidth),
         )
     }
+}
+
+private fun Modifier.plusRainbowRoundedBackground(
+    phase: Float,
+    cornerRadius: androidx.compose.ui.unit.Dp,
+    alpha: Float,
+): Modifier = drawWithContent {
+    val travel = size.width * 1.45f
+    val startX = -travel + (travel * 2f * phase)
+    val brush = Brush.linearGradient(
+        colors = PlusRainbowGlow.map { it.copy(alpha = alpha) },
+        start = Offset(startX, 0f),
+        end = Offset(startX + travel, size.height),
+    )
+
+    drawRoundRect(
+        brush = brush,
+        topLeft = Offset.Zero,
+        size = size,
+        cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+    )
+
+    drawContent()
 }
 
 private fun settingsGlowBrush(
@@ -1670,17 +1976,64 @@ private fun PillLabel(text: String) {
 }
 
 @Composable
-private fun PlusBadge() {
-    Surface(
-        color = ImpulsivePsychological.copy(alpha = 0.34f),
-        shape = RoundedCornerShape(50),
+private fun PlusBadge(
+    phase: Float,
+) {
+    val shape = RoundedCornerShape(50)
+
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .plusRainbowRoundedBackground(
+                phase = phase,
+                cornerRadius = 50.dp,
+                alpha = 0.48f,
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.28f),
+                shape = shape,
+            )
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = "PLUS",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color(0xFF281D38),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+        )
+    }
+}
+
+@Composable
+private fun PlusLeadingIcon(
+    phase: Float,
+    alpha: Float,
+) {
+    val shape = CircleShape
+
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(shape)
+            .plusRainbowRoundedBackground(
+                phase = phase,
+                cornerRadius = 50.dp,
+                alpha = alpha,
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.22f),
+                shape = shape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.AutoAwesome,
+            contentDescription = null,
+            tint = Color(0xFF281D38),
+            modifier = Modifier.size(19.dp),
         )
     }
 }
@@ -1806,6 +2159,98 @@ private fun isNotificationPermissionAllowed(context: Context): Boolean {
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
 
+@Composable
+private fun AccountDeletionFlow(
+    state: AccountDeletionUiState,
+    onSubmitPassword: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onDeleted: () -> Unit,
+) {
+    LaunchedEffect(state) {
+        if (state == AccountDeletionUiState.Deleted) {
+            onDeleted()
+        }
+    }
+
+    when (state) {
+        AccountDeletionUiState.InProgress -> {
+            AlertDialog(
+                onDismissRequest = {},
+                confirmButton = {},
+                title = { Text("Deleting your account") },
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Text("This will only take a moment.")
+                    }
+                },
+            )
+        }
+        is AccountDeletionUiState.NeedsPassword -> {
+            DeleteAccountPasswordDialog(
+                email = state.email,
+                onConfirm = onSubmitPassword,
+                onDismiss = onDismiss,
+            )
+        }
+        is AccountDeletionUiState.Failed -> {
+            AlertDialog(
+                onDismissRequest = onDismiss,
+                title = { Text("Could not delete account") },
+                text = { Text(state.message) },
+                confirmButton = {
+                    TextButton(onClick = onDismiss) { Text("Close") }
+                },
+            )
+        }
+        AccountDeletionUiState.Idle,
+        AccountDeletionUiState.Deleted -> Unit
+    }
+}
+
+@Composable
+private fun DeleteAccountPasswordDialog(
+    email: String?,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Confirm your password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    if (email.isNullOrBlank()) {
+                        "Enter your password to permanently delete your account."
+                    } else {
+                        "Enter the password for $email to permanently delete your account."
+                    }
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    singleLine = true,
+                    label = { Text("Password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(password) },
+                enabled = password.isNotBlank(),
+            ) { Text("Delete account") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
 private fun sendSupportEmail(context: Context, subject: String, body: String = "") {
     val uri = Uri.parse(
         "mailto:Hello@useimpulsive.com" +
@@ -1872,8 +2317,7 @@ private val SupportGlow = SettingsBoxBorder
 private val PlusRainbowGlow = listOf(
     Color(0xFFD0C3F1),
     Color(0xFFBDE0FE),
-    Color(0xFFBAFFC9),
-    Color(0xFFFFFFBA),
+    Color(0xFFFEF1AB),
     Color(0xFFF5A7A6),
     Color(0xFFD8B0EB),
     Color(0xFFD0C3F1),

@@ -239,6 +239,12 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         setReminder(if (target.isAfter(now)) target else target.plusDays(1))
     }
 
+    fun setReminderTodayAt(hour: Int, minute: Int = 0) {
+        val now = LocalDateTime.now(ReminderZone)
+        val target = now.withHour(hour).withMinute(minute).withSecond(0).withNano(0)
+        setReminder(if (target.isAfter(now)) target else target.plusDays(1))
+    }
+
     fun setReminderTomorrowMorning() {
         setReminder(LocalDateTime.now(ReminderZone).plusDays(1).withHour(8).withMinute(0).withSecond(0).withNano(0))
     }
@@ -267,7 +273,7 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         _editorState.update { it.copy(reminderAtMillis = millis, savedNoteId = null, noteLimitReached = false) }
     }
 
-    fun saveCurrent() {
+    fun saveCurrent(onSaved: (() -> Unit)? = null) {
         val current = _editorState.value
         val isNewNote = current.noteId == 0L
         if (isNewNote && _listState.value.noteCount >= MaxNormalJournalSaves) {
@@ -319,7 +325,26 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
                     noteLimitReached = false,
                 )
             }
+            onSaved?.invoke()
         }
+    }
+
+    fun saveCurrentIfNeeded(onSaved: () -> Unit) {
+        val current = _editorState.value
+        val hasMeaningfulDraft =
+            current.noteId != 0L ||
+                current.titleDraft.isNotBlank() ||
+                current.bodyDraft.isNotBlank() ||
+                current.sketchDraft.isNotBlank() ||
+                current.checklistItems.any { it.text.isNotBlank() } ||
+                current.reminderAtMillis != null
+
+        if (!hasMeaningfulDraft) {
+            onSaved()
+            return
+        }
+
+        saveCurrent(onSaved)
     }
 
     fun deleteCurrent(onDeleted: () -> Unit) {
@@ -342,8 +367,45 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { repository.setPinned(noteId, pinned) }
     }
 
+    fun toggleCurrentPinned() {
+        val current = _editorState.value
+        val nextPinned = !current.isPinned
+
+        _editorState.update {
+            it.copy(
+                isPinned = nextPinned,
+                savedNoteId = null,
+                noteLimitReached = false,
+            )
+        }
+
+        if (current.noteId != 0L) {
+            viewModelScope.launch {
+                repository.setPinned(current.noteId, nextPinned)
+            }
+        }
+    }
+
     fun setHighlight(noteId: Long, highlightColor: String?) {
         viewModelScope.launch { repository.setHighlight(noteId, highlightColor) }
+    }
+
+    fun setCurrentHighlight(highlightColor: String?) {
+        val current = _editorState.value
+
+        _editorState.update {
+            it.copy(
+                highlightColor = highlightColor,
+                savedNoteId = null,
+                noteLimitReached = false,
+            )
+        }
+
+        if (current.noteId != 0L) {
+            viewModelScope.launch {
+                repository.setHighlight(current.noteId, highlightColor)
+            }
+        }
     }
 
     fun setCategory(noteId: Long, category: String) {

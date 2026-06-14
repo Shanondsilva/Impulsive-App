@@ -21,12 +21,20 @@ import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.data.repository.UrgeEventRepository
+import com.impulsive.app.backend.data.repository.WindowOutcomeRepository
+import com.impulsive.app.backend.data.repository.FocusSessionRepository
+import com.impulsive.app.backend.data.repository.FocusSetupRepository
+import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
+import com.impulsive.app.backend.domain.model.focus.isElapsed
+import com.impulsive.app.backend.domain.model.focus.focusCompletionLevelPoints
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluator
 import com.impulsive.app.backend.domain.model.protection.ProtectionWindowSnapshot
 import com.impulsive.app.backend.domain.model.protection.toProtectionWindowKey
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
+import com.impulsive.app.backend.domain.model.release.ReleasePlanDefaults
+import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.impulsive.app.backend.domain.model.tasks.InitialLevel
@@ -54,6 +62,23 @@ class AppMonitorService : Service() {
     private val onboardingRepository by lazy { OnboardingRepository(applicationContext) }
     private val taskRewardRepository by lazy { TaskRewardRepository(applicationContext) }
     private val urgeEventRepository by lazy { UrgeEventRepository(applicationContext) }
+    private val windowOutcomeRepository by lazy { WindowOutcomeRepository(applicationContext) }
+    private val focusSessionRepository by lazy { FocusSessionRepository(applicationContext) }
+    private val focusSetupRepository by lazy { FocusSetupRepository(applicationContext) }
+    private val focusConfiguredBlockedPackages by lazy {
+        focusSetupRepository.configuredBlockedPackages.stateIn(
+            scope = serviceScope,
+            started = SharingStarted.Eagerly,
+            initialValue = null,
+        )
+    }
+    private val focusSession by lazy {
+        focusSessionRepository.session.stateIn(
+            scope = serviceScope,
+            started = SharingStarted.Eagerly,
+            initialValue = null,
+        )
+    }
     private val appSettingsDataSource by lazy { AppSettingsPreferencesDataSource(applicationContext) }
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
 
@@ -82,6 +107,12 @@ class AppMonitorService : Service() {
     private var monitorJob: kotlinx.coroutines.Job? = null
     private var lastHandledPackageName: String? = null
     private var lastHandledAtMillis: Long = 0L
+    // In-memory guards so window outcome recording does not write to DataStore
+    // on every poll tick. lastUsedWindowKey prevents repeated used-writes while
+    // the user stays inside a protected app during one release window.
+    // lastSkippedSweepMinute limits the skipped-window sweep to once per minute.
+    private var lastUsedWindowKey: String? = null
+    private var lastSkippedSweepMinute: Long = -1L
 
     // Tracks screen-on state so we can slow the poll cadence when the screen is off.
     private var isScreenOn = true
@@ -172,9 +203,10 @@ class AppMonitorService : Service() {
     private suspend fun evaluateForegroundApp() {
         if (!usageAccessChecker.hasUsageAccess()) return
         val protectedPackages = setupState.value.selectedBlockedAppPackageNames
-        if (protectedPackages.isEmpty()) return
         val windowSnapshot = currentProtectionWindowSnapshot()
         handleWindowNotifications(windowSnapshot)
+        sweepSkippedWindows(windowSnapshot.now)
+        checkFocusSessionCompletion(windowSnapshot.now)
         val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage() ?: return
         if (foregroundPackage == applicationContext.packageName) return
         // The user has moved off the app we last intercepted (home screen,
@@ -187,8 +219,31 @@ class AppMonitorService : Service() {
         if (foregroundPackage != lastHandledPackageName) {
             lastHandledPackageName = null
         }
+        // A running focus session blocks its own effective app list,
+        // unconditionally and including during release windows. The focus list
+        // is the configured one, or the urge-protection list when the user has
+        // never configured focus apps. This check runs before the urge gate so
+        // focus can block apps the urge system does not cover.
+        val liveFocusSession = focusSession.value
+        if (liveFocusSession != null && liveFocusSession.phase == FocusSessionPhase.Running) {
+            val focusBlockedPackages = focusConfiguredBlockedPackages.value ?: protectedPackages
+            if (foregroundPackage in focusBlockedPackages) {
+                handleFocusInterruption(
+                    sourcePackageName = foregroundPackage,
+                    sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage),
+                )
+                return
+            }
+        }
         if (foregroundPackage !in protectedPackages) return
-        if (windowSnapshot.isProtectionPaused) return
+        if (windowSnapshot.isProtectionPaused) {
+            val pausedStart = windowSnapshot.pausedWindowStart
+            if (pausedStart != null && pausedStart.toString() != lastUsedWindowKey) {
+                lastUsedWindowKey = pausedStart.toString()
+                windowOutcomeRepository.markWindowUsed(pausedStart)
+            }
+            return
+        }
         val sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage)
         handleBlockedAppOpen(
             sourcePackageName = foregroundPackage,
@@ -196,19 +251,105 @@ class AppMonitorService : Service() {
         )
     }
 
-    private fun currentProtectionWindowSnapshot(): ProtectionWindowSnapshot {
-        val now = LocalDateTime.now()
+    /**
+     * Marks the focus session Completed exactly once when its time has fully
+     * elapsed. The Level Points award for a completed session will be wired
+     * here in a later prompt; this function must stay the single completion
+     * point so the reward can never double-fire.
+     */
+    private suspend fun checkFocusSessionCompletion(now: LocalDateTime) {
+        val session = focusSession.value ?: return
+        if (session.phase != FocusSessionPhase.Running) return
+        if (!session.isElapsed(now)) return
+        val completed = focusSessionRepository.completeIfElapsed(now) ?: return
+        taskRewardRepository.awardLevelPoints(
+            focusCompletionLevelPoints(completed.durationMinutes),
+        )
+    }
+
+    /**
+     * A protected app reached the foreground during a running focus session.
+     * Debounced identically to handleBlockedAppOpen. Records a session
+     * interruption instead of an urge event: focus interruptions are a
+     * different signal and must not feed the urge trend or taper inputs.
+     * Interim: launches the existing block screen; a later prompt reroutes
+     * this to the focus recovery screen.
+     */
+    private fun handleFocusInterruption(
+        sourcePackageName: String,
+        sourceLabel: String,
+    ) {
+        val nowMillis = System.currentTimeMillis()
+        val sameRecentPackage = lastHandledPackageName == sourcePackageName &&
+            nowMillis - lastHandledAtMillis < BlockHandlingCooldownMillis
+        if (sameRecentPackage) return
+        lastHandledPackageName = sourcePackageName
+        lastHandledAtMillis = nowMillis
+        serviceScope.launch {
+            focusSessionRepository.recordInterruption()
+        }
+        val blockIntent = MainActivity.createBlockIntent(
+            context = this,
+            sourcePackageName = sourcePackageName,
+            sourceLabel = sourceLabel,
+            isFocusSession = true,
+        )
+        // Try the direct activity launch first. It succeeds only when the
+        // overlay permission is active and the OS allows the background launch.
+        // On any failure, fall through to the full-screen-intent notification,
+        // which takes over the screen when its own permission is granted and
+        // otherwise surfaces as a high-priority notification.
+        val launched = if (Settings.canDrawOverlays(this)) {
+            runCatching { startActivity(blockIntent) }
+                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
+                .isSuccess
+        } else {
+            false
+        }
+        if (!launched) {
+            notificationHelper.showBlockFullScreen(
+                sourcePackageName = sourcePackageName,
+                sourceLabel = sourceLabel,
+                hideSensitive = hideSensitiveNotifications.value,
+            )
+        }
+    }
+
+    private fun currentBaseReleasePlan(now: LocalDateTime): ReleasePlanState {
         val answers = onboardingAnswers.value
-        val baseReleasePlan = calculateReleasePlan(
+        return calculateReleasePlan(
             selectedDailyUrgeCount = answers.dailyRelapseUrgeCount,
             now = now,
             activeDayStart = minuteOfDayToLocalTime(answers.activeDayStartMinute),
             activeDayEnd = minuteOfDayToLocalTime(answers.activeDayEndMinute),
         )
+    }
+
+    private fun currentProtectionWindowSnapshot(): ProtectionWindowSnapshot {
+        val now = LocalDateTime.now()
         return ProtectionWindowEvaluator.evaluate(
             now = now,
-            releasePlan = baseReleasePlan,
+            releasePlan = currentBaseReleasePlan(now),
             adjustedNextReleaseWindow = taskStoreState.value.adjustedNextReleaseWindow,
+        )
+    }
+
+    /**
+     * Marks planned windows from today as skipped once their 25 minute span has
+     * fully ended with no recorded usage. Runs at most once per minute. Only
+     * today's planned windows are swept on purpose: windows that passed while
+     * the service was not running stay unrecorded instead of being guessed as
+     * skipped, so the future taper engine only acts on real observations.
+     */
+    private suspend fun sweepSkippedWindows(now: LocalDateTime) {
+        val minuteKey = now.toLocalDate().toEpochDay() * 1_440L + now.hour * 60L + now.minute
+        if (minuteKey == lastSkippedSweepMinute) return
+        lastSkippedSweepMinute = minuteKey
+        val plan = currentBaseReleasePlan(now)
+        windowOutcomeRepository.markEndedWindowsSkipped(
+            plannedWindowStarts = plan.plannedWindowsToday,
+            windowMinutes = ReleasePlanDefaults.ReleaseWindowMinutes,
+            now = now,
         )
     }
 
@@ -249,17 +390,19 @@ class AppMonitorService : Service() {
             sourcePackageName = sourcePackageName,
             sourceLabel = sourceLabel,
         )
-        if (Settings.canDrawOverlays(this)) {
+        // Try the direct activity launch first. It succeeds only when the
+        // overlay permission is active and the OS allows the background launch.
+        // On any failure, fall through to the full-screen-intent notification,
+        // which takes over the screen when its own permission is granted and
+        // otherwise surfaces as a high-priority notification.
+        val launched = if (Settings.canDrawOverlays(this)) {
             runCatching { startActivity(blockIntent) }
-                .onFailure {
-                    FirebaseCrashlytics.getInstance().recordException(it)
-                    notificationHelper.showBlockFullScreen(
-                        sourcePackageName = sourcePackageName,
-                        sourceLabel = sourceLabel,
-                        hideSensitive = hideSensitiveNotifications.value,
-                    )
-                }
+                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
+                .isSuccess
         } else {
+            false
+        }
+        if (!launched) {
             notificationHelper.showBlockFullScreen(
                 sourcePackageName = sourcePackageName,
                 sourceLabel = sourceLabel,

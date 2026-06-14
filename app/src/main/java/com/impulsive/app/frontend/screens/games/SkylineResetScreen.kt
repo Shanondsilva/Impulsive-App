@@ -1,12 +1,15 @@
 package com.impulsive.app.frontend.screens.games
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -25,10 +28,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -36,21 +39,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,9 +57,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
-import com.impulsive.app.backend.domain.game.SkylineDropResult
-import com.impulsive.app.backend.domain.game.SkylineResetPerPerfectControlPoints
-import com.impulsive.app.backend.domain.game.SkylineResetRoundSeconds
+import com.impulsive.app.backend.domain.game.StackBlock
+import com.impulsive.app.backend.domain.game.StackBlockHeight
+import com.impulsive.app.backend.domain.game.StackDropResult
+import com.impulsive.app.backend.domain.game.StackRoundSeconds
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
@@ -73,23 +72,29 @@ import com.impulsive.app.backend.session.game.SkylineResetUiState
 import com.impulsive.app.backend.session.game.SkylineResetView
 import com.impulsive.app.backend.session.game.SkylineResetViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.settings.AppSettingsViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
+import com.impulsive.app.frontend.components.GameSoundToggle
+import com.impulsive.app.frontend.components.UrgeRatingRow
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSurface
 import com.impulsive.app.frontend.theme.ImpulsiveText
+import com.impulsive.app.frontend.utils.rememberImpulsiveSounds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.time.LocalDateTime
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
-import kotlin.random.Random
 
-private val SkylineBackground = Color(0xFF0F0B22)
-private val WindowWarm = Color(0xFFFFE0A0)
-private val WindowCool = Color(0xFFCFE0FF)
-private val WindowOff = Color(0xFF241F40)
-private const val SkylineTowerInsetFraction = 0.08f
+private val SkyVoidTop = Color(0xFF0A0816)
+private val SkyVoidBottom = Color(0xFF140D28)
+private val SkyPanel = Color(0xFF181226)
+private val SkyPanelStroke = Color(0xFFD9CCFF).copy(alpha = 0.14f)
 
 @Composable
 fun SkylineResetScreen(
@@ -99,14 +104,35 @@ fun SkylineResetScreen(
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: SkylineResetViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
+    LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
+    val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    val sounds = rememberImpulsiveSounds(appSettingsState.soundEffectsEnabled)
+    LaunchedEffect(uiState.dropSeq) {
+        if (uiState.dropSeq > 0) {
+            sounds.skySetClick()
+        }
+    }
+    LaunchedEffect(uiState.view, uiState.completed) {
+        if (uiState.view == SkylineResetView.Result && uiState.completed) {
+            sounds.skyComplete()
+        }
+    }
+    LaunchedEffect(uiState.view, appSettingsState.soundEffectsEnabled) {
+        if (uiState.view == SkylineResetView.Playing && appSettingsState.soundEffectsEnabled) {
+            sounds.startAmbient()
+        } else {
+            sounds.stopAmbient()
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
-    var rewardLogged by remember { mutableStateOf(false) }
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
+    var rewardLogged by remember(launchSource) { mutableStateOf(false) }
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
         while (true) {
             value = LocalDateTime.now()
@@ -126,37 +152,27 @@ fun SkylineResetScreen(
         now = currentNow,
     )
 
-    fun launchedFrom(): String = if (launchSource == ReflexGameLaunchSource.RECOVERY_GAME) {
-        "RECOVERY_GAME"
-    } else {
-        "TASK_TO_COMPLETE"
-    }
+    fun stackScore(): Int = uiState.stackScore()
 
-    fun logCompletion(validCompletion: Boolean) {
+    fun logTaskResult(validCompletion: Boolean) {
         if (!taskLaunch || rewardLogged) return
         rewardLogged = true
         taskRewardViewModel.completeTask(
             taskType = PsychologyTaskType.SkylineReset,
             releasePlan = releasePlan,
             now = LocalDateTime.now(),
-            launchedFrom = launchedFrom(),
-            gameType = PsychologyTaskType.SkylineReset.id.uppercase(),
-            score = uiState.floorsBuilt,
+            launchedFrom = "TASK_TO_COMPLETE",
+            gameType = "SKYLINE_RESET",
+            score = stackScore(),
             durationSec = uiState.secondsPlayed,
             validCompletion = validCompletion,
         )
     }
 
     fun exitSafely() {
-        if (uiState.view == SkylineResetView.Result) {
-            viewModel.recordCurrentResult(
-                outcome = if (uiState.completed) ScoreSessionOutcome.Completed else ScoreSessionOutcome.Abandoned,
-            )
-        } else if (uiState.view != SkylineResetView.Ready) {
-            viewModel.recordCurrentResult(ScoreSessionOutcome.WalkedAway)
-        }
-        if (!uiState.completed && uiState.view != SkylineResetView.Ready && uiState.view != SkylineResetView.Result) {
-            logCompletion(validCompletion = false)
+        if (uiState.view == SkylineResetView.Playing || uiState.view == SkylineResetView.Paused) {
+            viewModel.recordCurrentResult(ScoreSessionOutcome.Abandoned)
+            logTaskResult(validCompletion = false)
         }
         if (uiState.completed) {
             taskRewardViewModel.clearLastCompletionResult()
@@ -175,57 +191,77 @@ fun SkylineResetScreen(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
-    LaunchedEffect(uiState.view, uiState.completed, taskLaunch) {
+    LaunchedEffect(uiState.view, uiState.completed, uiState.failed) {
         if (uiState.view == SkylineResetView.Result) {
-            logCompletion(validCompletion = true)
-            if (taskLaunch && uiState.completed) {
-                viewModel.bankPerfectControlPoints()
-            }
+            logTaskResult(validCompletion = uiState.completed)
+        }
+    }
+
+    LaunchedEffect(uiState.view) {
+        while (isActive && uiState.view == SkylineResetView.Playing) {
+            withFrameMillis { }
+            viewModel.tick()
         }
     }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(SkylineBackground)
+            .background(Brush.verticalGradient(listOf(SkyVoidTop, SkyVoidBottom)))
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = ::exitSafely) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White,
+                    tint = Color(0xFFF7F2FF),
                 )
             }
             Text(
                 text = "SkyStack",
-                color = Color.White,
+                color = Color(0xFFF7F2FF),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
+            Spacer(modifier = Modifier.weight(1f))
+            GameSoundToggle(
+                enabled = appSettingsState.soundEffectsEnabled,
+                tint = Color(0xFFF7F2FF),
+                onToggle = appSettingsViewModel::setSoundEffectsEnabled,
+            )
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         when (uiState.view) {
-            SkylineResetView.Ready -> SkylineReadyPanel(onStart = viewModel::start)
-            SkylineResetView.Playing -> SkylinePlayArea(
-                uiState = uiState,
-                onTick = viewModel::tick,
-                onDrop = viewModel::drop,
+            SkylineResetView.Ready -> ReadyPanel(
+                onStart = {
+                    taskRewardViewModel.clearLastCompletionResult()
+                    rewardLogged = false
+                    viewModel.start()
+                },
+                onUrgeBeforeSelected = viewModel::setUrgeBefore,
             )
-            SkylineResetView.Paused -> SkylinePausedPanel(onResume = viewModel::resume, onExit = ::exitSafely)
-            SkylineResetView.Result -> SkylineResultPanel(
+            SkylineResetView.Playing -> PlayingPanel(uiState = uiState, onDrop = viewModel::drop)
+            SkylineResetView.Paused -> PausedPanel(onResume = viewModel::resume, onExit = ::exitSafely)
+            SkylineResetView.Result -> ResultPanel(
                 uiState = uiState,
+                onUrgeAfterSelected = viewModel::setUrgeAfter,
                 taskCompletionResult = taskCompletionResult,
                 taskLaunch = taskLaunch,
                 onDone = ::exitSafely,
                 onPlayAgain = {
+                    viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
                     taskRewardViewModel.clearLastCompletionResult()
                     rewardLogged = false
                     viewModel.start()
@@ -235,389 +271,385 @@ fun SkylineResetScreen(
     }
 }
 
-private class SkylineFx {
-    val falls = ArrayList<FallPiece>()
-    val rings = ArrayList<RingFx>()
-    var cam = 0f
-    var lastMs = 0L
-    var scene: SkyScene? = null
+@Composable
+private fun ReadyPanel(
+    onStart: () -> Unit,
+    onUrgeBeforeSelected: (Int) -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        SkyStackGameScene(
+            uiState = SkylineResetUiState(
+                blocks = listOf(com.impulsive.app.backend.domain.game.newStackBaseBlock()),
+            ),
+            modifier = Modifier.fillMaxSize(),
+            onDrop = {},
+        )
+        CenterPanel {
+            Text(
+                text = "Stack a calm tower.",
+                color = ImpulsiveText,
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Tap to place the sliding block. Only the overlap stays.",
+                color = ImpulsiveMutedText,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            var selectedUrgeBefore by remember { mutableStateOf<Int?>(null) }
+            UrgeRatingRow(
+                label = "How strong is the urge right now?",
+                selected = selectedUrgeBefore,
+                onSelect = { value ->
+                    selectedUrgeBefore = value
+                    onUrgeBeforeSelected(value)
+                },
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            Button(
+                onClick = onStart,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = ImpulsiveText,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Start")
+            }
+        }
+    }
 }
 
-private class FallPiece(var x: Float, var w: Float, var top: Float, var vy: Float, var alpha: Float, val hue: Int)
-private class RingFx(var x: Float, var y: Float, var r: Float, var alpha: Float, val hue: Int)
-
 @Composable
-private fun SkylinePlayArea(
+private fun PlayingPanel(
     uiState: SkylineResetUiState,
-    onTick: () -> Unit,
     onDrop: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SkylineProgressHud(uiState = uiState)
-        BoxWithConstraints(
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SkyStackHud(uiState = uiState)
+        SkyStackGameScene(
+            uiState = uiState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .clipToBounds(),
-        ) {
-            val density = LocalDensity.current
-            val wPx = with(density) { maxWidth.toPx() }
-            val hPx = with(density) { maxHeight.toPx() }
-            val floorH = with(density) { 26.dp.toPx() }
-            val marginPx = with(density) { 6.dp.toPx() }
-            val fx = remember { SkylineFx() }
-            var frameTick by remember { mutableStateOf(0L) }
-            val stateNow by rememberUpdatedState(uiState)
-
-            fun naturalTop(i: Int): Float = (hPx - marginPx) - (i + 1) * floorH
-            fun towerLeft(left01: Float): Float = wPx * SkylineTowerInsetFraction + left01 * (wPx * (1f - SkylineTowerInsetFraction * 2f))
-            fun towerWidth(width01: Float): Float = width01 * (wPx * (1f - SkylineTowerInsetFraction * 2f))
-
-            LaunchedEffect(uiState.dropSeq) {
-                if (uiState.dropSeq <= 0) return@LaunchedEffect
-                val floorsCount = uiState.floors.size
-                val placedIdx = floorsCount - 1
-                val topY = naturalTop(placedIdx) + fx.cam
-                val hue = uiState.floors.lastOrNull()?.hue ?: 0
-                if (uiState.lastTrimWidth > 0f) {
-                    fx.falls.add(
-                        FallPiece(
-                            x = towerLeft(uiState.lastTrimLeft),
-                            w = towerWidth(uiState.lastTrimWidth),
-                            top = topY,
-                            vy = 0f,
-                            alpha = 1f,
-                            hue = hue,
-                        ),
-                    )
-                }
-                if (uiState.lastDropResult == SkylineDropResult.Perfect) {
-                    val placed = uiState.floors.lastOrNull()
-                    if (placed != null) {
-                        fx.rings.add(
-                            RingFx(
-                                x = towerLeft(placed.left + placed.width / 2f),
-                                y = topY + floorH / 2f,
-                                r = towerWidth(placed.width) * 0.4f,
-                                alpha = 0.85f,
-                                hue = hue,
-                            ),
-                        )
-                    }
-                }
-            }
-
-            LaunchedEffect(Unit) {
-                while (isActive) {
-                    val ms = withFrameMillis { it }
-                    val dt = if (fx.lastMs == 0L) 16f else (ms - fx.lastMs).coerceIn(0L, 50L).toFloat()
-                    fx.lastMs = ms
-                    val f = dt / 16f
-                    onTick()
-                    if (fx.scene == null && wPx > 0f && hPx > 0f) fx.scene = genSkyScene(wPx, hPx)
-                    val sc = fx.scene
-                    if (sc != null) {
-                        sc.t += dt
-                        for (c in sc.clouds) {
-                            c.x += c.sp * f
-                            if (c.x - c.r > wPx) c.x = -c.r
-                        }
-                        for (s in sc.stars) s.tw += s.sp * f
-                        val bird = sc.bird
-                        if (bird == null) {
-                            if (Random.nextFloat() < 0.004f * f) {
-                                val dir = if (Random.nextBoolean()) 1 else -1
-                                val n = 3 + Random.nextInt(4)
-                                val offs = ArrayList<Pair<Float, Float>>()
-                                for (k in 0 until n) offs.add(Pair(k * 16f * dir, (k % 2) * 9f))
-                                sc.bird = SkyBird(
-                                    if (dir > 0) -30f else wPx + 30f,
-                                    30f + Random.nextFloat() * hPx * 0.22f,
-                                    dir * (0.6f + Random.nextFloat() * 0.5f),
-                                    dir,
-                                    offs,
-                                    0f,
-                                )
-                            }
-                        } else {
-                            bird.x += bird.vx * f
-                            bird.ph += 0.25f * f
-                            if ((bird.dir > 0 && bird.x > wPx + 60f) || (bird.dir < 0 && bird.x < -60f)) sc.bird = null
-                        }
-                        val shoot = sc.shoot
-                        if (shoot == null) {
-                            if (Random.nextFloat() < 0.0025f * f) {
-                                sc.shoot = SkyShoot(
-                                    Random.nextFloat() * wPx * 0.6f + wPx * 0.2f,
-                                    Random.nextFloat() * hPx * 0.2f + 10f,
-                                    0f,
-                                    1f,
-                                    6f,
-                                    2.4f,
-                                )
-                            }
-                        } else {
-                            shoot.x += shoot.vx * f
-                            shoot.y += shoot.vy * f
-                            shoot.len = (shoot.len + 5f * f).coerceAtMost(70f)
-                            shoot.alpha -= 0.02f * f
-                            if (shoot.alpha <= 0f) sc.shoot = null
-                        }
-                    }
-                    val floorsCount = stateNow.floors.size
-                    val camTarget = (hPx * 0.30f - naturalTop(floorsCount)).coerceAtLeast(0f)
-                    fx.cam += (camTarget - fx.cam) * (0.12f * f).coerceAtMost(1f)
-                    val itF = fx.falls.iterator()
-                    while (itF.hasNext()) {
-                        val p = itF.next()
-                        p.vy += 0.6f * f
-                        p.top += p.vy * f
-                        p.alpha -= 0.012f * f
-                        if (p.top > hPx + 80f || p.alpha <= 0f) itF.remove()
-                    }
-                    val itR = fx.rings.iterator()
-                    while (itR.hasNext()) {
-                        val r = itR.next()
-                        r.r += 2.4f * f
-                        r.alpha -= 0.04f * f
-                        if (r.alpha <= 0f) itR.remove()
-                    }
-                    frameTick = ms
-                }
-            }
-
-            Canvas(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) { detectTapGestures { onDrop() } },
-            ) {
-                frameTick
-                val nightScene = fx.scene
-                if (nightScene != null) {
-                    drawNightCity(nightScene, fx.cam, wPx, hPx, marginPx)
-                } else {
-                    drawRect(color = SkylineBackground, size = Size(wPx, hPx))
-                }
-                val floors = stateNow.floors
-                for (i in floors.indices) {
-                    val fl = floors[i]
-                    val y = naturalTop(i) + fx.cam
-                    if (y > hPx + floorH || y < -floorH) continue
-                    drawSkylineFloor(fl.left, fl.width, fl.hue, i, false, wPx, floorH, y)
-                }
-                drawSkylineFloor(
-                    stateNow.movingLeft,
-                    stateNow.movingWidth,
-                    stateNow.movingHue,
-                    floors.size,
-                    true,
-                    wPx,
-                    floorH,
-                    naturalTop(floors.size) + fx.cam,
-                )
-                for (p in fx.falls) {
-                    drawRoundRect(
-                        color = Color.hsv(p.hue.toFloat(), 0.40f, 0.42f).copy(alpha = p.alpha.coerceIn(0f, 1f)),
-                        topLeft = Offset(p.x, p.top),
-                        size = Size(p.w, floorH - 3f),
-                        cornerRadius = CornerRadius(5f, 5f),
-                    )
-                }
-                for (r in fx.rings) {
-                    drawCircle(
-                        color = Color.hsv(r.hue.toFloat(), 0.55f, 0.85f).copy(alpha = r.alpha.coerceIn(0f, 1f)),
-                        radius = r.r,
-                        center = Offset(r.x, r.y),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f),
-                    )
-                }
-            }
-        }
-        Text(
-            text = "Tap to drop each floor",
-            color = Color.White.copy(alpha = 0.7f),
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-private fun DrawScope.drawSkylineFloor(
-    left01: Float,
-    width01: Float,
-    hue: Int,
-    idx: Int,
-    active: Boolean,
-    wPx: Float,
-    floorH: Float,
-    topY: Float,
-) {
-    val inset = wPx * SkylineTowerInsetFraction
-    val field = wPx - inset * 2f
-    val x = inset + left01 * field
-    val w = width01 * field
-    val bh = floorH - 3f
-    val bodyAlpha = if (active) 0.86f else 1f
-    val radius = CornerRadius(6f, 6f)
-
-    drawRoundRect(
-        color = Color.hsv(hue.toFloat(), 0.46f, 0.70f).copy(alpha = bodyAlpha),
-        topLeft = Offset(x, topY),
-        size = Size(w, bh),
-        cornerRadius = radius,
-    )
-    val winW = w * 0.21f
-    val winH = bh * 0.30f
-    if (winW < 3f || winH < 3f) return
-    val winAlpha = if (active) 0.5f else 1f
-    val colX = floatArrayOf(x + w * 0.17f, x + w * 0.55f)
-    val rowY = floatArrayOf(topY + bh * 0.26f, topY + bh * 0.58f)
-    for (cell in 0 until 4) {
-        val cx = colX[cell % 2]
-        val cy = rowY[cell / 2]
-        val lit = ((idx * 3 + cell * 5) % 7) != 0
-        val warm = ((idx + cell * 2) % 2) == 0
-        val wc = if (lit) (if (warm) WindowWarm else WindowCool) else WindowOff
-        drawRoundRect(
-            color = wc.copy(alpha = winAlpha),
-            topLeft = Offset(cx, cy),
-            size = Size(winW, winH),
-            cornerRadius = CornerRadius(2f, 2f),
+                .weight(1f),
+            onDrop = onDrop,
         )
     }
 }
 
 @Composable
-private fun SkylineProgressHud(uiState: SkylineResetUiState) {
-    val progress = (uiState.secondsPlayed / SkylineResetRoundSeconds.toFloat()).coerceIn(0f, 1f)
-    val potentialPoints = uiState.perfectCount.coerceAtLeast(0) * SkylineResetPerPerfectControlPoints
-
+private fun SkyStackHud(uiState: SkylineResetUiState) {
     Surface(
-        color = ImpulsiveSurface,
+        color = SkyPanel.copy(alpha = 0.64f),
         shape = RoundedCornerShape(24.dp),
-        tonalElevation = 2.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, SkyPanelStroke),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                SkylineHud("Time", "${uiState.secondsPlayed}s")
-                SkylineHud("Floors", uiState.floorsBuilt.toString())
-                SkylineHud("Perfect", uiState.perfectCount.toString())
-                SkylineHud("Points", potentialPoints.toString())
-            }
-            LinearProgressIndicator(
-                progress = { progress },
-                color = ImpulsivePsychological,
-                trackColor = ImpulsivePsychological.copy(alpha = 0.18f),
-                drawStopIndicator = {},
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(7.dp)
-                    .clip(RoundedCornerShape(50)),
-            )
-            Text(
-                text = "Goal: ${SkylineResetRoundSeconds}s. Keep stacking until the round ends.",
-                color = ImpulsiveMutedText,
-                style = MaterialTheme.typography.labelSmall,
-            )
+            HudStat("Time", "${(StackRoundSeconds - uiState.secondsPlayed).coerceAtLeast(0)}s")
+            HudStat("Blocks", uiState.floorsBuilt.toString())
+            HudStat("Perfect", uiState.perfectCount.toString())
+            HudStat("Points", uiState.stackScore().toString())
         }
     }
 }
 
 @Composable
-private fun SkylineHud(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = label,
-            color = ImpulsiveMutedText,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Text(
-            text = value,
-            color = ImpulsiveText,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+private fun SkyStackGameScene(
+    uiState: SkylineResetUiState,
+    modifier: Modifier = Modifier,
+    onDrop: () -> Unit,
+) {
+    val targetCameraY = uiState.activeIndex * StackBlockHeight
+    val cameraY by animateFloatAsState(
+        targetValue = targetCameraY,
+        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+        label = "skyStackCameraY",
+    )
+    val choppedProgress = remember { Animatable(1f) }
+    val perfectPulse = remember { Animatable(0f) }
+
+    LaunchedEffect(uiState.dropSeq, uiState.choppedPresent) {
+        if (uiState.choppedPresent) {
+            choppedProgress.snapTo(0f)
+            choppedProgress.animateTo(1f, tween(durationMillis = 900, easing = FastOutSlowInEasing))
+        } else {
+            choppedProgress.snapTo(1f)
+        }
+    }
+
+    LaunchedEffect(uiState.dropSeq, uiState.lastDropResult) {
+        if (uiState.lastDropResult == StackDropResult.Perfect) {
+            perfectPulse.snapTo(0f)
+            perfectPulse.animateTo(1f, tween(durationMillis = 460, easing = FastOutSlowInEasing))
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .pointerInput(uiState.view) {
+                detectTapGestures {
+                    if (uiState.view == SkylineResetView.Playing) onDrop()
+                }
+            },
+    ) {
+        drawSkyBackground()
+        val tile = min(size.width / 5.4f, size.height / 6.2f).coerceAtLeast(42f)
+        val center = Offset(size.width / 2f, size.height * 0.64f)
+        val lowerBlocks = uiState.blocks.sortedBy { it.index }
+        lowerBlocks.forEach { block ->
+            drawSkyStackBlock(
+                block = block,
+                center = center,
+                tile = tile,
+                cameraY = cameraY,
+                active = false,
+            )
+        }
+
+        if (uiState.choppedPresent && choppedProgress.value < 1f) {
+            val drift = uiState.choppedDir * choppedProgress.value * 0.95f
+            val fall = choppedProgress.value * choppedProgress.value * 3.4f
+            val choppedBlock = StackBlock(
+                index = uiState.activeIndex - 1,
+                x = uiState.choppedX + if (uiState.choppedAxisIsX) drift else 0f,
+                z = uiState.choppedZ + if (uiState.choppedAxisIsX) 0f else drift,
+                width = uiState.choppedWidth,
+                depth = uiState.choppedDepth,
+                hue = uiState.choppedHue,
+            )
+            drawSkyStackBlock(
+                block = choppedBlock,
+                center = center,
+                tile = tile,
+                cameraY = cameraY + fall,
+                active = true,
+                alpha = (1f - choppedProgress.value * 0.9f).coerceIn(0f, 1f),
+                yOverride = uiState.choppedY - fall,
+            )
+        }
+
+        if (uiState.view == SkylineResetView.Playing) {
+            val activeBlock = StackBlock(
+                index = uiState.activeIndex,
+                x = uiState.activeX,
+                z = uiState.activeZ,
+                width = uiState.activeWidth,
+                depth = uiState.activeDepth,
+                hue = uiState.activeHue,
+            )
+            drawSkyStackBlock(
+                block = activeBlock,
+                center = center,
+                tile = tile,
+                cameraY = cameraY,
+                active = true,
+            )
+        }
+
+        if (perfectPulse.value > 0f && lowerBlocks.isNotEmpty()) {
+            val top = lowerBlocks.last()
+            val pulse = perfectPulse.value
+            val centerPoint = isoProject(
+                worldX = top.x + top.width / 2f,
+                worldZ = top.z + top.depth / 2f,
+                worldY = (top.index + 1) * StackBlockHeight,
+                center = center,
+                tile = tile,
+                cameraY = cameraY,
+            )
+            drawCircle(
+                color = Color(0xFFE7D9FF).copy(alpha = (1f - pulse) * 0.34f),
+                radius = tile * (0.38f + pulse * 0.54f),
+                center = centerPoint,
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawSkyBackground() {
+    drawRect(Brush.verticalGradient(listOf(SkyVoidTop, SkyVoidBottom)))
+    val stars = 58
+    repeat(stars) { index ->
+        val x = ((sin(index * 12.9898) * 43758.5453) % 1.0).toFloat().let { (it + 1f) % 1f }
+        val y = ((cos(index * 78.233) * 24634.6345) % 1.0).toFloat().let { (it + 1f) % 1f }
+        val alpha = 0.08f + ((index % 7) / 7f) * 0.12f
+        drawCircle(
+            color = Color.White.copy(alpha = alpha),
+            radius = if (index % 9 == 0) 1.7f else 1.05f,
+            center = Offset(x * size.width, y * size.height),
         )
     }
 }
 
-@Composable
-private fun SkylineReadyPanel(onStart: () -> Unit) {
-    SkylineCenterPanel {
-        Text(
-            text = "Build a calm skyscraper, one floor at a time.",
-            color = ImpulsiveText,
-            style = MaterialTheme.typography.titleMedium,
-            textAlign = TextAlign.Center,
-            fontWeight = FontWeight.SemiBold,
+private fun DrawScope.drawSkyStackBlock(
+    block: StackBlock,
+    center: Offset,
+    tile: Float,
+    cameraY: Float,
+    active: Boolean,
+    alpha: Float = 1f,
+    yOverride: Float? = null,
+) {
+    if (block.width <= 0f || block.depth <= 0f) return
+    val y0 = yOverride ?: block.index * StackBlockHeight
+    val y1 = y0 + StackBlockHeight
+    val x0 = block.x
+    val x1 = block.x + block.width
+    val z0 = block.z
+    val z1 = block.z + block.depth
+    val b00 = isoProject(x0, z0, y0, center, tile, cameraY)
+    val b10 = isoProject(x1, z0, y0, center, tile, cameraY)
+    val b11 = isoProject(x1, z1, y0, center, tile, cameraY)
+    val b01 = isoProject(x0, z1, y0, center, tile, cameraY)
+    val t00 = isoProject(x0, z0, y1, center, tile, cameraY)
+    val t10 = isoProject(x1, z0, y1, center, tile, cameraY)
+    val t11 = isoProject(x1, z1, y1, center, tile, cameraY)
+    val t01 = isoProject(x0, z1, y1, center, tile, cameraY)
+    val colors = blockFaceColors(block.index, active, alpha)
+
+    drawPath(pathOf(t10, b10, b11, t11), colors.right)
+    drawPath(pathOf(t01, t11, b11, b01), colors.left)
+    drawPath(pathOf(t00, t10, t11, t01), colors.top)
+    drawPath(pathOf(t00, t10, t11, t01), Color.White.copy(alpha = 0.08f * alpha))
+}
+
+private fun isoProject(
+    worldX: Float,
+    worldZ: Float,
+    worldY: Float,
+    center: Offset,
+    tile: Float,
+    cameraY: Float,
+): Offset = Offset(
+    x = center.x + (worldX - worldZ) * tile,
+    y = center.y + (worldX + worldZ) * tile * 0.48f - (worldY - cameraY) * tile * 0.78f,
+)
+
+private data class BlockFaceColors(
+    val top: Color,
+    val left: Color,
+    val right: Color,
+)
+
+private fun blockFaceColors(index: Int, active: Boolean, alpha: Float = 1f): BlockFaceColors {
+    val lift = if (active) 1.08f else 1f
+    val hueDeg = ((index * 8f + 250f) % 360f + 360f) % 360f
+    val sat = 0.62f
+    fun face(value: Float): Color {
+        val v = (value * lift).coerceIn(0f, 1f)
+        val c = v * sat
+        val hp = hueDeg / 60f
+        val x = c * (1f - abs(hp % 2f - 1f))
+        val m = v - c
+        val r: Float
+        val g: Float
+        val b: Float
+        when {
+            hp < 1f -> { r = c; g = x; b = 0f }
+            hp < 2f -> { r = x; g = c; b = 0f }
+            hp < 3f -> { r = 0f; g = c; b = x }
+            hp < 4f -> { r = 0f; g = x; b = c }
+            hp < 5f -> { r = x; g = 0f; b = c }
+            else -> { r = c; g = 0f; b = x }
+        }
+        return Color(
+            red = ((r + m) * 255f).toInt().coerceIn(0, 255),
+            green = ((g + m) * 255f).toInt().coerceIn(0, 255),
+            blue = ((b + m) * 255f).toInt().coerceIn(0, 255),
+            alpha = (alpha * 255f).toInt().coerceIn(0, 255),
         )
-        Spacer(modifier = Modifier.height(10.dp))
+    }
+    return BlockFaceColors(
+        top = face(0.96f),
+        left = face(0.78f),
+        right = face(0.60f),
+    )
+}
+
+private fun pathOf(p0: Offset, p1: Offset, p2: Offset, p3: Offset): Path = Path().apply {
+    val points = listOf(p0, p1, p2, p3)
+    moveTo(p0.x, p0.y)
+    points.drop(1).forEach { lineTo(it.x, it.y) }
+    close()
+}
+
+@Composable
+private fun PausedPanel(
+    onResume: () -> Unit,
+    onExit: () -> Unit,
+) {
+    CenterPanel {
         Text(
-            text = "Tap to drop each floor. Line it up with the one below to keep climbing.",
+            text = "Paused",
+            color = ImpulsiveText,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "The tower waits here.",
             color = ImpulsiveMutedText,
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(22.dp))
         Button(
-            onClick = onStart,
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ImpulsivePsychological, contentColor = ImpulsiveText),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Start") }
-    }
-}
-
-@Composable
-private fun SkylinePausedPanel(onResume: () -> Unit, onExit: () -> Unit) {
-    SkylineCenterPanel {
-        Text(text = "Paused", color = ImpulsiveText, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(18.dp))
-        Button(
             onClick = onResume,
             shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ImpulsivePsychological, contentColor = ImpulsiveText),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = Color(0xFF281D38),
+            ),
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Resume") }
+        ) {
+            Text("Resume")
+        }
         Spacer(modifier = Modifier.height(10.dp))
         Button(
             onClick = onExit,
             shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ImpulsiveSurface, contentColor = ImpulsiveText),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SkyPanel,
+                contentColor = ImpulsiveText,
+            ),
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Leave") }
+        ) {
+            Text("Exit")
+        }
     }
 }
 
 @Composable
-private fun SkylineResultPanel(
+private fun ResultPanel(
     uiState: SkylineResetUiState,
+    onUrgeAfterSelected: (Int) -> Unit,
     taskCompletionResult: TaskCompletionResult?,
     taskLaunch: Boolean,
     onDone: () -> Unit,
     onPlayAgain: () -> Unit,
 ) {
-    val doneSaving = !taskLaunch ||
-        (taskCompletionResult != null && (!uiState.completed || uiState.controlPointsBanked != null))
-    val controlPointsText = when {
-        !uiState.completed -> "0"
-        taskLaunch && uiState.controlPointsBanked == null -> "Saving"
-        else -> (uiState.controlPointsBanked ?: 0).toString()
-    }
-    SkylineCenterPanel {
+    CenterPanel {
         Box(
-            modifier = Modifier.size(58.dp).background(ImpulsivePsychological.copy(alpha = 0.46f), CircleShape),
+            modifier = Modifier
+                .size(62.dp)
+                .background(ImpulsivePsychological.copy(alpha = 0.46f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = uiState.floorsBuilt.toString(),
+                text = uiState.stackScore().toString(),
                 color = ImpulsiveText,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
@@ -625,346 +657,142 @@ private fun SkylineResultPanel(
         }
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = if (uiState.completed) "SkyStack complete" else "Tower toppled",
+            text = when {
+                uiState.completed -> "SkyStack complete"
+                uiState.failed -> "Stack missed"
+                else -> "Round ended"
+            },
             color = ImpulsiveText,
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
             fontWeight = FontWeight.Bold,
         )
+        Spacer(modifier = Modifier.height(12.dp))
+        var selectedUrgeAfter by remember { mutableStateOf<Int?>(null) }
+        UrgeRatingRow(
+            label = "How strong is it now?",
+            selected = selectedUrgeAfter,
+            onSelect = { value ->
+                selectedUrgeAfter = value
+                onUrgeAfterSelected(value)
+            },
+        )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = skylineResultLabel(uiState, taskCompletionResult, taskLaunch),
+            text = resultLabel(uiState, taskCompletionResult, taskLaunch),
             color = ImpulsiveMutedText,
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
             fontWeight = FontWeight.Medium,
         )
         Spacer(modifier = Modifier.height(16.dp))
-        SkylineStatRow("Time", "${uiState.secondsPlayed}s")
-        SkylineStatRow("Floors built", uiState.floorsBuilt.toString())
-        SkylineStatRow("Perfect drops", uiState.perfectCount.toString())
-        SkylineStatRow("Control points", controlPointsText)
+        StatRow("Score", uiState.stackScore().toString())
+        StatRow("Blocks placed", uiState.floorsBuilt.toString())
+        StatRow("Perfect drops", uiState.perfectCount.toString())
+        StatRow("Time", "${uiState.secondsPlayed}s")
         Spacer(modifier = Modifier.height(22.dp))
         Button(
             onClick = onDone,
-            enabled = doneSaving,
+            enabled = !taskLaunch || !uiState.completed || taskCompletionResult != null,
             shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ImpulsivePsychological, contentColor = ImpulsiveText),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = ImpulsiveText,
+            ),
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (doneSaving) "Done" else "Saving") }
+        ) {
+            Text(if (taskLaunch && uiState.completed && taskCompletionResult == null) "Saving" else "Done")
+        }
         if (!taskLaunch) {
             Spacer(modifier = Modifier.height(10.dp))
-            Button(
-                onClick = onPlayAgain,
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = ImpulsiveSurface, contentColor = ImpulsiveText),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (uiState.completed) "Play again" else "Try again") }
+            TextButton(onClick = onPlayAgain, modifier = Modifier.fillMaxWidth()) {
+                Text("Play again")
+            }
         }
     }
 }
 
-private fun skylineResultLabel(uiState: SkylineResetUiState, result: TaskCompletionResult?, taskLaunch: Boolean): String {
-    if (!taskLaunch) {
-        return if (uiState.completed) {
-            "Practice round complete."
-        } else {
-            "Stack ended at ${uiState.floorsBuilt} floors."
-        }
+private fun resultLabel(
+    uiState: SkylineResetUiState,
+    result: TaskCompletionResult?,
+    taskLaunch: Boolean,
+): String {
+    if (uiState.failed) return "The block missed the tower. No task reward was applied."
+    if (!uiState.completed) return "This round ended before the 90-second completion."
+    if (!taskLaunch) return "Recovery game complete."
+    if (result == null) return "Saving reward..."
+    val wait = if (result.waitReductionMinutes > 0) {
+        "Wait cut by ${result.waitReductionMinutes.formatMinutes()}"
+    } else {
+        "LP only this time"
     }
-    if (result == null || (uiState.completed && uiState.controlPointsBanked == null)) return "Saving reward..."
-    val banked = uiState.controlPointsBanked ?: 0
-    val bankedText = if (uiState.completed && banked > 0) " $banked control points banked." else ""
-    return "Task saved. +${result.levelPointsAwarded} LP.$bankedText"
+    return "$wait, +${result.levelPointsAwarded} LP"
 }
 
 @Composable
-private fun SkylineStatRow(label: String, value: String) {
+private fun HudStat(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            color = Color(0xFFE7D9FF).copy(alpha = 0.68f),
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Text(
+            text = value,
+            color = Color(0xFFF7F2FF),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun StatRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = label, color = ImpulsiveMutedText, style = MaterialTheme.typography.bodyMedium)
-        Text(text = value, color = ImpulsiveText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = label,
+            color = ImpulsiveMutedText,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            text = value,
+            color = ImpulsiveText,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
 @Composable
-private fun SkylineCenterPanel(content: @Composable ColumnScope.() -> Unit) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun CenterPanel(content: @Composable ColumnScope.() -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
         Surface(
-            color = ImpulsiveSurface,
+            color = ImpulsiveSurface.copy(alpha = 0.94f),
             shape = RoundedCornerShape(28.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, SkyPanelStroke),
             tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, content = content)
-        }
-    }
-}
-
-private class SkyWin(val x: Float, val y: Float, val on: Boolean, val warm: Boolean)
-
-private class SkyBuilding(
-    val x: Float,
-    val w: Float,
-    val h: Float,
-    val type: Int,
-    val wins: List<SkyWin>,
-    val hasLight: Boolean,
-    val blink: Float,
-    val color: Color,
-)
-
-private class SkyStar(val x: Float, val y: Float, val r: Float, var tw: Float, val sp: Float)
-private class SkyCloud(var x: Float, val y: Float, val r: Float, val sp: Float)
-private class SkyBird(var x: Float, val y: Float, val vx: Float, val dir: Int, val offs: List<Pair<Float, Float>>, var ph: Float)
-private class SkyShoot(var x: Float, var y: Float, var len: Float, var alpha: Float, val vx: Float, val vy: Float)
-
-private class SkyScene(
-    val far: List<SkyBuilding>,
-    val mid: List<SkyBuilding>,
-    val near: List<SkyBuilding>,
-    val stars: List<SkyStar>,
-    val clouds: List<SkyCloud>,
-) {
-    var bird: SkyBird? = null
-    var shoot: SkyShoot? = null
-    var t: Float = 0f
-}
-
-private fun genSkyLayer(
-    rng: Random,
-    wPx: Float,
-    color: Color,
-    minH: Float,
-    maxH: Float,
-    density: Float,
-    winChance: Float,
-): List<SkyBuilding> {
-    val list = ArrayList<SkyBuilding>()
-    var x = -110f
-    while (x < wPx + 130f) {
-        val w = 42f + rng.nextFloat() * 78f
-        val h = minH + rng.nextFloat() * (maxH - minH)
-        val wins = ArrayList<SkyWin>()
-        var wy = 9f
-        while (wy < h - 9f) {
-            var wx = 5f
-            while (wx < w - 7f) {
-                wins.add(SkyWin(wx, wy, rng.nextFloat() < winChance, rng.nextFloat() < 0.78f))
-                wx += 10f
-            }
-            wy += 13f
-        }
-        val hasLight = h > maxH * 0.7f && rng.nextFloat() < 0.6f
-        list.add(SkyBuilding(x, w, h, rng.nextInt(3), wins, hasLight, rng.nextFloat() * 6.28f, color))
-        x += w * 0.54f + rng.nextFloat() * (density * 0.14f)
-    }
-    return list
-}
-
-private fun genSkyScene(wPx: Float, hPx: Float): SkyScene {
-    val rng = Random(System.nanoTime())
-    val far = genSkyLayer(rng, wPx, Color(0xFF2A2550), 135f, 245f, 16f, 0.5f)
-    val mid = genSkyLayer(rng, wPx, Color(0xFF201B40), 190f, 335f, 11f, 0.62f)
-    val near = genSkyLayer(rng, wPx, Color(0xFF15112C), 260f, 455f, 8f, 0.72f)
-    val stars = ArrayList<SkyStar>()
-    repeat(115) {
-        stars.add(
-            SkyStar(
-                rng.nextFloat() * wPx,
-                rng.nextFloat() * hPx * 0.58f,
-                rng.nextFloat() * 1.8f + 0.55f,
-                rng.nextFloat() * 6.28f,
-                0.025f + rng.nextFloat() * 0.075f,
-            ),
-        )
-    }
-    val clouds = ArrayList<SkyCloud>()
-    repeat(6) {
-        clouds.add(
-            SkyCloud(
-                rng.nextFloat() * wPx,
-                20f + rng.nextFloat() * hPx * 0.24f,
-                42f + rng.nextFloat() * 42f,
-                0.28f + rng.nextFloat() * 0.34f,
-            ),
-        )
-    }
-    return SkyScene(far, mid, near, stars, clouds)
-}
-
-private fun DrawScope.drawSkyLayer(
-    arr: List<SkyBuilding>,
-    parallax: Float,
-    cam: Float,
-    t: Float,
-    wPx: Float,
-    hPx: Float,
-    marginPx: Float,
-) {
-    if (arr.isEmpty()) return
-    val baseY = (hPx - marginPx) + cam * parallax
-
-    for (b in arr) {
-        val top = baseY - b.h
-        drawRect(color = b.color, topLeft = Offset(b.x, top), size = Size(b.w, hPx - top + 240f))
-        drawRect(
-            color = Color.Black.copy(alpha = 0.10f),
-            topLeft = Offset(b.x + b.w * 0.72f, top),
-            size = Size(b.w * 0.28f, hPx - top + 240f),
-        )
-        drawRect(
-            color = Color.Black.copy(alpha = 0.16f),
-            topLeft = Offset(b.x, top),
-            size = Size(b.w, 2f),
-        )
-        if (b.type == 1) {
-            drawRect(color = b.color, topLeft = Offset(b.x + b.w * 0.25f, top - 10f), size = Size(b.w * 0.5f, 10f))
-        } else if (b.type == 2) {
-            drawRect(color = b.color, topLeft = Offset(b.x + b.w / 2f - 1.5f, top - 16f), size = Size(3f, 16f))
-        }
-        for (wn in b.wins) {
-            if (!wn.on) continue
-            val wc = if (wn.warm) Color(0xFFFFD37A) else Color(0xFFBBD2FF)
-            val wx = b.x + wn.x
-            val wy = top + wn.y
-            drawRect(
-                color = wc.copy(alpha = 0.22f),
-                topLeft = Offset(wx - 1f, wy - 1f),
-                size = Size(5f, 6f),
-            )
-            drawRect(
-                color = wc.copy(alpha = 0.92f),
-                topLeft = Offset(wx, wy),
-                size = Size(3f, 4f),
-            )
-        }
-        if (b.hasLight) {
-            val bl = (0.4f + 0.6f * abs(sin(b.blink + t * 0.004f))).coerceIn(0f, 1f)
-            val ly = top - if (b.type == 2) 17f else 2f
-            drawCircle(color = Color(0xFFFF5A5A).copy(alpha = bl), radius = 2f, center = Offset(b.x + b.w / 2f, ly))
-        }
-    }
-}
-
-private fun DrawScope.drawNightCity(scene: SkyScene, cam: Float, wPx: Float, hPx: Float, marginPx: Float) {
-    drawRect(
-        brush = Brush.verticalGradient(
-            0f to SkylineBackground,
-            0.42f to Color(0xFF171236),
-            0.74f to Color(0xFF241A44),
-            1f to Color(0xFF33224D),
-        ),
-        size = Size(wPx, hPx),
-    )
-    val mx = wPx * 0.76f
-    val my = hPx * 0.16f
-    drawCircle(
-        brush = Brush.radialGradient(listOf(Color(0x8CDCE1FF), Color(0x00DCE1FF)), center = Offset(mx, my), radius = 70f),
-        radius = 70f,
-        center = Offset(mx, my),
-    )
-    drawCircle(color = Color(0xFFECEAF6), radius = 21f, center = Offset(mx, my))
-    drawCircle(color = Color(0x80C8CDEB), radius = 4f, center = Offset(mx - 7f, my - 5f))
-    drawCircle(color = Color(0x80C8CDEB), radius = 3f, center = Offset(mx + 6f, my + 4f))
-    for (s in scene.stars) {
-        val a = (0.42f + 0.58f * abs(sin(s.tw))).coerceIn(0f, 1f)
-        drawCircle(
-            color = Color.White.copy(alpha = a),
-            radius = s.r,
-            center = Offset(s.x, s.y),
-        )
-        if (s.r > 1.6f) {
-            drawLine(
-                color = Color.White.copy(alpha = a * 0.42f),
-                start = Offset(s.x - s.r * 2.1f, s.y),
-                end = Offset(s.x + s.r * 2.1f, s.y),
-                strokeWidth = 1f,
-            )
-            drawLine(
-                color = Color.White.copy(alpha = a * 0.36f),
-                start = Offset(s.x, s.y - s.r * 2.1f),
-                end = Offset(s.x, s.y + s.r * 2.1f),
-                strokeWidth = 1f,
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                content = content,
             )
         }
     }
-    val sh = scene.shoot
-    if (sh != null) {
-        drawLine(
-            color = Color.White.copy(alpha = sh.alpha.coerceIn(0f, 1f)),
-            start = Offset(sh.x, sh.y),
-            end = Offset(sh.x - sh.len * 0.93f, sh.y - sh.len * 0.37f),
-            strokeWidth = 2f,
-        )
-    }
-    for (c in scene.clouds) {
-        drawMoonlitCloud(c)
-    }
-    val bird = scene.bird
-    if (bird != null) {
-        val wsp = 4f + 3f * sin(bird.ph)
-        for (o in bird.offs) {
-            val bx = bird.x + o.first
-            val by = bird.y + o.second
-            drawLine(Color(0xFF2C2750), Offset(bx - 6f, by), Offset(bx, by - wsp), strokeWidth = 2f)
-            drawLine(Color(0xFF2C2750), Offset(bx, by - wsp), Offset(bx + 6f, by), strokeWidth = 2f)
-        }
-    }
-    val hy = (hPx - marginPx) + cam * 0.55f
-    drawCircle(
-        brush = Brush.radialGradient(listOf(Color(0x59785AA0), Color(0x00785AA0)), center = Offset(wPx * 0.5f, hy), radius = 240f),
-        radius = 240f,
-        center = Offset(wPx * 0.5f, hy),
-    )
-    drawSkyLayer(scene.far, 0.25f, cam, scene.t, wPx, hPx, marginPx)
-    drawSkyLayer(scene.mid, 0.40f, cam, scene.t, wPx, hPx, marginPx)
-    drawSkyLayer(scene.near, 0.55f, cam, scene.t, wPx, hPx, marginPx)
 }
 
-private fun DrawScope.drawMoonlitCloud(cloud: SkyCloud) {
-    val base = Color(0xFFB7B8DD)
-    val shadow = Color(0xFF5B5688)
-    val x = cloud.x
-    val y = cloud.y
-    val r = cloud.r
+private fun SkylineResetUiState.stackScore(): Int =
+    floorsBuilt.coerceAtLeast(0) * 10 +
+        perfectCount.coerceAtLeast(0) * 15 +
+        if (completed) 200 else 0
 
-    drawOval(
-        brush = Brush.radialGradient(
-            listOf(shadow.copy(alpha = 0.18f), Color.Transparent),
-            center = Offset(x, y + r * 0.16f),
-            radius = r * 1.7f,
-        ),
-        topLeft = Offset(x - r * 1.55f, y - r * 0.32f),
-        size = Size(r * 3.1f, r * 0.96f),
-    )
-
-    val puffs = listOf(
-        Offset(-0.92f, 0.06f) to 0.58f,
-        Offset(-0.45f, -0.18f) to 0.72f,
-        Offset(0.10f, -0.25f) to 0.86f,
-        Offset(0.68f, -0.08f) to 0.62f,
-        Offset(1.08f, 0.10f) to 0.48f,
-    )
-
-    for ((offset, scale) in puffs) {
-        val center = Offset(x + offset.x * r, y + offset.y * r)
-        val radius = r * scale
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(
-                    base.copy(alpha = 0.23f),
-                    shadow.copy(alpha = 0.08f),
-                    Color.Transparent,
-                ),
-                center = center,
-                radius = radius,
-            ),
-            radius = radius,
-            center = center,
-        )
-    }
-}
+private fun Int.formatMinutes(): String =
+    if (this >= 60 && this % 60 == 0) "${this / 60}h" else "$this min"

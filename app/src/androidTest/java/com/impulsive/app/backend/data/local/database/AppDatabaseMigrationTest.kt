@@ -103,5 +103,18 @@ class AppDatabaseMigrationTest {
     }
 
     // Pulled out so the import stays minimal — cursor.isNull is an int comparison.
+    @Test
+    @Throws(IOException::class)
+    fun migrate3To4CreatesBlockedDomainTable() {
+        helper.createDatabase(testDbName, 3).use { }
+
+        helper.runMigrationsAndValidate(testDbName, 4, true, AppDatabase.Migration3To4).use { db ->
+            db.query("SELECT COUNT(*) FROM blocked_domain").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+    }
+
     private fun assertTrue(value: Boolean) = assertEquals(true, value)
 }

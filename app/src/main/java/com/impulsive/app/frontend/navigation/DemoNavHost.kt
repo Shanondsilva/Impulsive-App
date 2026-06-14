@@ -81,7 +81,7 @@ fun DemoNavHost(
                     navController.navigate(DemoRoutes.RecoveryGames)
                 },
                 onOpenJournal = {
-                    navController.navigate(DemoRoutes.JournalHub)
+                    navController.navigate(DemoRoutes.JournalList)
                 },
                 onOpenReflexOverrideTask = {
                     navController.navigate(DemoRoutes.ReflexGameTask)

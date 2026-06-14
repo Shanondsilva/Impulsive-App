@@ -50,6 +50,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
         blockLaunchBypassActive.value = pendingBlockRequest.value != null
+        refreshEmailVerificationIfReturnIntent(intent)
 
         setContent {
             val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -130,6 +131,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         if (pendingBlockRequest.value != null) {
             blockLaunchBypassActive.value = true
         }
+        refreshEmailVerificationIfReturnIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        authViewModel.refreshEmailVerification()
     }
 
     override fun onStop() {
@@ -153,8 +160,31 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             sourcePackageName = sourcePackage,
             sourceLabel = getStringExtra(BlockRequest.ExtraSourceLabel).orEmpty().ifBlank { sourcePackage },
             detectedAtMillis = getLongExtra(BlockRequest.ExtraDetectedAtMillis, System.currentTimeMillis()),
+            isFocusSession = getBooleanExtra(BlockRequest.ExtraIsFocusSession, false),
         )
     }
+
+    private fun refreshEmailVerificationIfReturnIntent(intent: Intent?) {
+        if (intent?.isEmailVerificationReturnIntent() == true) {
+            authViewModel.refreshEmailVerification()
+        }
+    }
+
+    private fun Intent.isEmailVerificationReturnIntent(): Boolean {
+        val uri = data ?: return false
+        return action == Intent.ACTION_VIEW &&
+            (uri.isHttpsEmailVerificationReturn() || uri.isCustomEmailVerificationReturn())
+    }
+
+    private fun Uri.isHttpsEmailVerificationReturn(): Boolean =
+        scheme == "https" &&
+            host == "useimpulsive.com" &&
+            path == "/auth/verified"
+
+    private fun Uri.isCustomEmailVerificationReturn(): Boolean =
+        scheme == "impulsive" &&
+            host == "auth" &&
+            path == "/verified"
 
     private fun handleForgotPin() {
         when (authViewModel.state.value.user?.provider) {
@@ -190,12 +220,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             context: Context,
             sourcePackageName: String,
             sourceLabel: String,
+            isFocusSession: Boolean = false,
         ): Intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(BlockRequest.ExtraSourcePackage, sourcePackageName)
             putExtra(BlockRequest.ExtraSourceLabel, sourceLabel)
             putExtra(BlockRequest.ExtraDetectedAtMillis, System.currentTimeMillis())
+            putExtra(BlockRequest.ExtraIsFocusSession, isFocusSession)
         }
     }
 }

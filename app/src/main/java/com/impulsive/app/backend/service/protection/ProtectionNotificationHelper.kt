@@ -17,6 +17,17 @@ import java.time.ZoneId
 class ProtectionNotificationHelper(
     private val context: Context,
 ) {
+    /**
+     * Android 14+ requires this runtime permission for a full-screen-intent
+     * notification to actually take over the screen. Below 14 it is implicitly
+     * granted. Without it, the block notification only buzzes.
+     */
+    fun canUseFullScreenIntent(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+        return manager.canUseFullScreenIntent()
+    }
+
     fun ensureChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return

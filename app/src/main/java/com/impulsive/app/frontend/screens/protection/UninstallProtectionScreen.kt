@@ -128,7 +128,7 @@ fun UninstallProtectionScreen(
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ImpulsivePsychological,
-                            contentColor = Color(0xFF25362D),
+                            contentColor = Color(0xFF2F2637),
                         ),
                     ) {
                         Text("Turn off uninstall protection")
@@ -141,7 +141,7 @@ fun UninstallProtectionScreen(
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ImpulsivePsychological,
-                            contentColor = Color(0xFF25362D),
+                            contentColor = Color(0xFF2F2637),
                         ),
                     ) {
                         Text("Enable uninstall protection")
@@ -167,7 +167,7 @@ fun UninstallProtectionScreen(
 @Composable
 private fun ProtectionStatusCard(isActive: Boolean) {
     val borderColor = if (isActive) {
-        Color(0xFF93E9BE)
+        Color(0xFFD0C3F1)
     } else {
         ImpulsivePsychological.copy(alpha = 0.65f)
     }

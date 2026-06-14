@@ -46,7 +46,13 @@ class InstalledAppScanner(
         val source = "$normalizedPackage $normalizedLabel"
 
         KnownRecommendedRules.firstOrNull { rule ->
-            normalizedPackage == rule.packageName || source.contains(rule.matchToken)
+            normalizedPackage == rule.packageName.lowercase()
+        }?.let { rule ->
+            return ProtectedAppCandidate(packageName, label, rule.category, ProtectedAppRiskBand.Recommended, rule.reason)
+        }
+
+        KnownRecommendedRules.firstOrNull { rule ->
+            rule.category != ProtectedAppCategory.BrowserSearch && source.contains(rule.matchToken)
         }?.let { rule ->
             return ProtectedAppCandidate(packageName, label, rule.category, ProtectedAppRiskBand.Recommended, rule.reason)
         }
@@ -125,8 +131,11 @@ class InstalledAppScanner(
             KnownRule("com.google.android.youtube", "youtube", ProtectedAppCategory.VideoMedia, "YouTube can become a visual or search trigger."),
             KnownRule("com.reddit.frontpage", "reddit", ProtectedAppCategory.SocialFeed, "Reddit can contain adult communities and search loops."),
             KnownRule("com.android.chrome", "chrome", ProtectedAppCategory.BrowserSearch, "Chrome can open blocked websites directly."),
+            KnownRule("com.chrome.beta", "chrome beta", ProtectedAppCategory.BrowserSearch, "Chrome Beta can open blocked websites directly."),
+            KnownRule("com.chrome.dev", "chrome dev", ProtectedAppCategory.BrowserSearch, "Chrome Dev can open blocked websites directly."),
             KnownRule("com.brave.browser", "brave", ProtectedAppCategory.BrowserSearch, "Brave can open blocked websites directly."),
             KnownRule("org.mozilla.firefox", "firefox", ProtectedAppCategory.BrowserSearch, "Firefox can open blocked websites directly."),
+            KnownRule("org.mozilla.firefox_beta", "firefox beta", ProtectedAppCategory.BrowserSearch, "Firefox Beta can open blocked websites directly."),
             KnownRule("com.sec.android.app.sbrowser", "samsung internet", ProtectedAppCategory.BrowserSearch, "Samsung Internet can open blocked websites directly."),
             KnownRule("com.microsoft.emmx", "edge", ProtectedAppCategory.BrowserSearch, "Edge can open blocked websites directly."),
             KnownRule("com.twitter.android", "twitter", ProtectedAppCategory.SocialFeed, "X/Twitter can contain visual and scrolling triggers."),
@@ -135,9 +144,10 @@ class InstalledAppScanner(
             KnownRule("com.pinterest", "pinterest", ProtectedAppCategory.SocialFeed, "Pinterest can become a visual search loop."),
             KnownRule("com.discord", "discord", ProtectedAppCategory.MessagingDating, "Discord can contain image-heavy communities."),
             KnownRule("org.telegram.messenger", "telegram", ProtectedAppCategory.MessagingDating, "Telegram can contain adult channels and image-heavy content."),
-            KnownRule("com.google.android.googlequicksearchbox", "google", ProtectedAppCategory.BrowserSearch, "Google Search can open blocked content directly."),
             KnownRule("com.opera.browser", "opera", ProtectedAppCategory.BrowserSearch, "Opera can open blocked websites directly."),
+            KnownRule("com.opera.mini.native", "opera mini", ProtectedAppCategory.BrowserSearch, "Opera Mini can open blocked websites directly."),
             KnownRule("com.duckduckgo.mobile.android", "duckduckgo", ProtectedAppCategory.BrowserSearch, "DuckDuckGo can open blocked websites directly."),
+            KnownRule("com.vivaldi.browser", "vivaldi", ProtectedAppCategory.BrowserSearch, "Vivaldi can open blocked websites directly."),
             KnownRule("com.kiwibrowser.browser", "kiwi", ProtectedAppCategory.BrowserSearch, "Kiwi Browser can open blocked websites directly."),
             KnownRule("org.torproject.torbrowser", "tor browser", ProtectedAppCategory.BrowserSearch, "Tor Browser can open blocked websites directly."),
             KnownRule("com.UCMobile.intl", "uc browser", ProtectedAppCategory.BrowserSearch, "UC Browser can open blocked websites directly."),
@@ -176,7 +186,7 @@ class InstalledAppScanner(
             "themes", "weather", "find my mobile", "device care", "secure folder",
             "nearby share", "print service", "android auto", "finder", "routines",
         )
-        val BrowserTokens = listOf("browser", "chrome", "brave", "firefox", "opera", "edge", "duckduckgo", "kiwi", "tor", "internet", "search")
+        val BrowserTokens = listOf("browser", "chrome", "brave", "firefox", "opera", "edge", "duckduckgo", "kiwi", "tor", "vivaldi")
         val SocialTokens = listOf("instagram", "reddit", "twitter", "facebook", "snapchat", "pinterest", "tumblr")
         val ShortVideoTokens = listOf("tiktok", "shorts", "reels")
         val VideoTokens = listOf("youtube", "twitch", "vimeo", "dailymotion", "video")

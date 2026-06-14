@@ -17,7 +17,7 @@ import com.impulsive.app.frontend.theme.ImpulsiveTheme
 @Preview(
     name = "MindCoreScene levels 1-5",
     showBackground = true,
-    backgroundColor = 0xFFF3FBF6L,
+    backgroundColor = 0xFFFBF8FEL,
     heightDp = 1600,
 )
 @Composable

@@ -35,10 +35,12 @@ import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.frontend.components.BottomNavItem
 import com.impulsive.app.frontend.screens.dashboard.HomeScreen
 import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
 import com.impulsive.app.frontend.screens.games.ReflexGameScreen
 import com.impulsive.app.frontend.screens.games.RecoveryGamesScreen
+import com.impulsive.app.frontend.screens.games.RhythmTilesScreen
 import com.impulsive.app.frontend.screens.games.SkylineResetScreen
 import com.impulsive.app.frontend.screens.intro.IntroScreen
 import com.impulsive.app.frontend.screens.journal.JournalEditorScreen
@@ -47,11 +49,16 @@ import com.impulsive.app.frontend.screens.journal.JournalListScreen
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
+import com.impulsive.app.backend.session.protection.DnsFilterGateViewModel
 import com.impulsive.app.frontend.screens.onboarding.LoginSignupGuestScreen
 import com.impulsive.app.frontend.screens.onboarding.NotificationPermissionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingDailyRelapseCountScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingQuestionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingStartingPointScreen
+import com.impulsive.app.frontend.screens.onboarding.PersonalisingSetupScreen
+import com.impulsive.app.frontend.screens.focus.ActiveFocusSessionScreen
+import com.impulsive.app.frontend.screens.focus.FocusScreen
+import com.impulsive.app.frontend.screens.focus.FocusRecoveryScreen
 import com.impulsive.app.frontend.screens.onboarding.ProtectionSetupOnboardingScreen
 import com.impulsive.app.frontend.screens.onboarding.WelcomePrivacyScreen
 import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
@@ -60,6 +67,8 @@ import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.frontend.screens.protection.ImpulsiveBlockScreen
 import com.impulsive.app.frontend.screens.protection.UninstallProtectionScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
+import com.impulsive.app.frontend.screens.premium.WebsiteProtectionPlusScreen
+import com.impulsive.app.frontend.screens.protection.DnsFilterGateScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
@@ -82,6 +91,7 @@ object OnboardingRoutes {
     const val ProtectionBlockedApps = "protection_blocked_apps"
     const val UninstallProtection = "onboarding_uninstall_protection"
     const val StartingPoint = "starting_point"
+    const val PersonalisingSetup = "personalising_setup"
 }
 
 object AppRoutes {
@@ -90,6 +100,9 @@ object AppRoutes {
     const val Home = "level_one_reveal"
     const val Settings = "settings"
     const val Score = "score"
+    const val Focus = "focus"
+    const val FocusSession = "focus_session"
+    const val FocusRecovery = "focus_recovery"
     const val RecoveryGames = "recovery_games"
     const val ReflexGame = "reflex_game"
     const val ReflexGameTask = "reflex_game_task"
@@ -97,8 +110,12 @@ object AppRoutes {
     const val BlockCascadeTask = "block_cascade_task"
     const val SkylineResetGame = "skyline_reset_game"
     const val SkylineResetTask = "skyline_reset_task"
+    const val RhythmTilesGame = "rhythm_tiles_game"
+    const val RhythmTilesTask = "rhythm_tiles_task"
     const val ResetReadTask = "reset_read_task"
     const val TaskToComplete = "task_to_complete"
+    const val WebsiteProtectionPlus = "website_protection_plus"
+    const val DnsFilterGate = "dns_filter_gate"
     const val JournalHub = "journal_hub"
     const val JournalList = "journal_list"
     const val JournalNoteNew = "journal_note_new/{type}"
@@ -128,6 +145,7 @@ fun AppNavHost(
     val usageAccessChecker = remember(context) { UsageAccessPermissionChecker(context) }
     val uninstallProtectionManager = remember(context) { UninstallProtectionManager(context) }
     var pendingDailyRelapseCount by remember { mutableStateOf<Int?>(null) }
+    var bottomNavIndicatorStartFrom by remember { mutableStateOf<BottomNavItem?>(null) }
 
     fun syncUsageAccessPermission() {
         protectionSetupViewModel.setUsageAccessEnabled(usageAccessChecker.hasUsageAccess())
@@ -165,6 +183,21 @@ fun AppNavHost(
         syncUninstallProtection()
     }
 
+    fun bottomNavItemForCurrentRoute(): BottomNavItem {
+        return when (navController.currentBackStackEntry?.destination?.route) {
+            AppRoutes.Home -> BottomNavItem.Home
+            AppRoutes.Score -> BottomNavItem.Progress
+            AppRoutes.Settings -> BottomNavItem.Settings
+            AppRoutes.Focus -> BottomNavItem.Focus
+            else -> BottomNavItem.Home
+        }
+    }
+
+    fun prepareBottomNavTopLevelTransition(target: BottomNavItem) {
+        val current = bottomNavItemForCurrentRoute()
+        bottomNavIndicatorStartFrom = if (current != target) current else null
+    }
+
     DisposableEffect(context, lifecycleOwner, usageAccessChecker, uninstallProtectionManager) {
         syncProtectionSetupFromDevice()
         val observer = LifecycleEventObserver { _, event ->
@@ -185,13 +218,19 @@ fun AppNavHost(
     LaunchedEffect(initialBlockRequest, state.isCompleted) {
         val request = initialBlockRequest
         if (request != null && state.isCompleted) {
-            navController.navigate(
-                AppRoutes.impulsiveBlock(
-                    sourcePackageName = request.sourcePackageName,
-                    sourceLabel = request.sourceLabel,
-                ),
-            ) {
-                launchSingleTop = true
+            if (request.isFocusSession) {
+                navController.navigate(AppRoutes.FocusRecovery) {
+                    launchSingleTop = true
+                }
+            } else {
+                navController.navigate(
+                    AppRoutes.impulsiveBlock(
+                        sourcePackageName = request.sourcePackageName,
+                        sourceLabel = request.sourceLabel,
+                    ),
+                ) {
+                    launchSingleTop = true
+                }
             }
             onBlockRequestConsumed()
         }
@@ -202,6 +241,20 @@ fun AppNavHost(
         if (pendingCount != null && state.answers.dailyRelapseUrgeCount == pendingCount) {
             pendingDailyRelapseCount = null
             navController.navigateOnboarding(OnboardingRoutes.ProtectionSetup)
+        }
+    }
+
+    fun navigateBackOnboardingSafely() {
+        val currentEntry = navController.currentBackStackEntry ?: return
+        val currentRoute = currentEntry.destination.route
+        if (currentRoute == OnboardingRoutes.LoginSignupGuest) return
+        val isResumed = currentEntry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        if (!isResumed) return
+        val popped = navController.popBackStack()
+        if (!popped) {
+            navController.navigate(OnboardingRoutes.LoginSignupGuest) {
+                launchSingleTop = true
+            }
         }
     }
 
@@ -237,6 +290,7 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.WelcomePrivacy) {
+                BackHandler { navigateBackOnboardingSafely() }
                 WelcomePrivacyScreen(
                     initialName = state.answers.name,
                     initialAvatarId = state.answers.avatarId,
@@ -252,6 +306,7 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.NotificationPermission) {
+                BackHandler { navigateBackOnboardingSafely() }
                 NotificationPermissionScreen(
                     onContinue = {
                         navController.navigateOnboarding(OnboardingRoutes.QuestionInterrupting)
@@ -266,12 +321,13 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.QuestionInterrupting) {
+                BackHandler { navigateBackOnboardingSafely() }
                 OnboardingQuestionScreen(
                     questionId = OnboardingQuestionId.Interrupting,
                     state = state,
                     onMultiSelectAnswerChanged = onboardingViewModel::setMultiSelectAnswer,
                     onSingleSelectAnswerChanged = onboardingViewModel::setSingleSelectAnswer,
-                    onBack = navController::popBackStack,
+                    onBack = { navigateBackOnboardingSafely() },
                     onContinue = {
                         navController.navigateOnboarding(OnboardingRoutes.QuestionTriggers)
                     },
@@ -280,12 +336,13 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.QuestionTriggers) {
+                BackHandler { navigateBackOnboardingSafely() }
                 OnboardingQuestionScreen(
                     questionId = OnboardingQuestionId.Triggers,
                     state = state,
                     onMultiSelectAnswerChanged = onboardingViewModel::setMultiSelectAnswer,
                     onSingleSelectAnswerChanged = onboardingViewModel::setSingleSelectAnswer,
-                    onBack = navController::popBackStack,
+                    onBack = { navigateBackOnboardingSafely() },
                     onContinue = {
                         navController.navigateOnboarding(OnboardingRoutes.QuestionTiming)
                     },
@@ -294,12 +351,13 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.QuestionTiming) {
+                BackHandler { navigateBackOnboardingSafely() }
                 OnboardingQuestionScreen(
                     questionId = OnboardingQuestionId.Timing,
                     state = state,
                     onMultiSelectAnswerChanged = onboardingViewModel::setMultiSelectAnswer,
                     onSingleSelectAnswerChanged = onboardingViewModel::setSingleSelectAnswer,
-                    onBack = navController::popBackStack,
+                    onBack = { navigateBackOnboardingSafely() },
                     onContinue = {
                         navController.navigateOnboarding(OnboardingRoutes.QuestionWeekOne)
                     },
@@ -308,12 +366,13 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.QuestionWeekOne) {
+                BackHandler { navigateBackOnboardingSafely() }
                 OnboardingQuestionScreen(
                     questionId = OnboardingQuestionId.WeekOneGoal,
                     state = state,
                     onMultiSelectAnswerChanged = onboardingViewModel::setMultiSelectAnswer,
                     onSingleSelectAnswerChanged = onboardingViewModel::setSingleSelectAnswer,
-                    onBack = navController::popBackStack,
+                    onBack = { navigateBackOnboardingSafely() },
                     onContinue = {
                         navController.navigateOnboarding(OnboardingRoutes.QuestionDailyRelapseCount)
                     },
@@ -322,10 +381,11 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.QuestionDailyRelapseCount) {
+                BackHandler { navigateBackOnboardingSafely() }
                 OnboardingDailyRelapseCountScreen(
                     state = state,
                     initialCount = state.answers.dailyRelapseUrgeCount,
-                    onBack = navController::popBackStack,
+                    onBack = { navigateBackOnboardingSafely() },
                     onContinue = { selectedCount ->
                         onboardingViewModel.setDailyRelapseUrgeCount(selectedCount)
                         pendingDailyRelapseCount = selectedCount
@@ -334,9 +394,10 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.ProtectionSetup) {
+                BackHandler { navigateBackOnboardingSafely() }
                 ProtectionSetupOnboardingScreen(
                     state = protectionSetupState,
-                    onBack = navController::popBackStack,
+                    onBack = { navigateBackOnboardingSafely() },
                     onChooseApps = {
                         navController.navigateOnboarding(OnboardingRoutes.ProtectionBlockedApps)
                     },
@@ -380,31 +441,43 @@ fun AppNavHost(
             }
 
             composable(OnboardingRoutes.UninstallProtection) {
+                BackHandler { navigateBackOnboardingSafely() }
                 UninstallProtectionScreen(
                     state = protectionSetupState,
-                    onBack = { navController.safePopBackStack() },
+                    onBack = { navigateBackOnboardingSafely() },
                     onEnabledSynced = protectionSetupViewModel::setUninstallProtectionEnabled,
                     onSkip = {
                         protectionSetupViewModel.markSkipped(ProtectionSetupItem.UninstallProtection)
-                        navController.safePopBackStack()
+                        navigateBackOnboardingSafely()
                     },
                 )
             }
 
             composable(OnboardingRoutes.ProtectionBlockedApps) {
+                BackHandler { navigateBackOnboardingSafely() }
                 BlockedAppsSelectionContent(
                     selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
                     onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
-                    onDone = { navController.safePopBackStack() },
+                    onDone = { navigateBackOnboardingSafely() },
+                    allowShowMoreApps = true,
                     seedRecommendedBrowsers = true,
                 )
             }
 
             composable(OnboardingRoutes.StartingPoint) {
+                BackHandler { navigateBackOnboardingSafely() }
                 OnboardingStartingPointScreen(
                     state = state,
-                    onBack = navController::popBackStack,
-                    onContinue = {
+                    onBack = { navigateBackOnboardingSafely() },
+                    onContinue = { navController.navigate(OnboardingRoutes.PersonalisingSetup) },
+                )
+            }
+            composable(OnboardingRoutes.PersonalisingSetup) {
+                // Back is intentionally swallowed: the user has committed to
+                // starting week one and the screen completes on its own.
+                BackHandler { }
+                PersonalisingSetupScreen(
+                    onFinished = {
                         onboardingViewModel.completeOnboarding {
                             navController.navigateToMainClearingOnboarding()
                         }
@@ -423,7 +496,7 @@ fun AppNavHost(
                         navController.navigateMainTop(AppRoutes.RecoveryGames)
                     },
                     onOpenJournal = {
-                        navController.navigateMainTop(AppRoutes.JournalHub)
+                        navController.navigateMainTop(AppRoutes.JournalList)
                     },
                     onOpenReflexOverrideTask = {
                         navController.navigate(AppRoutes.ReflexGameTask)
@@ -441,19 +514,113 @@ fun AppNavHost(
                         navController.navigate(AppRoutes.TaskToComplete)
                     },
                     onOpenScore = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Progress)
                         navController.navigateMainTop(AppRoutes.Score)
                     },
                     onOpenSettings = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Settings)
                         navController.navigateMainTop(AppRoutes.Settings)
                     },
+                    onOpenWebsiteProtectionPlus = {
+                        navController.navigate(AppRoutes.WebsiteProtectionPlus) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenFocus = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Focus)
+                        navController.navigateMainTop(AppRoutes.Focus)
+                    },
+                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
+                    onBottomNavIndicatorStartConsumed = {
+                        bottomNavIndicatorStartFrom = null
+                    },
+                    onNavigateFromModeContext = {
+                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
+                    },
+                )
+            }
+
+            composable(AppRoutes.Focus) {
+                FocusScreen(
+                    onOpenHome = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Home)
+                        navController.navigateMainTop(AppRoutes.Home)
+                    },
+                    onOpenScore = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Progress)
+                        navController.navigateMainTop(AppRoutes.Score)
+                    },
+                    onOpenSettings = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Settings)
+                        navController.navigateMainTop(AppRoutes.Settings)
+                    },
+                    onOpenSession = {
+                        navController.navigate(AppRoutes.FocusSession)
+                    },
+                    onOpenTasks = {
+                        navController.navigate(AppRoutes.TaskToComplete)
+                    },
+                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
+                    onBottomNavIndicatorStartConsumed = {
+                        bottomNavIndicatorStartFrom = null
+                    },
+                    onNavigateFromModeContext = {
+                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
+                    },
+                )
+            }
+
+            composable(AppRoutes.FocusRecovery) {
+                FocusRecoveryScreen(
+                    onReturnToFocus = {
+                        navController.navigate(AppRoutes.FocusSession) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onEndedCalmly = {
+                        navController.navigateMainTop(AppRoutes.Focus)
+                    },
+                )
+            }
+
+            composable(AppRoutes.FocusSession) {
+                ActiveFocusSessionScreen(
+                    onExit = { navController.popBackStack() },
                 )
             }
 
             composable(AppRoutes.Score) {
                 ProgressDashboardScreen(
-                    onOpenHome = { navController.navigateBackToHome() },
+                    onOpenHome = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Home)
+                        navController.navigateBackToHome()
+                    },
                     onOpenSettings = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Settings)
                         navController.navigateMainTop(AppRoutes.Settings)
+                    },
+                    onOpenFocus = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Focus)
+                        navController.navigateMainTop(AppRoutes.Focus)
+                    },
+                    onOpenReflexOverrideTask = {
+                        navController.navigate(AppRoutes.ReflexGameTask)
+                    },
+                    onOpenBlockCascadeTask = {
+                        navController.navigate(AppRoutes.BlockCascadeTask)
+                    },
+                    onOpenSkylineResetTask = {
+                        navController.navigate(AppRoutes.SkylineResetTask)
+                    },
+                    onOpenResetReadTask = {
+                        navController.navigate(AppRoutes.ResetReadTask)
+                    },
+                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
+                    onBottomNavIndicatorStartConsumed = {
+                        bottomNavIndicatorStartFrom = null
+                    },
+                    onNavigateFromModeContext = {
+                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
                     },
                 )
             }
@@ -461,10 +628,32 @@ fun AppNavHost(
             composable(AppRoutes.Settings) {
                 SettingsScreen(
                     onOpenScore = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Progress)
                         navController.navigateMainTop(AppRoutes.Score)
+                    },
+                    onOpenFocus = {
+                        prepareBottomNavTopLevelTransition(BottomNavItem.Focus)
+                        navController.navigateMainTop(AppRoutes.Focus)
+                    },
+                    onOpenReflexOverrideTask = {
+                        navController.navigate(AppRoutes.ReflexGameTask)
+                    },
+                    onOpenBlockCascadeTask = {
+                        navController.navigate(AppRoutes.BlockCascadeTask)
+                    },
+                    onOpenSkylineResetTask = {
+                        navController.navigate(AppRoutes.SkylineResetTask)
+                    },
+                    onOpenResetReadTask = {
+                        navController.navigate(AppRoutes.ResetReadTask)
                     },
                     onOpenUninstallProtection = {
                         navController.navigate(AppRoutes.UninstallProtection) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenWebsiteProtectionPlus = {
+                        navController.navigate(AppRoutes.WebsiteProtectionPlus) {
                             launchSingleTop = true
                         }
                     },
@@ -474,9 +663,44 @@ fun AppNavHost(
                             ?.currentState
                             ?.isAtLeast(Lifecycle.State.RESUMED) == true
                         if (isResumed) {
+                            prepareBottomNavTopLevelTransition(BottomNavItem.Home)
                             navController.navigateBackToHome()
                         }
                     },
+                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
+                    onBottomNavIndicatorStartConsumed = {
+                        bottomNavIndicatorStartFrom = null
+                    },
+                    onNavigateFromModeContext = {
+                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
+                    },
+                )
+            }
+
+            composable(AppRoutes.WebsiteProtectionPlus) {
+                WebsiteProtectionPlusScreen(
+                    onBack = { navController.safePopBackStack() },
+                    onOpenDnsFilterCheck = {
+                        navController.navigate(AppRoutes.DnsFilterGate) {
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+
+            composable(AppRoutes.DnsFilterGate) {
+                val dnsFilterGateViewModel: DnsFilterGateViewModel = viewModel()
+                val dnsFilterGateState by dnsFilterGateViewModel.state.collectAsStateWithLifecycle()
+                val context = LocalContext.current
+                DnsFilterGateScreen(
+                    state = dnsFilterGateState,
+                    onOpenPrivateDnsSettings = {
+                        context.startActivity(dnsFilterGateViewModel.privateDnsSettingsIntent())
+                    },
+                    onRefresh = { dnsFilterGateViewModel.refresh() },
+                    // Pops back for now. Repointed to the enable flow once the VpnService exists.
+                    onContinue = { navController.safePopBackStack() },
+                    onBack = { navController.safePopBackStack() },
                 )
             }
 
@@ -498,6 +722,7 @@ fun AppNavHost(
                     onOpenReflexOverride = { navController.navigate(AppRoutes.ReflexGame) },
                     onOpenBlockCascade = { navController.navigate(AppRoutes.BlockCascadeGame) },
                     onOpenSkylineReset = { navController.navigate(AppRoutes.SkylineResetGame) },
+                    onOpenRhythmTiles = { navController.navigate(AppRoutes.RhythmTilesGame) },
                 )
             }
 
@@ -538,6 +763,20 @@ fun AppNavHost(
 
             composable(AppRoutes.SkylineResetTask) {
                 SkylineResetScreen(
+                    onExit = { navController.safePopBackStack() },
+                    launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+                )
+            }
+
+            composable(AppRoutes.RhythmTilesGame) {
+                RhythmTilesScreen(
+                    onExit = { navController.safePopBackStack() },
+                    launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
+                )
+            }
+
+            composable(AppRoutes.RhythmTilesTask) {
+                RhythmTilesScreen(
                     onExit = { navController.safePopBackStack() },
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
                 )
@@ -650,6 +889,7 @@ fun AppNavHost(
                             val gameRoute = when (chosenGame) {
                                 com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade -> AppRoutes.BlockCascadeTask
                                 com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset -> AppRoutes.SkylineResetTask
+                                com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles -> AppRoutes.RhythmTilesTask
                                 else -> AppRoutes.ReflexGameTask
                             }
                             navController.navigate(gameRoute) { launchSingleTop = true }

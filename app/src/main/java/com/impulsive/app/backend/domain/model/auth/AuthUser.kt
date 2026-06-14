@@ -12,4 +12,5 @@ data class AuthUser(
     val displayName: String?,
     val email: String?,
     val provider: AuthProvider,
+    val linkedProviders: Set<AuthProvider> = emptySet(),
 )

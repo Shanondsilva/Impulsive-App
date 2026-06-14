@@ -8,6 +8,9 @@ package com.impulsive.app.frontend.screens.journal
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -15,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +41,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,10 +52,12 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -72,12 +79,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -99,6 +112,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 @Composable
 fun JournalHubScreen(
@@ -125,7 +139,7 @@ fun JournalHubScreen(
 
         JournalModeCard(
             title = "Notes",
-            subtitle = "${state.noteCount} / ${state.maxNotes} saves · notes, lists and reminders.",
+            subtitle = "${state.noteCount} / ${state.maxNotes} saves Â· notes, lists and reminders.",
             action = "Open",
             iconTint = ImpulsiveSpiritual.copy(alpha = 0.82f),
             icon = { Icon(Icons.Outlined.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) },
@@ -159,10 +173,8 @@ fun JournalListScreen(
     viewModel: JournalViewModel = viewModel(),
 ) {
     val state by viewModel.listState.collectAsStateWithLifecycle()
-    var actionNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
-    var highlightNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
-    var categorizeNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
     var deleteNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
+    var createMenuExpanded by remember { mutableStateOf(false) }
 
     BackHandler { onBack() }
     val pinned = state.notes.filter { it.isPinned }
@@ -181,7 +193,7 @@ fun JournalListScreen(
                 .padding(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalItemSpacing = 12.dp,
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
         ) {
             item(span = StaggeredGridItemSpan.FullLine) {
                 JournalHeader(title = "Notes", onBack = onBack)
@@ -190,8 +202,6 @@ fun JournalListScreen(
                 NotesCountRow(
                     count = state.noteCount,
                     max = state.maxNotes,
-                    canCreate = state.canCreateMore,
-                    onNew = { onCreateNote(JournalNoteType.Text) },
                 )
             }
             if (!state.canCreateMore) {
@@ -211,7 +221,7 @@ fun JournalListScreen(
                         JournalNoteCard(
                             note = note,
                             onClick = { onOpenNote(note.id) },
-                            onLongPress = { actionNote = note },
+                            onLongPress = { deleteNote = note },
                         )
                     }
                 }
@@ -223,63 +233,31 @@ fun JournalListScreen(
                         JournalNoteCard(
                             note = note,
                             onClick = { onOpenNote(note.id) },
-                            onLongPress = { actionNote = note },
+                            onLongPress = { deleteNote = note },
                         )
                     }
                 }
             }
         }
-    }
-
-    actionNote?.let { note ->
-        NoteActionDialog(
-            note = note,
-            onDismiss = { actionNote = null },
-            onPinToggle = {
-                viewModel.setPinned(note.id, !note.isPinned)
-                actionNote = null
+        NotesCreateFab(
+            expanded = createMenuExpanded,
+            enabled = state.canCreateMore,
+            onToggle = { createMenuExpanded = !createMenuExpanded },
+            onCreateText = {
+                createMenuExpanded = false
+                onCreateNote(JournalNoteType.Text)
             },
-            onHighlight = {
-                highlightNote = note
-                actionNote = null
+            onCreateList = {
+                createMenuExpanded = false
+                onCreateNote(JournalNoteType.Checklist)
             },
-            onCategorize = {
-                categorizeNote = note
-                actionNote = null
+            onCreateDraw = {
+                createMenuExpanded = false
+                onCreateNote(JournalNoteType.Sketch)
             },
-            onMoveUp = {
-                viewModel.moveNoteUp(note.id)
-                actionNote = null
-            },
-            onMoveDown = {
-                viewModel.moveNoteDown(note.id)
-                actionNote = null
-            },
-            onDelete = {
-                deleteNote = note
-                actionNote = null
-            },
-        )
-    }
-
-    highlightNote?.let { note ->
-        HighlightDialog(
-            onDismiss = { highlightNote = null },
-            onSelected = { colorKey ->
-                viewModel.setHighlight(note.id, colorKey)
-                highlightNote = null
-            },
-        )
-    }
-
-    categorizeNote?.let { note ->
-        CategoryDialog(
-            initialValue = note.category,
-            onDismiss = { categorizeNote = null },
-            onSave = { category ->
-                viewModel.setCategory(note.id, category)
-                categorizeNote = null
-            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 24.dp),
         )
     }
 
@@ -294,10 +272,18 @@ fun JournalListScreen(
                         viewModel.deleteNote(note.id)
                         deleteNote = null
                     },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = ImpulsivePsychological,
+                    ),
                 ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { deleteNote = null }) { Text("Cancel") }
+                TextButton(
+                    onClick = { deleteNote = null },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = ImpulsivePsychological,
+                    ),
+                ) { Text("Cancel") }
             },
         )
     }
@@ -314,13 +300,18 @@ fun JournalEditorScreen(
     val state by viewModel.editorState.collectAsStateWithLifecycle()
     val listState by viewModel.listState.collectAsStateWithLifecycle()
     val isAtSaveLimit = noteId == 0L && !listState.canCreateMore
-    var toolsExpanded by remember { mutableStateOf(false) }
+    var reminderDialogOpen by remember { mutableStateOf(false) }
+    var labelDialogOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(noteId, initialType) {
         if (noteId == 0L) viewModel.startNew(initialType) else viewModel.loadExisting(noteId)
     }
 
-    BackHandler { onBack() }
+    fun exitEditor() {
+        viewModel.saveCurrentIfNeeded(onBack)
+    }
+
+    BackHandler { exitEditor() }
 
     Column(
         modifier = modifier
@@ -331,7 +322,16 @@ fun JournalEditorScreen(
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        JournalHeader(title = if (noteId == 0L) "New note" else "Edit note", onBack = onBack)
+        JournalEditorHeader(
+            title = if (noteId == 0L) "New note" else "Edit note",
+            isPinned = state.isPinned,
+            hasReminder = state.reminderAtMillis != null,
+            hasLabel = state.highlightColor != null,
+            onBack = ::exitEditor,
+            onReminderClick = { reminderDialogOpen = true },
+            onPinClick = viewModel::toggleCurrentPinned,
+            onLabelClick = { labelDialogOpen = true },
+        )
 
         OutlinedTextField(
             value = state.titleDraft,
@@ -355,67 +355,44 @@ fun JournalEditorScreen(
             JournalNoteType.Sketch -> SketchEditorBody(state.sketchDraft, viewModel::updateSketch)
             JournalNoteType.Reminder -> ReminderEditorBody(
                 body = state.bodyDraft,
-                reminderAtMillis = state.reminderAtMillis,
                 onBodyChanged = viewModel::updateBody,
-                onLaterToday = viewModel::setReminderTodayEvening,
-                onTomorrowMorning = viewModel::setReminderTomorrowMorning,
-                onNextFriday = viewModel::setReminderNextFridayMorning,
-                onPickDateTime = viewModel::setCustomReminder,
-                onClear = viewModel::clearReminder,
             )
         }
-
-        if (state.type != JournalNoteType.Reminder) {
-            ReminderCard(
-                reminderAtMillis = state.reminderAtMillis,
-                onLaterToday = viewModel::setReminderTodayEvening,
-                onTomorrowMorning = viewModel::setReminderTomorrowMorning,
-                onNextFriday = viewModel::setReminderNextFridayMorning,
-                onPickDateTime = viewModel::setCustomReminder,
-                onClear = viewModel::clearReminder,
-            )
-        }
-
-        NoteToolDock(
-            selectedType = state.type,
-            expanded = toolsExpanded,
-            onToggleExpanded = { toolsExpanded = !toolsExpanded },
-            onSelectType = { type ->
-                viewModel.updateType(type)
-                toolsExpanded = false
-            },
-        )
 
         if (isAtSaveLimit || state.noteLimitReached) {
             SaveLimitCard()
         }
 
-        Button(
-            onClick = viewModel::saveCurrent,
-            enabled = !isAtSaveLimit,
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            shape = RoundedCornerShape(27.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF6C5A8F),
-                contentColor = Color.White,
-            ),
-        ) {
-            Icon(if (state.savedNoteId != null) Icons.Outlined.Check else Icons.Outlined.Save, contentDescription = null, modifier = Modifier.size(19.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(if (state.savedNoteId != null) "Saved" else "Save note")
-        }
+    }
 
-        if (state.noteId != 0L) {
-            OutlinedButton(
-                onClick = { viewModel.deleteCurrent(onBack) },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(25.dp),
-            ) {
-                Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Delete note")
-            }
-        }
+    if (reminderDialogOpen) {
+        EditorReminderDialog(
+            reminderAtMillis = state.reminderAtMillis,
+            onDismiss = { reminderDialogOpen = false },
+            onTimeSelected = { hour, minute ->
+                viewModel.setReminderTodayAt(hour, minute)
+                reminderDialogOpen = false
+            },
+            onPickDateTime = { year, monthZeroBased, dayOfMonth, hour, minute ->
+                viewModel.setCustomReminder(year, monthZeroBased, dayOfMonth, hour, minute)
+                reminderDialogOpen = false
+            },
+            onClear = {
+                viewModel.clearReminder()
+                reminderDialogOpen = false
+            },
+        )
+    }
+
+    if (labelDialogOpen) {
+        EditorLabelDialog(
+            selectedKey = state.highlightColor,
+            onDismiss = { labelDialogOpen = false },
+            onSelected = { colorKey ->
+                viewModel.setCurrentHighlight(colorKey)
+                labelDialogOpen = false
+            },
+        )
     }
 }
 
@@ -439,6 +416,91 @@ private fun JournalHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
+private fun Modifier.impulsiveNoSquareRippleClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+): Modifier = clickable(
+    enabled = enabled,
+    interactionSource = remember { MutableInteractionSource() },
+    indication = null,
+    onClick = onClick,
+)
+
+@Composable
+private fun Modifier.impulsiveNoSquareRippleCombinedClickable(
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+): Modifier = combinedClickable(
+    interactionSource = remember { MutableInteractionSource() },
+    indication = null,
+    onClick = onClick,
+    onLongClick = onLongClick,
+)
+
+@Composable
+private fun JournalEditorHeader(
+    title: String,
+    isPinned: Boolean,
+    hasReminder: Boolean,
+    hasLabel: Boolean,
+    onBack: () -> Unit,
+    onReminderClick: () -> Unit,
+    onPinClick: () -> Unit,
+    onLabelClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "Back",
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        Text(
+            text = title,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        IconButton(onClick = onReminderClick, modifier = Modifier.size(38.dp)) {
+            Icon(
+                Icons.Outlined.Notifications,
+                contentDescription = "Reminder",
+                tint = if (hasReminder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(21.dp),
+            )
+        }
+
+        IconButton(onClick = onPinClick, modifier = Modifier.size(38.dp)) {
+            Icon(
+                Icons.Outlined.PushPin,
+                contentDescription = "Pin note",
+                tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(21.dp),
+            )
+        }
+
+        IconButton(onClick = onLabelClick, modifier = Modifier.size(38.dp)) {
+            Icon(
+                Icons.Outlined.Label,
+                contentDescription = "Label colour",
+                tint = if (hasLabel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(21.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun JournalModeCard(
     title: String,
     subtitle: String,
@@ -447,15 +509,19 @@ private fun JournalModeCard(
     icon: @Composable () -> Unit,
     onClick: () -> Unit,
 ) {
+    val cardShape = RoundedCornerShape(28.dp)
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(28.dp),
+        shape = cardShape,
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
             null
         },
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(cardShape)
+            .impulsiveNoSquareRippleClickable { onClick() },
     ) {
         Row(
             modifier = Modifier.padding(18.dp),
@@ -479,7 +545,7 @@ private fun JournalModeCard(
 }
 
 @Composable
-private fun NotesCountRow(count: Int, max: Int, canCreate: Boolean, onNew: () -> Unit) {
+private fun NotesCountRow(count: Int, max: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -493,18 +559,118 @@ private fun NotesCountRow(count: Int, max: Int, canCreate: Boolean, onNew: () ->
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
-        Button(
-            onClick = onNew,
-            enabled = canCreate,
-            shape = RoundedCornerShape(22.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = ImpulsivePsychological,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ),
+    }
+}
+
+@Composable
+private fun NotesCreateFab(
+    expanded: Boolean,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+    onCreateText: () -> Unit,
+    onCreateList: () -> Unit,
+    onCreateDraw: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 45f else 0f,
+        animationSpec = tween(
+            durationMillis = 180,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "NotesCreateFabRotation",
+    )
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (expanded) {
+            NotesCreateOption(
+                label = "Draw",
+                icon = { Icon(Icons.Outlined.Brush, contentDescription = null) },
+                enabled = enabled,
+                onClick = onCreateDraw,
+            )
+            NotesCreateOption(
+                label = "List",
+                icon = { Icon(Icons.Outlined.Checklist, contentDescription = null) },
+                enabled = enabled,
+                onClick = onCreateList,
+            )
+            NotesCreateOption(
+                label = "Text",
+                icon = { Icon(Icons.Outlined.EditNote, contentDescription = null) },
+                enabled = enabled,
+                onClick = onCreateText,
+            )
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = if (enabled) ImpulsivePsychological else MaterialTheme.colorScheme.surfaceVariant,
+            shadowElevation = 12.dp,
+            tonalElevation = 8.dp,
+            modifier = Modifier
+                .size(58.dp)
+                .clip(CircleShape)
+                .impulsiveNoSquareRippleClickable(enabled = enabled) { onToggle() },
         ) {
-            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("New note")
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = "Create note",
+                    tint = Color(0xFF281D38),
+                    modifier = Modifier
+                        .size(28.dp)
+                        .graphicsLayer(rotationZ = rotation),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotesCreateOption(
+    label: String,
+    icon: @Composable () -> Unit,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val optionShape = RoundedCornerShape(50)
+    Surface(
+        shape = optionShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = 0.24f))
+        } else {
+            BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = 0.18f))
+        },
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .clip(optionShape)
+            .impulsiveNoSquareRippleClickable(enabled = enabled) { onClick() },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(ImpulsivePsychological.copy(alpha = 0.24f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                icon()
+            }
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
@@ -525,9 +691,10 @@ private fun CreateNoteCard(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val cardShape = RoundedCornerShape(24.dp)
     Surface(
         color = if (enabled) ImpulsivePsychological.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(24.dp),
+        shape = cardShape,
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, ImpulsivePsychological.copy(alpha = if (enabled) 0.24f else 0.08f))
         } else {
@@ -535,7 +702,8 @@ private fun CreateNoteCard(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled) { onClick() },
+            .clip(cardShape)
+            .impulsiveNoSquareRippleClickable(enabled = enabled) { onClick() },
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -581,9 +749,10 @@ private fun NoteToolDock(
     onToggleExpanded: () -> Unit,
     onSelectType: (JournalNoteType) -> Unit,
 ) {
+    val dockShape = RoundedCornerShape(28.dp)
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(28.dp),
+        shape = dockShape,
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
         } else {
@@ -598,7 +767,7 @@ private fun NoteToolDock(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onToggleExpanded() },
+                    .impulsiveNoSquareRippleClickable { onToggleExpanded() },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -661,15 +830,18 @@ private fun ToolChoiceChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val chipShape = RoundedCornerShape(50)
     Surface(
         color = if (selected) type.accentColor().copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(50),
+        shape = chipShape,
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = if (selected) 0.0f else 0.08f))
         } else {
             null
         },
-        modifier = Modifier.clickable { onClick() },
+        modifier = Modifier
+            .clip(chipShape)
+            .impulsiveNoSquareRippleClickable { onClick() },
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
@@ -747,9 +919,10 @@ private fun JournalNoteCard(
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ) {
+    val noteShape = RoundedCornerShape(26.dp)
     Surface(
         color = note.cardColor(),
-        shape = RoundedCornerShape(26.dp),
+        shape = noteShape,
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
@@ -757,7 +930,11 @@ private fun JournalNoteCard(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
+            .clip(noteShape)
+            .impulsiveNoSquareRippleCombinedClickable(
+                onClick = onClick,
+                onLongClick = onLongPress,
+            ),
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -784,15 +961,19 @@ private fun JournalNoteCard(
 
 @Composable
 private fun CompactJournalNoteCard(note: JournalNoteEntity, onClick: () -> Unit) {
+    val noteShape = RoundedCornerShape(22.dp)
     Surface(
         color = note.cardColor(),
-        shape = RoundedCornerShape(22.dp),
+        shape = noteShape,
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
         } else {
             null
         },
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(noteShape)
+            .impulsiveNoSquareRippleClickable { onClick() },
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -840,10 +1021,14 @@ private fun NewNoteTypeDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 JournalNoteType.entries.forEach { type ->
+                    val typeShape = RoundedCornerShape(18.dp)
                     Surface(
                         color = type.accentColor().copy(alpha = 0.25f),
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.fillMaxWidth().clickable(enabled = canCreate) { onCreate(type) },
+                        shape = typeShape,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(typeShape)
+                            .impulsiveNoSquareRippleClickable(enabled = canCreate) { onCreate(type) },
                     ) {
                         Row(
                             modifier = Modifier.padding(13.dp),
@@ -863,117 +1048,65 @@ private fun NewNoteTypeDialog(
 }
 
 @Composable
-private fun NoteActionDialog(
-    note: JournalNoteEntity,
-    onDismiss: () -> Unit,
-    onPinToggle: () -> Unit,
-    onHighlight: () -> Unit,
-    onCategorize: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(note.displayTitle()) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionRow(if (note.isPinned) "Unpin" else "Pin", onPinToggle)
-                ActionRow("Highlight", onHighlight)
-                ActionRow("Categorize", onCategorize)
-                ActionRow("Move up", onMoveUp)
-                ActionRow("Move down", onMoveDown)
-                ActionRow("Delete", onDelete)
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-}
+private fun TextEditorBody(body: String, onBodyChanged: (String) -> Unit) {
+    val editorShape = RoundedCornerShape(28.dp)
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
-@Composable
-private fun ActionRow(label: String, onClick: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(16.dp),
-        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+        shape = editorShape,
+        border = if (isDark) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
         } else {
             null
         },
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 430.dp),
     ) {
-        Text(label, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
-    }
-}
-
-@Composable
-private fun HighlightDialog(onDismiss: () -> Unit, onSelected: (String?) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Highlight note") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HighlightOption("Lavender", HighlightPsychology, onSelected)
-                HighlightOption("Blue", HighlightPhysical, onSelected)
-                HighlightOption("Yellow", HighlightSpiritual, onSelected)
-                HighlightOption("Coral", HighlightFocus, onSelected)
-                HighlightOption("None", null, onSelected)
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun HighlightOption(label: String, key: String?, onSelected: (String?) -> Unit) {
-    val color = highlightColorForKey(key) ?: MaterialTheme.colorScheme.surfaceVariant
-    Surface(
-        color = color.copy(alpha = if (key == null) 1f else 0.34f),
-        shape = RoundedCornerShape(16.dp),
-        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
-        } else {
-            null
-        },
-        modifier = Modifier.fillMaxWidth().clickable { onSelected(key) },
-    ) {
-        Text(label, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(13.dp))
-    }
-}
-
-@Composable
-private fun CategoryDialog(initialValue: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var value by remember(initialValue) { mutableStateOf(initialValue) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Categorize") },
-        text = {
-            OutlinedTextField(
-                value = value,
-                onValueChange = { value = it.take(32) },
-                label = { Text("Label or tag") },
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Write freely",
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
             )
-        },
-        confirmButton = { TextButton(onClick = { onSave(value) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
 
-@Composable
-private fun TextEditorBody(body: String, onBodyChanged: (String) -> Unit) {
-    OutlinedTextField(
-        value = body,
-        onValueChange = onBodyChanged,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp),
-        label = { Text("Write freely") },
-        placeholder = { Text("What happened, what helped, or what should I remember?") },
-        shape = RoundedCornerShape(24.dp),
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-    )
+            BasicTextField(
+                value = body,
+                onValueChange = onBodyChanged,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 350.dp),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 350.dp),
+                    ) {
+                        if (body.isBlank()) {
+                            Text(
+                                text = "What happened, what helped, or what should I remember?",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+            )
+        }
+    }
 }
 
 @Composable
@@ -984,6 +1117,9 @@ private fun ChecklistEditorBody(
     onAddItem: () -> Unit,
     onRemoveItem: (Long) -> Unit,
 ) {
+    val openItems = items.filterNot { it.isChecked }.sortedBy { it.localId }
+    val checkedItems = items.filter { it.isChecked }.sortedBy { it.localId }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(28.dp),
@@ -996,39 +1132,77 @@ private fun ChecklistEditorBody(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Checklist", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            items.sortedWith(compareBy<ChecklistDraftItem> { it.isChecked }.thenBy { it.localId }).forEach { item ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Checkbox(checked = item.isChecked, onCheckedChange = { onToggle(item.localId) })
-                    OutlinedTextField(
-                        value = item.text,
-                        onValueChange = { onItemChanged(item.localId, it) },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        placeholder = { Text("List item") },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            textDecoration = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None,
-                            color = if (item.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                        ),
-                        shape = RoundedCornerShape(18.dp),
-                    )
-                    IconButton(onClick = { onRemoveItem(item.localId) }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Remove item", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+            openItems.forEach { item ->
+                ChecklistItemRow(
+                    item = item,
+                    onItemChanged = onItemChanged,
+                    onToggle = onToggle,
+                    onRemoveItem = onRemoveItem,
+                )
             }
             OutlinedButton(onClick = onAddItem, shape = RoundedCornerShape(22.dp)) {
                 Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Add item")
             }
-            Text(
-                text = "Checked items move to the bottom and stay visible.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
+            if (checkedItems.isNotEmpty()) {
+                Text(
+                    text = "Checked Items",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                checkedItems.forEach { item ->
+                    ChecklistItemRow(
+                        item = item,
+                        onItemChanged = onItemChanged,
+                        onToggle = onToggle,
+                        onRemoveItem = onRemoveItem,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChecklistItemRow(
+    item: ChecklistDraftItem,
+    onItemChanged: (Long, String) -> Unit,
+    onToggle: (Long) -> Unit,
+    onRemoveItem: (Long) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Checkbox(
+            checked = item.isChecked,
+            onCheckedChange = { onToggle(item.localId) },
+        )
+        OutlinedTextField(
+            value = item.text,
+            onValueChange = { onItemChanged(item.localId, it) },
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            placeholder = { Text("List item") },
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                textDecoration = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None,
+                color = if (item.isChecked) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            ),
+            shape = RoundedCornerShape(18.dp),
+        )
+        IconButton(onClick = { onRemoveItem(item.localId) }) {
+            Icon(
+                Icons.Outlined.Delete,
+                contentDescription = "Remove item",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -1036,79 +1210,402 @@ private fun ChecklistEditorBody(
 
 @Composable
 private fun SketchEditorBody(sketch: String, onSketchChanged: (String) -> Unit) {
-    var paths by remember { mutableStateOf(decodeSketch(sketch)) }
-    val sketchStrokeColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+    val defaultStrokeColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
+    var strokes by remember { mutableStateOf(decodeSketch(sketch, defaultStrokeColor)) }
+    var activeTool by remember { mutableStateOf(SketchTool.Pencil) }
+    var activePanel by remember { mutableStateOf(SketchPanel.None) }
+    var activeColor by remember { mutableStateOf(defaultStrokeColor) }
+    var activeWidth by remember { mutableStateOf(5f) }
 
     LaunchedEffect(sketch) {
-        if (sketch.isNotBlank() && paths.isEmpty()) paths = decodeSketch(sketch)
+        if (sketch.isBlank()) {
+            strokes = emptyList()
+        } else if (strokes.isEmpty()) {
+            strokes = decodeSketch(sketch, defaultStrokeColor)
+        }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(
             color = Color(0xFFFFFCFF),
-            shape = RoundedCornerShape(28.dp),
+            shape = RoundedCornerShape(30.dp),
             border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
                 BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             } else {
                 null
             },
-            modifier = Modifier.fillMaxWidth().height(310.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(460.dp),
         ) {
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(10.dp)
-                    .pointerInput(Unit) {
+                    .padding(12.dp)
+                    .pointerInput(activeTool, activeColor, activeWidth) {
                         detectDragGestures(
                             onDragStart = { offset ->
-                                paths = paths + listOf(listOf(offset))
-                                onSketchChanged(encodeSketch(paths))
+                                if (activeTool == SketchTool.Rubber) {
+                                    val updated = eraseStrokesNear(strokes, offset)
+                                    strokes = updated
+                                    onSketchChanged(encodeSketch(updated))
+                                } else {
+                                    val newStroke = SketchStroke(
+                                        points = listOf(offset),
+                                        color = activeColor,
+                                        width = activeWidth,
+                                        tool = activeTool,
+                                    )
+                                    val updated = strokes + newStroke
+                                    strokes = updated
+                                    onSketchChanged(encodeSketch(updated))
+                                }
                             },
                             onDrag = { change, _ ->
                                 change.consume()
-                                val updated = if (paths.isEmpty()) listOf(listOf(change.position))
-                                else paths.dropLast(1) + listOf(paths.last() + change.position)
-                                paths = updated
-                                onSketchChanged(encodeSketch(updated))
+
+                                if (activeTool == SketchTool.Rubber) {
+                                    val updated = eraseStrokesNear(strokes, change.position)
+                                    strokes = updated
+                                    onSketchChanged(encodeSketch(updated))
+                                } else {
+                                    val updated = if (strokes.isEmpty()) {
+                                        listOf(
+                                            SketchStroke(
+                                                points = listOf(change.position),
+                                                color = activeColor,
+                                                width = activeWidth,
+                                                tool = activeTool,
+                                            )
+                                        )
+                                    } else {
+                                        strokes.dropLast(1) + strokes.last().copy(
+                                            points = strokes.last().points + change.position,
+                                        )
+                                    }
+                                    strokes = updated
+                                    onSketchChanged(encodeSketch(updated))
+                                }
                             },
                         )
                     },
             ) {
-                paths.forEach { points ->
-                    if (points.size > 1) {
+                strokes.forEach { stroke ->
+                    if (stroke.points.size > 1) {
                         val path = Path().apply {
-                            moveTo(points.first().x, points.first().y)
-                            points.drop(1).forEach { lineTo(it.x, it.y) }
+                            moveTo(stroke.points.first().x, stroke.points.first().y)
+                            stroke.points.drop(1).forEach { point ->
+                                lineTo(point.x, point.y)
+                            }
                         }
+
                         drawPath(
                             path = path,
-                            color = sketchStrokeColor,
-                            style = Stroke(width = 5f),
+                            color = stroke.color.copy(alpha = stroke.tool.visibleAlpha()),
+                            style = Stroke(
+                                width = stroke.tool.visibleWidth(stroke.width),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
                         )
                     }
                 }
             }
         }
+
+        SketchToolBar(
+            activeTool = activeTool,
+            activePanel = activePanel,
+            activeColor = activeColor,
+            activeWidth = activeWidth,
+            onRubberSelected = {
+                activeTool = SketchTool.Rubber
+                activePanel = SketchPanel.None
+            },
+            onColorPanelSelected = {
+                activePanel = if (activePanel == SketchPanel.Color) SketchPanel.None else SketchPanel.Color
+                if (activeTool == SketchTool.Rubber) activeTool = SketchTool.Pencil
+            },
+            onPencilPanelSelected = {
+                activePanel = if (activePanel == SketchPanel.Pencil) SketchPanel.None else SketchPanel.Pencil
+                if (activeTool == SketchTool.Rubber) activeTool = SketchTool.Pencil
+            },
+            onColorSelected = { color ->
+                activeColor = color
+                if (activeTool == SketchTool.Rubber) activeTool = SketchTool.Pencil
+            },
+            onToolSelected = { tool ->
+                activeTool = tool
+            },
+            onWidthSelected = { width ->
+                activeWidth = width
+            },
+        )
+
         OutlinedButton(
             onClick = {
-                paths = emptyList()
+                strokes = emptyList()
                 onSketchChanged("")
             },
             shape = RoundedCornerShape(22.dp),
-        ) { Text("Clear drawing") }
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Clear drawing")
+        }
+    }
+}
+
+@Composable
+private fun SketchToolBar(
+    activeTool: SketchTool,
+    activePanel: SketchPanel,
+    activeColor: Color,
+    activeWidth: Float,
+    onRubberSelected: () -> Unit,
+    onColorPanelSelected: () -> Unit,
+    onPencilPanelSelected: () -> Unit,
+    onColorSelected: (Color) -> Unit,
+    onToolSelected: (SketchTool) -> Unit,
+    onWidthSelected: (Float) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(26.dp),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+        } else {
+            null
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SketchToolButton(
+                    label = "Rubber",
+                    selected = activeTool == SketchTool.Rubber,
+                    icon = { Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    onClick = onRubberSelected,
+                    modifier = Modifier.weight(1f),
+                )
+                SketchToolButton(
+                    label = "Color",
+                    selected = activePanel == SketchPanel.Color,
+                    icon = {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .background(activeColor, CircleShape)
+                        )
+                    },
+                    onClick = onColorPanelSelected,
+                    modifier = Modifier.weight(1f),
+                )
+                SketchToolButton(
+                    label = "Pencil",
+                    selected = activePanel == SketchPanel.Pencil || activeTool == SketchTool.Pencil || activeTool == SketchTool.Marker || activeTool == SketchTool.SketchPen,
+                    icon = { Icon(Icons.Outlined.Brush, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    onClick = onPencilPanelSelected,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            if (activePanel == SketchPanel.Color) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SketchColorChip("Ink", MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f), activeColor, onColorSelected)
+                    SketchColorChip("Lavender", ImpulsivePsychological, activeColor, onColorSelected)
+                    SketchColorChip("Blue", ImpulsivePhysical, activeColor, onColorSelected)
+                    SketchColorChip("Coral", ImpulsiveFocusMode, activeColor, onColorSelected)
+                    SketchColorChip("Green", Color(0xFF93E9BE), activeColor, onColorSelected)
+                    SketchColorChip("Amber", Color(0xFFFFD58A), activeColor, onColorSelected)
+                }
+            }
+
+            if (activePanel == SketchPanel.Pencil) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SketchModeChip("Pencil", activeTool == SketchTool.Pencil) { onToolSelected(SketchTool.Pencil) }
+                        SketchModeChip("Marker", activeTool == SketchTool.Marker) { onToolSelected(SketchTool.Marker) }
+                        SketchModeChip("Sketch pen", activeTool == SketchTool.SketchPen) { onToolSelected(SketchTool.SketchPen) }
+                    }
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SketchSizeChip("Small", activeWidth == 3f) { onWidthSelected(3f) }
+                        SketchSizeChip("Medium", activeWidth == 5f) { onWidthSelected(5f) }
+                        SketchSizeChip("Large", activeWidth == 8f) { onWidthSelected(8f) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SketchToolButton(
+    label: String,
+    selected: Boolean,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(18.dp)
+
+    Surface(
+        color = if (selected) {
+            ImpulsivePsychological.copy(alpha = 0.34f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        shape = shape,
+        border = BorderStroke(
+            1.dp,
+            if (selected) {
+                ImpulsivePsychological.copy(alpha = 0.72f)
+            } else {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+            },
+        ),
+        modifier = modifier
+            .clip(shape)
+            .impulsiveNoSquareRippleClickable { onClick() },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            icon()
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SketchColorChip(
+    label: String,
+    color: Color,
+    activeColor: Color,
+    onSelected: (Color) -> Unit,
+) {
+    val selected = color.toArgb() == activeColor.toArgb()
+    val shape = RoundedCornerShape(50)
+
+    Surface(
+        color = if (selected) color.copy(alpha = 0.28f) else MaterialTheme.colorScheme.surface,
+        shape = shape,
+        border = BorderStroke(
+            1.dp,
+            if (selected) color.copy(alpha = 0.76f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+        ),
+        modifier = Modifier
+            .clip(shape)
+            .impulsiveNoSquareRippleClickable { onSelected(color) },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .background(color, CircleShape)
+            )
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SketchModeChip(
+    label: String,
+    selected: Boolean,
+    onSelected: () -> Unit,
+) {
+    val shape = RoundedCornerShape(50)
+
+    Surface(
+        color = if (selected) ImpulsivePsychological.copy(alpha = 0.28f) else MaterialTheme.colorScheme.surface,
+        shape = shape,
+        border = BorderStroke(
+            1.dp,
+            if (selected) ImpulsivePsychological.copy(alpha = 0.72f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+        ),
+        modifier = Modifier
+            .clip(shape)
+            .impulsiveNoSquareRippleClickable { onSelected() },
+    ) {
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun SketchSizeChip(
+    label: String,
+    selected: Boolean,
+    onSelected: () -> Unit,
+) {
+    val shape = RoundedCornerShape(50)
+
+    Surface(
+        color = if (selected) ImpulsivePsychological.copy(alpha = 0.28f) else MaterialTheme.colorScheme.surface,
+        shape = shape,
+        border = BorderStroke(
+            1.dp,
+            if (selected) ImpulsivePsychological.copy(alpha = 0.72f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+        ),
+        modifier = Modifier
+            .clip(shape)
+            .impulsiveNoSquareRippleClickable { onSelected() },
+    ) {
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
     }
 }
 
 @Composable
 private fun ReminderEditorBody(
     body: String,
-    reminderAtMillis: Long?,
     onBodyChanged: (String) -> Unit,
-    onLaterToday: () -> Unit,
-    onTomorrowMorning: () -> Unit,
-    onNextFriday: () -> Unit,
-    onPickDateTime: (year: Int, monthZeroBased: Int, dayOfMonth: Int, hour: Int, minute: Int) -> Unit,
-    onClear: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(
@@ -1120,14 +1617,122 @@ private fun ReminderEditorBody(
             shape = RoundedCornerShape(24.dp),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         )
-        ReminderCard(
-            reminderAtMillis = reminderAtMillis,
-            onLaterToday = onLaterToday,
-            onTomorrowMorning = onTomorrowMorning,
-            onNextFriday = onNextFriday,
-            onPickDateTime = onPickDateTime,
-            onClear = onClear,
-        )
+    }
+}
+
+@Composable
+private fun EditorReminderDialog(
+    reminderAtMillis: Long?,
+    onDismiss: () -> Unit,
+    onTimeSelected: (hour: Int, minute: Int) -> Unit,
+    onPickDateTime: (year: Int, monthZeroBased: Int, dayOfMonth: Int, hour: Int, minute: Int) -> Unit,
+    onClear: () -> Unit,
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remind later?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReminderOptionRow(label = "9:00 AM", time = null, onClick = { onTimeSelected(9, 0) })
+                ReminderOptionRow(label = "12:00 PM", time = null, onClick = { onTimeSelected(12, 0) })
+                ReminderOptionRow(label = "3:00 PM", time = null, onClick = { onTimeSelected(15, 0) })
+                ReminderOptionRow(label = "6:00 PM", time = null, onClick = { onTimeSelected(18, 0) })
+
+                ReminderOptionRow(
+                    label = "Pick a date & time",
+                    time = null,
+                    onClick = {
+                        showDateTimePicker(
+                            context = context,
+                            onPicked = onPickDateTime,
+                        )
+                    },
+                )
+
+                reminderAtMillis?.let {
+                    TextButton(onClick = onClear) {
+                        Text("Clear reminder")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
+}
+
+@Composable
+private fun EditorLabelDialog(
+    selectedKey: String?,
+    onDismiss: () -> Unit,
+    onSelected: (String?) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Label colour") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LabelColorRow("Green", HighlightGreen, Color(0xFF93E9BE), selectedKey, onSelected)
+                LabelColorRow("Blue", HighlightBlue, Color(0xFFBDE0FE), selectedKey, onSelected)
+                LabelColorRow("Yellow", HighlightYellow, Color(0xFFFEF1AB), selectedKey, onSelected)
+                LabelColorRow("Red", HighlightRed, Color(0xFFF5A7A6), selectedKey, onSelected)
+                LabelColorRow("Purple", HighlightPurple, Color(0xFFD0C3F1), selectedKey, onSelected)
+                LabelColorRow("Amber", HighlightAmber, Color(0xFFFFD58A), selectedKey, onSelected)
+
+                if (selectedKey != null) {
+                    TextButton(onClick = { onSelected(null) }) {
+                        Text("Clear label")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
+}
+
+@Composable
+private fun LabelColorRow(
+    label: String,
+    key: String,
+    color: Color,
+    selectedKey: String?,
+    onSelected: (String?) -> Unit,
+) {
+    val rowShape = RoundedCornerShape(18.dp)
+    Surface(
+        color = if (selectedKey == key) color.copy(alpha = 0.38f) else MaterialTheme.colorScheme.surfaceVariant,
+        shape = rowShape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(rowShape)
+            .impulsiveNoSquareRippleClickable { onSelected(key) },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .background(color, CircleShape),
+            )
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 
@@ -1189,7 +1794,12 @@ private fun ReminderCard(
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("Clear", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onClear() })
+                        Text(
+                            "Clear",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.impulsiveNoSquareRippleClickable { onClear() },
+                        )
                     }
                 }
             }
@@ -1202,7 +1812,7 @@ private fun ReminderOptionRow(label: String, time: String?, onClick: () -> Unit)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .impulsiveNoSquareRippleClickable { onClick() }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -1294,8 +1904,21 @@ private const val HighlightPsychology = "PSYCHOLOGY"
 private const val HighlightPhysical = "PHYSICAL"
 private const val HighlightSpiritual = "SPIRITUAL"
 private const val HighlightFocus = "FOCUS"
+private const val HighlightGreen = "GREEN"
+private const val HighlightBlue = "BLUE"
+private const val HighlightYellow = "YELLOW"
+private const val HighlightRed = "RED"
+private const val HighlightPurple = "PURPLE"
+private const val HighlightAmber = "AMBER"
 
 private fun highlightColorForKey(key: String?): Color? = when (key) {
+    HighlightGreen -> Color(0xFF93E9BE)
+    HighlightBlue -> Color(0xFFBDE0FE)
+    HighlightYellow -> Color(0xFFFEF1AB)
+    HighlightRed -> Color(0xFFF5A7A6)
+    HighlightPurple -> Color(0xFFD0C3F1)
+    HighlightAmber -> Color(0xFFFFD58A)
+
     HighlightPsychology -> ImpulsivePsychological
     HighlightPhysical -> ImpulsivePhysical
     HighlightSpiritual -> ImpulsiveSpiritual
@@ -1303,25 +1926,132 @@ private fun highlightColorForKey(key: String?): Color? = when (key) {
     else -> null
 }
 
-private fun encodeSketch(paths: List<List<Offset>>): String {
-    return paths.joinToString("|") { path ->
-        path.joinToString(";") { point ->
+private enum class SketchTool {
+    Pencil,
+    Marker,
+    SketchPen,
+    Rubber,
+}
+
+private enum class SketchPanel {
+    None,
+    Color,
+    Pencil,
+}
+
+private data class SketchStroke(
+    val points: List<Offset>,
+    val color: Color,
+    val width: Float,
+    val tool: SketchTool,
+)
+
+private const val SketchEncodingV2Prefix = "v2:"
+
+private fun encodeSketch(strokes: List<SketchStroke>): String {
+    if (strokes.isEmpty()) return ""
+
+    return SketchEncodingV2Prefix + strokes.joinToString("|") { stroke ->
+        val header = listOf(
+            stroke.tool.name,
+            stroke.width.roundToInt().toString(),
+            stroke.color.toArgb().toString(),
+        ).joinToString(",")
+
+        val points = stroke.points.joinToString(";") { point ->
             "${point.x.roundToInt()},${point.y.roundToInt()}"
         }
+
+        "$header#$points"
     }
 }
 
-private fun decodeSketch(value: String): List<List<Offset>> {
+private fun decodeSketch(
+    value: String,
+    fallbackColor: Color = Color(0xFF2B2636),
+): List<SketchStroke> {
     if (value.isBlank()) return emptyList()
-    return value.split("|").mapNotNull { pathRaw ->
-        val points = pathRaw.split(";").mapNotNull { pointRaw ->
+
+    if (!value.startsWith(SketchEncodingV2Prefix)) {
+        return value.split("|").mapNotNull { pathRaw ->
+            val points = pathRaw.split(";").mapNotNull { pointRaw ->
+                val pieces = pointRaw.split(",")
+                val x = pieces.getOrNull(0)?.toFloatOrNull()
+                val y = pieces.getOrNull(1)?.toFloatOrNull()
+                if (x != null && y != null) Offset(x, y) else null
+            }
+
+            points.takeIf { it.size > 1 }?.let {
+                SketchStroke(
+                    points = it,
+                    color = fallbackColor,
+                    width = 5f,
+                    tool = SketchTool.Pencil,
+                )
+            }
+        }
+    }
+
+    return value.removePrefix(SketchEncodingV2Prefix).split("|").mapNotNull { strokeRaw ->
+        val parts = strokeRaw.split("#", limit = 2)
+        val header = parts.getOrNull(0)?.split(",").orEmpty()
+        val pointsRaw = parts.getOrNull(1).orEmpty()
+
+        val tool = header.getOrNull(0)
+            ?.let { runCatching { SketchTool.valueOf(it) }.getOrNull() }
+            ?: SketchTool.Pencil
+
+        val width = header.getOrNull(1)?.toFloatOrNull() ?: 5f
+        val color = header.getOrNull(2)?.toIntOrNull()?.let { Color(it) } ?: fallbackColor
+
+        val points = pointsRaw.split(";").mapNotNull { pointRaw ->
             val pieces = pointRaw.split(",")
             val x = pieces.getOrNull(0)?.toFloatOrNull()
             val y = pieces.getOrNull(1)?.toFloatOrNull()
             if (x != null && y != null) Offset(x, y) else null
         }
-        points.takeIf { it.size > 1 }
+
+        points.takeIf { it.size > 1 }?.let {
+            SketchStroke(
+                points = it,
+                color = color,
+                width = width,
+                tool = tool,
+            )
+        }
     }
+}
+
+private fun SketchTool.visibleWidth(baseWidth: Float): Float = when (this) {
+    SketchTool.Pencil -> baseWidth
+    SketchTool.Marker -> baseWidth + 7f
+    SketchTool.SketchPen -> (baseWidth - 1f).coerceAtLeast(2f)
+    SketchTool.Rubber -> baseWidth
+}
+
+private fun SketchTool.visibleAlpha(): Float = when (this) {
+    SketchTool.Pencil -> 0.82f
+    SketchTool.Marker -> 0.38f
+    SketchTool.SketchPen -> 0.94f
+    SketchTool.Rubber -> 1f
+}
+
+private fun eraseStrokesNear(
+    strokes: List<SketchStroke>,
+    point: Offset,
+    radius: Float = 34f,
+): List<SketchStroke> {
+    return strokes.filterNot { stroke ->
+        stroke.points.any { strokePoint ->
+            strokePoint.distanceTo(point) <= radius
+        }
+    }
+}
+
+private fun Offset.distanceTo(other: Offset): Float {
+    val dx = x - other.x
+    val dy = y - other.y
+    return sqrt(dx * dx + dy * dy)
 }
 
 private val ShortDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")

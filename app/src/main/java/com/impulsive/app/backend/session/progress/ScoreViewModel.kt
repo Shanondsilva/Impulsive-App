@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.repository.ScoreRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
+import com.impulsive.app.backend.data.repository.TaperRepository
 import com.impulsive.app.backend.data.repository.UrgeEventRepository
+import com.impulsive.app.backend.data.repository.WindowOutcomeRepository
 import com.impulsive.app.backend.domain.game.RecoveryGameCatalog
 import com.impulsive.app.backend.domain.model.score.ScoreDashboardState
 import com.impulsive.app.backend.domain.model.score.ScoreRange
@@ -23,15 +25,26 @@ class ScoreViewModel(application: Application) : AndroidViewModel(application) {
     private val taskRewardRepository = TaskRewardRepository(application)
     private val onboardingRepository = OnboardingRepository(application)
     private val urgeEventRepository = UrgeEventRepository(application)
+    private val windowOutcomeRepository = WindowOutcomeRepository(application)
+    private val taperRepository = TaperRepository(application)
     private val selectedRange = MutableStateFlow(ScoreRange.Week)
+
+    private val urgeAndWindowSignals = combine(
+        urgeEventRepository.events,
+        windowOutcomeRepository.outcomes,
+        taperRepository.state,
+    ) { urgeEvents, windowOutcomes, taperState ->
+        Triple(urgeEvents, windowOutcomes, taperState)
+    }
 
     val uiState: StateFlow<ScoreDashboardState> = combine(
         scoreRepository.sessions,
         taskRewardRepository.storeState,
         onboardingRepository.answers,
-        urgeEventRepository.events,
+        urgeAndWindowSignals,
         selectedRange,
-    ) { sessions, rewardState, onboardingAnswers, urgeEvents, range ->
+    ) { sessions, rewardState, onboardingAnswers, signals, range ->
+        val (urgeEvents, windowOutcomes, taperState) = signals
         buildScoreDashboardState(
             sessions = sessions,
             selectedRange = range,
@@ -41,6 +54,8 @@ class ScoreViewModel(application: Application) : AndroidViewModel(application) {
             recoveryGameTypes = RecoveryGameCatalog.scoreGameTypes,
             baselineDailyUrgeCount = onboardingAnswers.dailyRelapseUrgeCount,
             urgeEvents = urgeEvents,
+            windowOutcomes = windowOutcomes,
+            taperHistory = taperState.history,
         )
     }.stateIn(
         scope = viewModelScope,

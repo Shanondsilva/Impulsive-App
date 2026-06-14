@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.UserDataExporter
 import com.impulsive.app.backend.data.UserDataManager
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
+import com.impulsive.app.backend.data.repository.AuthRepositoryFactory
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -45,6 +46,10 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun deleteAllData(onComplete: () -> Unit) {
         viewModelScope.launch {
+            // Clear the Firebase/Facebook session first so the post-restart
+            // login screen actually shows instead of auto-advancing on a
+            // lingering signed-in user.
+            runCatching { AuthRepositoryFactory.create(getApplication()).signOut() }
             UserDataManager(getApplication()).deleteAllData()
             onComplete()
         }

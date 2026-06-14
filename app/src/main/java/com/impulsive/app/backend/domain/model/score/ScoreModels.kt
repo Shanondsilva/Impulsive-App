@@ -1,5 +1,8 @@
 package com.impulsive.app.backend.domain.model.score
 
+import com.impulsive.app.backend.domain.model.release.TaperHistoryEntry
+import com.impulsive.app.backend.domain.model.release.WindowOutcomeRecord
+import com.impulsive.app.backend.domain.model.release.WindowOutcomeStatus
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -17,7 +20,8 @@ private val DefaultScoreGameOrder = listOf(
 enum class ScoreRange(val label: String) {
     Today("Today"),
     Week("Week"),
-    AllTime("All-time"),
+    Month("Month"),
+    Year("Year"),
 }
 
 enum class ScoreGameType(
@@ -33,6 +37,7 @@ enum class ScoreGameType(
     DopamineRunner("DOPAMINE_RUNNER", "Dopamine Runner"),
     BreathControl("BREATH_CONTROL", "Breath Control"),
     RageDischarge("RAGE_DISCHARGE", "Rage Discharge"),
+    RhythmTiles("RHYTHM_TILES", "Rhythm Tiles"),
     Unknown("UNKNOWN", "Pivot Game");
 
     companion object {
@@ -85,6 +90,15 @@ data class UrgeTrendState(
         else -> "Above baseline"
     }
 }
+
+data class WindowUsageState(
+    val plannedPerDay: Int,
+    val todayUsed: Int,
+    val todaySkipped: Int,
+    val rangeUsed: Int,
+    val rangeSkipped: Int,
+    val hasData: Boolean,
+)
 
 fun newScoreSessionId(): Long = System.currentTimeMillis()
 
@@ -157,6 +171,7 @@ data class ScoreDashboardState(
     val averageUrgeDrop: Float? = null,
     val bestUrgeDrop: Int? = null,
     val urgeTrend: UrgeTrendState = UrgeTrendState(baselinePerDay = 0, bars = emptyList(), totalActual = 0, totalExpected = 0, hasData = false),
+    val windowUsage: WindowUsageState = WindowUsageState(plannedPerDay = 0, todayUsed = 0, todaySkipped = 0, rangeUsed = 0, rangeSkipped = 0, hasData = false),
     val personalBests: List<ScorePersonalBest> = DefaultScoreGameOrder.map {
         ScorePersonalBest(
             gameType = it,
@@ -189,6 +204,8 @@ fun buildScoreDashboardState(
     recoveryGameTypes: List<ScoreGameType> = DefaultScoreGameOrder,
     baselineDailyUrgeCount: Int = 0,
     urgeEvents: List<UrgeEventRecord> = emptyList(),
+    windowOutcomes: List<WindowOutcomeRecord> = emptyList(),
+    taperHistory: List<TaperHistoryEntry> = emptyList(),
 ): ScoreDashboardState {
     val visibleGameTypes = recoveryGameTypes
         .distinct()
@@ -208,6 +225,13 @@ fun buildScoreDashboardState(
         urgeEvents = urgeEvents,
         selectedRange = selectedRange,
         baselineDailyUrgeCount = baselineDailyUrgeCount,
+        taperHistory = taperHistory,
+        now = now.toLocalDate(),
+    )
+    val windowUsage = buildWindowUsage(
+        windowOutcomes = windowOutcomes,
+        selectedRange = selectedRange,
+        plannedPerDay = baselineDailyUrgeCount,
         now = now.toLocalDate(),
     )
 
@@ -225,6 +249,7 @@ fun buildScoreDashboardState(
         averageUrgeDrop = averageUrgeDrop,
         bestUrgeDrop = bestUrgeDrop,
         urgeTrend = urgeTrend,
+        windowUsage = windowUsage,
         personalBests = personalBests,
         recentSessions = filtered
             .sortedByDescending { it.completedAt }
@@ -243,37 +268,100 @@ fun buildScoreDashboardState(
     )
 }
 
+private fun buildWindowUsage(
+    windowOutcomes: List<WindowOutcomeRecord>,
+    selectedRange: ScoreRange,
+    plannedPerDay: Int,
+    now: LocalDate,
+): WindowUsageState {
+    val days: List<LocalDate> = when (selectedRange) {
+        ScoreRange.Today -> listOf(now)
+        ScoreRange.Week -> (0L..6L).map { now.minusDays(it) }.reversed()
+        ScoreRange.Month -> {
+            val firstDay = now.withDayOfMonth(1)
+            val span = ChronoUnit.DAYS.between(firstDay, now).coerceAtLeast(0)
+            (0L..span).map { firstDay.plusDays(it) }
+        }
+        ScoreRange.Year -> {
+            val firstDay = now.withDayOfYear(1)
+            val span = ChronoUnit.DAYS.between(firstDay, now).coerceAtLeast(0)
+            (0L..span).map { firstDay.plusDays(it) }
+        }
+    }
+    val inRange = windowOutcomes.filter { it.windowStart.toLocalDate() in days }
+    val todayOutcomes = windowOutcomes.filter { it.windowStart.toLocalDate() == now }
+    return WindowUsageState(
+        plannedPerDay = plannedPerDay.coerceAtLeast(0),
+        todayUsed = todayOutcomes.count { it.status == WindowOutcomeStatus.Used },
+        todaySkipped = todayOutcomes.count { it.status == WindowOutcomeStatus.Skipped },
+        rangeUsed = inRange.count { it.status == WindowOutcomeStatus.Used },
+        rangeSkipped = inRange.count { it.status == WindowOutcomeStatus.Skipped },
+        hasData = inRange.isNotEmpty(),
+    )
+}
+
 private fun buildUrgeTrend(
     urgeEvents: List<UrgeEventRecord>,
     selectedRange: ScoreRange,
     baselineDailyUrgeCount: Int,
+    taperHistory: List<TaperHistoryEntry>,
     now: LocalDate,
 ): UrgeTrendState {
-    val baseline = baselineDailyUrgeCount.coerceAtLeast(0)
+    val currentBaseline = baselineDailyUrgeCount.coerceAtLeast(0)
     val days: List<LocalDate> = when (selectedRange) {
         ScoreRange.Today -> listOf(now)
         ScoreRange.Week -> (0L..6L).map { now.minusDays(it) }.reversed()
-        ScoreRange.AllTime -> {
-            val earliest = urgeEvents.minOfOrNull { it.date } ?: now
-            val span = ChronoUnit.DAYS.between(earliest, now).coerceAtLeast(0).coerceAtMost(29)
-            (0L..span).map { now.minusDays(span - it) }
+        ScoreRange.Month -> {
+            val firstDay = now.withDayOfMonth(1)
+            val span = ChronoUnit.DAYS.between(firstDay, now).coerceAtLeast(0)
+            (0L..span).map { firstDay.plusDays(it) }
+        }
+        ScoreRange.Year -> {
+            val firstDay = now.withDayOfYear(1)
+            val span = ChronoUnit.DAYS.between(firstDay, now).coerceAtLeast(0)
+            (0L..span).map { firstDay.plusDays(it) }
         }
     }
     val countsByDay = urgeEvents.groupBy { it.date }.mapValues { it.value.size }
     val bars = days.map { day ->
         val actual = countsByDay[day] ?: 0
-        UrgeTrendDayBar(date = day, actual = actual, baseline = baseline)
+        UrgeTrendDayBar(
+            date = day,
+            actual = actual,
+            baseline = baselineForDay(day, currentBaseline, taperHistory),
+        )
     }
     val totalActual = bars.sumOf { it.actual }
-    val totalExpected = baseline * bars.size
+    val totalExpected = bars.sumOf { it.baseline }
     val hasData = urgeEvents.any { it.date in days }
     return UrgeTrendState(
-        baselinePerDay = baseline,
+        baselinePerDay = currentBaseline,
         bars = bars,
         totalActual = totalActual,
         totalExpected = totalExpected,
         hasData = hasData,
     )
+}
+
+/**
+ * Resolves the daily urge count that was in effect on a given day. Days on or
+ * after a taper acceptance use that taper's new count. Days before the first
+ * taper use the first taper's previous count. With no taper history every day
+ * uses the current baseline, which preserves the original behaviour exactly.
+ */
+private fun baselineForDay(
+    day: LocalDate,
+    currentBaseline: Int,
+    taperHistory: List<TaperHistoryEntry>,
+): Int {
+    val appliedOnOrBefore = taperHistory
+        .filter { !it.date.isAfter(day) }
+        .maxByOrNull { it.date }
+    if (appliedOnOrBefore != null) return appliedOnOrBefore.toCount.coerceAtLeast(0)
+    val earliestAfter = taperHistory
+        .filter { it.date.isAfter(day) }
+        .minByOrNull { it.date }
+    return (earliestAfter?.fromCount ?: currentBaseline).coerceAtLeast(0)
 }
 
 private fun buildPersonalBests(
@@ -321,5 +409,14 @@ private fun LocalDateTime.isInRange(range: ScoreRange, now: LocalDateTime): Bool
         val days = Duration.between(this, now).toDays()
         !isAfter(now) && days in 0..6
     }
-    ScoreRange.AllTime -> true
+    ScoreRange.Month -> {
+        val completedDate = toLocalDate()
+        val nowDate = now.toLocalDate()
+        completedDate.year == nowDate.year && completedDate.monthValue == nowDate.monthValue
+    }
+    ScoreRange.Year -> {
+        val completedDate = toLocalDate()
+        val nowDate = now.toLocalDate()
+        completedDate.year == nowDate.year
+    }
 }

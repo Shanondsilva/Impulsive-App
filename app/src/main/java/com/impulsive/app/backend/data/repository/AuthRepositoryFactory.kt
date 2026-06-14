@@ -26,7 +26,13 @@ private class GuestOnlyAuthRepository : AuthRepository {
 
     override fun currentUserSnapshot(): AuthUser? = currentUserState.value
 
+    override fun pendingEmailVerificationAddress(): String? = null
+
     override suspend fun signInWithGoogle(activity: Activity): AuthResult {
+        return AuthResult.Error(AuthNotConfiguredMessage)
+    }
+
+    override suspend fun linkGoogleAccount(activity: Activity): AuthResult {
         return AuthResult.Error(AuthNotConfiguredMessage)
     }
 
@@ -38,7 +44,15 @@ private class GuestOnlyAuthRepository : AuthRepository {
         return AuthResult.Error(AuthNotConfiguredMessage)
     }
 
+    override suspend fun refreshEmailVerification(): AuthResult {
+        return AuthResult.Error(AuthNotConfiguredMessage)
+    }
+
     override suspend fun signInWithFacebook(activity: Activity): AuthResult {
+        return AuthResult.Error(AuthNotConfiguredMessage)
+    }
+
+    override suspend fun linkFacebookAccount(activity: Activity): AuthResult {
         return AuthResult.Error(AuthNotConfiguredMessage)
     }
 
@@ -55,6 +69,20 @@ private class GuestOnlyAuthRepository : AuthRepository {
 
     override suspend fun signOut() {
         currentUserState.value = null
+    }
+
+    override suspend fun deleteAccount(): AccountDeletionResult {
+        currentUserState.value = null
+        return AccountDeletionResult.Success
+    }
+
+    override suspend fun reauthenticateAndDeleteAccount(
+        activity: Activity,
+        provider: AuthProvider,
+        password: String?,
+    ): AccountDeletionResult {
+        currentUserState.value = null
+        return AccountDeletionResult.Success
     }
 
     private companion object {

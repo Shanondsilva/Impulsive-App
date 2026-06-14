@@ -6,14 +6,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.repository.GameStoreManager
 import com.impulsive.app.backend.data.repository.ScoreRepository
-import com.impulsive.app.backend.domain.game.SkylineDropResult
-import com.impulsive.app.backend.domain.game.SkylineFloor
-import com.impulsive.app.backend.domain.game.SkylineResetPerPerfectControlPoints
-import com.impulsive.app.backend.domain.game.SkylineResetRoundSeconds
-import com.impulsive.app.backend.domain.game.newSkylineBaseFloor
-import com.impulsive.app.backend.domain.game.resolveSkylineDrop
-import com.impulsive.app.backend.domain.game.skylineHueFor
-import com.impulsive.app.backend.domain.game.skylineSpeedFor
+import com.impulsive.app.backend.domain.game.StackBlock
+import com.impulsive.app.backend.domain.game.StackBlockHeight
+import com.impulsive.app.backend.domain.game.StackDropResult
+import com.impulsive.app.backend.domain.game.StackMoveBound
+import com.impulsive.app.backend.domain.game.StackPerPerfectControlPoints
+import com.impulsive.app.backend.domain.game.StackRoundSeconds
+import com.impulsive.app.backend.domain.game.newStackBaseBlock
+import com.impulsive.app.backend.domain.game.resolveStackDrop
+import com.impulsive.app.backend.domain.game.stackAxisIsX
+import com.impulsive.app.backend.domain.game.stackHueFor
+import com.impulsive.app.backend.domain.game.stackSpeedFor
 import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
+import kotlin.random.Random
 
 enum class SkylineResetView {
     Ready,
@@ -33,24 +37,33 @@ enum class SkylineResetView {
 
 data class SkylineResetUiState(
     val view: SkylineResetView = SkylineResetView.Ready,
-    val floors: List<SkylineFloor> = emptyList(),
-    val movingLeft: Float = 0f,
-    val movingWidth: Float = 0f,
-    val movingDir: Int = 1,
-    val movingHue: Int = skylineHueFor(0),
+    val blocks: List<StackBlock> = emptyList(),
+    val activeIndex: Int = 1,
+    val activeX: Float = 0f,
+    val activeZ: Float = 0f,
+    val activeWidth: Float = 0f,
+    val activeDepth: Float = 0f,
+    val activeAxisIsX: Boolean = true,
+    val activeDir: Int = 1,
+    val activeHue: Int = stackHueFor(1),
     val floorsBuilt: Int = 0,
     val perfectCount: Int = 0,
     val secondsPlayed: Int = 0,
     val completed: Boolean = false,
     val failed: Boolean = false,
     val dropSeq: Int = 0,
-    val lastDropResult: SkylineDropResult? = null,
-    val lastTrimLeft: Float = 0f,
-    val lastTrimWidth: Float = 0f,
+    val lastDropResult: StackDropResult? = null,
+    val choppedPresent: Boolean = false,
+    val choppedX: Float = 0f,
+    val choppedZ: Float = 0f,
+    val choppedWidth: Float = 0f,
+    val choppedDepth: Float = 0f,
+    val choppedY: Float = 0f,
+    val choppedDir: Int = 0,
+    val choppedAxisIsX: Boolean = true,
+    val choppedHue: Int = 0,
     val controlPointsBanked: Int? = null,
 )
-
-private const val SkylineSpeedScale = 0.16f
 
 class SkylineResetViewModel(application: Application) : AndroidViewModel(application) {
     private val scoreRepository = ScoreRepository(application)
@@ -65,23 +78,35 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
     private var perfectPointsBanked = false
     private var activeSessionId: Long = newScoreSessionId()
     private var sessionStartedAt: LocalDateTime = LocalDateTime.now()
+    private var urgeBeforeRating: Int? = null
+    private var urgeAfterRating: Int? = null
+    private var lastRecordedSession: ScoreSessionRecord? = null
 
     fun start() {
         resultRecorded = false
         perfectPointsBanked = false
         activeSessionId = newScoreSessionId()
         sessionStartedAt = LocalDateTime.now()
+        urgeAfterRating = null
         accumulatedForegroundMs = 0L
         lastFrameMs = null
         resumed = true
-        val base = newSkylineBaseFloor(1f)
+        val base = newStackBaseBlock()
+        val firstIndex = 1
+        val axisIsX = stackAxisIsX(firstIndex)
+        val startPositive = Random.nextBoolean()
+        val startPos = if (startPositive) StackMoveBound else -StackMoveBound
         _uiState.value = SkylineResetUiState(
             view = SkylineResetView.Playing,
-            floors = listOf(base),
-            movingLeft = 0f,
-            movingWidth = base.width,
-            movingDir = 1,
-            movingHue = skylineHueFor(1),
+            blocks = listOf(base),
+            activeIndex = firstIndex,
+            activeX = if (axisIsX) startPos else base.x,
+            activeZ = if (axisIsX) base.z else startPos,
+            activeWidth = base.width,
+            activeDepth = base.depth,
+            activeAxisIsX = axisIsX,
+            activeDir = if (startPositive) -1 else 1,
+            activeHue = stackHueFor(firstIndex),
         )
     }
 
@@ -97,12 +122,12 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
         accumulatedForegroundMs += delta
         val nextSeconds = (accumulatedForegroundMs / 1_000L).toInt()
 
-        if (nextSeconds >= SkylineResetRoundSeconds) {
+        if (nextSeconds >= StackRoundSeconds) {
             _uiState.update {
                 it.copy(
                     view = SkylineResetView.Result,
                     completed = true,
-                    secondsPlayed = SkylineResetRoundSeconds,
+                    secondsPlayed = StackRoundSeconds,
                 )
             }
             resumed = false
@@ -111,38 +136,47 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
             return
         }
 
-        val perSec = skylineSpeedFor(current.floorsBuilt) * SkylineSpeedScale
-        var x = current.movingLeft + current.movingDir * perSec * (delta / 1_000f)
-        var dir = current.movingDir
-        val maxLeft = (1f - current.movingWidth).coerceAtLeast(0f)
-        if (x <= 0f) {
-            x = 0f
-            dir = 1
-        } else if (x >= maxLeft) {
-            x = maxLeft
+        val speed = stackSpeedFor(
+            floorsBuilt = current.floorsBuilt,
+            perfectCount = current.perfectCount,
+        )
+        val step = current.activeDir * speed * (delta / 1_000f)
+        var pos = if (current.activeAxisIsX) current.activeX else current.activeZ
+        var dir = current.activeDir
+        pos += step
+        if (pos >= StackMoveBound) {
+            pos = StackMoveBound
             dir = -1
+        } else if (pos <= -StackMoveBound) {
+            pos = -StackMoveBound
+            dir = 1
         }
 
         _uiState.update {
-            it.copy(movingLeft = x, movingDir = dir, secondsPlayed = nextSeconds)
+            it.copy(
+                activeX = if (it.activeAxisIsX) pos else it.activeX,
+                activeZ = if (it.activeAxisIsX) it.activeZ else pos,
+                activeDir = dir,
+                secondsPlayed = nextSeconds,
+            )
         }
     }
 
     fun drop() {
         val current = _uiState.value
         if (current.view != SkylineResetView.Playing) return
-        val top = current.floors.lastOrNull() ?: return
-        val outcome = resolveSkylineDrop(top, current.movingLeft, current.movingWidth, current.movingHue, 1f)
-        if (outcome.result == SkylineDropResult.Missed) {
+        val top = current.blocks.lastOrNull() ?: return
+        val outcome = resolveStackDrop(top, current.activeX, current.activeZ, current.activeHue)
+
+        if (outcome.result == StackDropResult.Missed) {
             _uiState.update {
                 it.copy(
                     view = SkylineResetView.Result,
                     failed = true,
                     completed = false,
                     dropSeq = it.dropSeq + 1,
-                    lastDropResult = SkylineDropResult.Missed,
-                    lastTrimLeft = outcome.trimLeft,
-                    lastTrimWidth = outcome.trimWidth,
+                    lastDropResult = StackDropResult.Missed,
+                    choppedPresent = false,
                 )
             }
             resumed = false
@@ -150,21 +184,38 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
             recordCurrentResult(ScoreSessionOutcome.Abandoned)
             return
         }
-        val placed = outcome.placedFloor ?: return
-        val newFloorsBuilt = current.floorsBuilt + 1
+
+        val placed = outcome.placed ?: return
+        val nextIndex = placed.index + 1
+        val nextAxisIsX = stackAxisIsX(nextIndex)
+        val startPositive = Random.nextBoolean()
+        val startPos = if (startPositive) StackMoveBound else -StackMoveBound
+        val choppedBottomY = placed.index * StackBlockHeight
+
         _uiState.update {
             it.copy(
-                floors = it.floors + placed,
-                floorsBuilt = newFloorsBuilt,
-                perfectCount = it.perfectCount + if (outcome.result == SkylineDropResult.Perfect) 1 else 0,
-                movingWidth = placed.width,
-                movingLeft = if (newFloorsBuilt % 2 == 0) 0f else (1f - placed.width).coerceAtLeast(0f),
-                movingDir = if (newFloorsBuilt % 2 == 0) 1 else -1,
-                movingHue = skylineHueFor(newFloorsBuilt + 1),
+                blocks = it.blocks + placed,
+                floorsBuilt = it.floorsBuilt + 1,
+                perfectCount = it.perfectCount + if (outcome.result == StackDropResult.Perfect) 1 else 0,
+                activeIndex = nextIndex,
+                activeWidth = placed.width,
+                activeDepth = placed.depth,
+                activeAxisIsX = nextAxisIsX,
+                activeX = if (nextAxisIsX) startPos else placed.x,
+                activeZ = if (nextAxisIsX) placed.z else startPos,
+                activeDir = if (startPositive) -1 else 1,
+                activeHue = stackHueFor(nextIndex),
                 dropSeq = it.dropSeq + 1,
                 lastDropResult = outcome.result,
-                lastTrimLeft = outcome.trimLeft,
-                lastTrimWidth = outcome.trimWidth,
+                choppedPresent = outcome.choppedPresent,
+                choppedX = outcome.choppedX,
+                choppedZ = outcome.choppedZ,
+                choppedWidth = outcome.choppedWidth,
+                choppedDepth = outcome.choppedDepth,
+                choppedY = choppedBottomY,
+                choppedDir = outcome.choppedDir,
+                choppedAxisIsX = outcome.axisIsX,
+                choppedHue = placed.hue,
             )
         }
     }
@@ -189,7 +240,7 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
     fun bankPerfectControlPoints() {
         if (perfectPointsBanked) return
         perfectPointsBanked = true
-        val points = _uiState.value.perfectCount.coerceAtLeast(0) * SkylineResetPerPerfectControlPoints
+        val points = _uiState.value.perfectCount.coerceAtLeast(0) * StackPerPerfectControlPoints
         if (points <= 0) {
             _uiState.update { it.copy(controlPointsBanked = 0) }
             return
@@ -200,23 +251,44 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun setUrgeBefore(rating: Int) {
+        urgeBeforeRating = rating.coerceIn(0, 10)
+    }
+
+    /**
+     * Captures the post-game rating. SkyStack records its session once (guarded
+     * by resultRecorded), so this re-records the same session id with the rating
+     * attached. It calls the repository directly so the game store play counter
+     * is not incremented a second time.
+     */
+    fun setUrgeAfter(rating: Int) {
+        val coerced = rating.coerceIn(0, 10)
+        urgeAfterRating = coerced
+        val recorded = lastRecordedSession ?: return
+        val updated = recorded.copy(urgeAfter = coerced)
+        lastRecordedSession = updated
+        viewModelScope.launch { scoreRepository.recordSession(updated) }
+    }
+
     fun recordCurrentResult(outcome: ScoreSessionOutcome) {
         if (resultRecorded) return
         resultRecorded = true
         val state = _uiState.value
+        val record = ScoreSessionRecord(
+            id = activeSessionId,
+            gameType = ScoreGameType.SkylineReset,
+            score = state.stackScore().coerceAtLeast(0),
+            startedAt = sessionStartedAt,
+            completedAt = LocalDateTime.now(),
+            durationSec = state.secondsPlayed.coerceAtLeast(0),
+            urgeBefore = urgeBeforeRating,
+            urgeAfter = urgeAfterRating,
+            outcome = outcome,
+            validCompletion = state.completed,
+        )
+        lastRecordedSession = record
         viewModelScope.launch {
-            scoreRepository.recordSession(
-                ScoreSessionRecord(
-                    id = activeSessionId,
-                    gameType = ScoreGameType.SkylineReset,
-                    score = state.skylineScore().coerceAtLeast(0),
-                    startedAt = sessionStartedAt,
-                    completedAt = LocalDateTime.now(),
-                    durationSec = state.secondsPlayed.coerceAtLeast(0),
-                    outcome = outcome,
-                    validCompletion = state.completed,
-                ),
-            )
+            scoreRepository.recordSession(record)
             gameStoreManager.recordPlay(
                 gameId = "SKYLINE_RESET",
                 won = outcome == ScoreSessionOutcome.Completed,
@@ -224,7 +296,7 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    private fun SkylineResetUiState.skylineScore(): Int =
+    private fun SkylineResetUiState.stackScore(): Int =
         floorsBuilt.coerceAtLeast(0) * 10 +
             perfectCount.coerceAtLeast(0) * 15 +
             if (completed) 200 else 0

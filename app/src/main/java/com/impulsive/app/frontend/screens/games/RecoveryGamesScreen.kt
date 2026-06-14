@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -119,6 +120,7 @@ fun RecoveryGamesScreen(
     onOpenReflexOverride: () -> Unit,
     onOpenBlockCascade: () -> Unit,
     onOpenSkylineReset: () -> Unit = {},
+    onOpenRhythmTiles: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = rememberRecoveryGamesColors()
@@ -156,7 +158,12 @@ fun RecoveryGamesScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { selectedInfoGame = null }) {
+                TextButton(
+                    onClick = { selectedInfoGame = null },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = colors.accentText,
+                    ),
+                ) {
                     Text(text = "Got it")
                 }
             },
@@ -180,7 +187,12 @@ fun RecoveryGamesScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { showPivotGamesInfo = false }) {
+                TextButton(
+                    onClick = { showPivotGamesInfo = false },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = colors.accentText,
+                    ),
+                ) {
                     Text(text = "Got it")
                 }
             },
@@ -214,15 +226,27 @@ fun RecoveryGamesScreen(
         ),
         RecoveryGameCardModel(
             title = "SkyStack",
-            description = "Stack a calm skyscraper, floor by floor, into the night.",
-            infoDescription = "A careful stacking game that helps you slow down and focus on timing. Place each floor cleanly, keep building, and stay steady until the round ends.",
+            description = "Place sliding blocks and build a steady tower.",
+            infoDescription = "A calm stacking game where each tap trims the block to the overlap. Keep the tower continuous, aim for perfect drops, and stay with the rhythm.",
             duration = "90 sec",
-            chip = "Steady focus",
+            chip = "Calm stack",
             icon = Icons.Filled.SportsEsports,
-            iconBackground = ImpulsivePsychological.copy(alpha = 0.48f),
+            iconBackground = ImpulsivePsychological.copy(alpha = 0.50f),
             gameTypeId = "SKYLINE_RESET",
             winPoints = GameStoreCatalog.TwoWinStreakControlPoints,
             onOpen = onOpenSkylineReset,
+        ),
+        RecoveryGameCardModel(
+            title = "Rhythm Tiles",
+            description = "Tap falling tiles and play the melody yourself.",
+            infoDescription = "A melody game where every tap plays the next note of a song. Catch the tiles before they slip away, keep the tune going, and let your focus settle into the rhythm.",
+            duration = "60 sec",
+            chip = "Melody focus",
+            icon = Icons.Filled.SportsEsports,
+            iconBackground = ImpulsivePsychological.copy(alpha = 0.42f),
+            gameTypeId = "RHYTHM_TILES",
+            winPoints = GameStoreCatalog.TwoWinStreakControlPoints,
+            onOpen = onOpenRhythmTiles,
         ),
     )
 
@@ -544,6 +568,18 @@ private fun LockedGameStoreCard(
                     OutlinedButton(
                         onClick = onRent,
                         enabled = points >= game.rentPrice,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = colors.accentText,
+                            disabledContentColor = colors.mutedText.copy(alpha = 0.58f),
+                        ),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (points >= game.rentPrice) {
+                                ImpulsivePsychological.copy(alpha = 0.72f)
+                            } else {
+                                colors.border
+                            },
+                        ),
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Rent - ${game.rentPrice}")
@@ -551,6 +587,12 @@ private fun LockedGameStoreCard(
                     Button(
                         onClick = onBuy,
                         enabled = points >= game.buyPrice,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ImpulsivePsychological,
+                            contentColor = Color(0xFF281D38),
+                            disabledContainerColor = ImpulsivePsychological.copy(alpha = 0.24f),
+                            disabledContentColor = colors.mutedText.copy(alpha = 0.68f),
+                        ),
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Buy - ${game.buyPrice}")

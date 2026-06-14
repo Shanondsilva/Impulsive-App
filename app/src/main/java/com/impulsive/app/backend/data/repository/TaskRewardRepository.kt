@@ -35,4 +35,8 @@ class TaskRewardRepository(
         durationSec = durationSec,
         validCompletion = validCompletion,
     )
+
+    suspend fun awardLevelPoints(points: Int) {
+        dataSource.awardLevelPoints(points)
+    }
 }

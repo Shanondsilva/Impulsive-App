@@ -56,6 +56,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.impulsive.app.backend.domain.game.GameResult
+import com.impulsive.app.backend.domain.game.TargetType
+import com.impulsive.app.backend.session.settings.AppSettingsViewModel
+import com.impulsive.app.frontend.utils.ImpulsiveSounds
+import com.impulsive.app.frontend.utils.rememberImpulsiveSounds
 import com.impulsive.app.backend.domain.game.GameView
 import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
 import com.impulsive.app.backend.domain.game.ReflexGameConfig
@@ -72,8 +76,13 @@ import com.impulsive.app.backend.session.game.ReflexGameUiState
 import com.impulsive.app.backend.session.game.ReflexGameViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
+import com.impulsive.app.frontend.components.GameSoundToggle
+import com.impulsive.app.frontend.components.UrgeRatingRow
+import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import kotlinx.coroutines.isActive
 import java.time.LocalDateTime
+
+private val ReflexPrimaryButtonText = Color(0xFF281D38)
 
 @Composable
 fun ReflexGameScreen(
@@ -83,11 +92,21 @@ fun ReflexGameScreen(
     viewModel: ReflexGameViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
+    LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
+    val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    val sounds = rememberImpulsiveSounds(appSettingsState.soundEffectsEnabled)
+    LaunchedEffect(uiState.result) {
+        val soundResult = uiState.result
+        if (soundResult != null && soundResult.validCompletion) {
+            sounds.reflexSuccess()
+        }
+    }
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
         while (true) {
             value = LocalDateTime.now()
@@ -180,16 +199,27 @@ fun ReflexGameScreen(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
+            Spacer(modifier = Modifier.weight(1f))
+            GameSoundToggle(
+                enabled = appSettingsState.soundEffectsEnabled,
+                tint = MaterialTheme.colorScheme.onBackground,
+                onToggle = appSettingsViewModel::setSoundEffectsEnabled,
+            )
         }
 
         Spacer(modifier = Modifier.height(18.dp))
 
         when (uiState.view) {
-            GameView.Ready -> ReadyView(uiState = uiState, onStart = viewModel::startCountdown)
+            GameView.Ready -> ReadyView(
+                uiState = uiState,
+                onStart = viewModel::startCountdown,
+                onUrgeBeforeSelected = viewModel::setUrgeBefore,
+            )
             GameView.Countdown -> CountdownView(countdown = uiState.countdown)
-            GameView.Playing -> PlayingView(uiState = uiState, viewModel = viewModel)
+            GameView.Playing -> PlayingView(uiState = uiState, viewModel = viewModel, sounds = sounds)
             GameView.Result -> ResultView(
                 result = uiState.result,
+                onUrgeAfterSelected = viewModel::setUrgeAfter,
                 launchSource = launchSource,
                 taskCompletionResult = taskCompletionResult,
                 nextWindowText = releasePlan.formattedTimeUntilNextWindow(),
@@ -219,7 +249,11 @@ fun ReflexGameScreen(
 }
 
 @Composable
-private fun ReadyView(uiState: ReflexGameUiState, onStart: () -> Unit) {
+private fun ReadyView(
+    uiState: ReflexGameUiState,
+    onStart: () -> Unit,
+    onUrgeBeforeSelected: (Int) -> Unit,
+) {
     CenterPanel {
         Text(
             text = "Reflex Override",
@@ -242,10 +276,24 @@ private fun ReadyView(uiState: ReflexGameUiState, onStart: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        Spacer(modifier = Modifier.height(22.dp))
+        Spacer(modifier = Modifier.height(18.dp))
+        var selectedUrgeBefore by remember { mutableStateOf<Int?>(null) }
+        UrgeRatingRow(
+            label = "How strong is the urge right now?",
+            selected = selectedUrgeBefore,
+            onSelect = { value ->
+                selectedUrgeBefore = value
+                onUrgeBeforeSelected(value)
+            },
+        )
+        Spacer(modifier = Modifier.height(18.dp))
         Button(
             onClick = onStart,
             shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = ReflexPrimaryButtonText,
+            ),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Start 90-second challenge")
@@ -279,7 +327,7 @@ private fun CountdownView(countdown: Int) {
 }
 
 @Composable
-private fun PlayingView(uiState: ReflexGameUiState, viewModel: ReflexGameViewModel) {
+private fun PlayingView(uiState: ReflexGameUiState, viewModel: ReflexGameViewModel, sounds: ImpulsiveSounds) {
     Column(modifier = Modifier.fillMaxSize()) {
         GameHud(uiState = uiState)
         Text(
@@ -297,6 +345,7 @@ private fun PlayingView(uiState: ReflexGameUiState, viewModel: ReflexGameViewMod
                 .background(Color(0xFF241B3A))
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
+                        sounds.reflexMiss()
                         viewModel.tapArena(
                             xFraction = offset.x / size.width.toFloat(),
                             yFraction = offset.y / size.height.toFloat(),
@@ -367,7 +416,14 @@ private fun PlayingView(uiState: ReflexGameUiState, viewModel: ReflexGameViewMod
                             },
                         )
                         .pointerInput(target.id) {
-                            detectTapGestures(onTap = { viewModel.tapTarget(target.id) })
+                            detectTapGestures(onTap = {
+                                if (target.type == TargetType.Hit) {
+                                    sounds.reflexCorrect()
+                                } else {
+                                    sounds.reflexMiss()
+                                }
+                                viewModel.tapTarget(target.id)
+                            })
                         },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -400,6 +456,7 @@ private fun PlayingView(uiState: ReflexGameUiState, viewModel: ReflexGameViewMod
 @Composable
 private fun ResultView(
     result: GameResult?,
+    onUrgeAfterSelected: (Int) -> Unit,
     launchSource: ReflexGameLaunchSource,
     taskCompletionResult: TaskCompletionResult?,
     nextWindowText: String,
@@ -421,6 +478,16 @@ private fun ResultView(
             color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        var selectedUrgeAfter by remember { mutableStateOf<Int?>(null) }
+        UrgeRatingRow(
+            label = "How strong is it now?",
+            selected = selectedUrgeAfter,
+            onSelect = { value ->
+                selectedUrgeAfter = value
+                onUrgeAfterSelected(value)
+            },
         )
         if (result.score > result.previousBest && result.score > 0) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -468,7 +535,10 @@ private fun ResultView(
         Button(
             onClick = if (taskLaunch) onExit else onWalkAway,
             shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = ReflexPrimaryButtonText,
+            ),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (taskLaunch) "Return protected" else "Walk away (+${ReflexGameConfig.WALK_AWAY_BONUS})")
@@ -535,6 +605,10 @@ private fun WalkedView(score: Int, onExit: () -> Unit) {
         Button(
             onClick = onExit,
             shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ImpulsivePsychological,
+                contentColor = ReflexPrimaryButtonText,
+            ),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Done")
