@@ -87,6 +87,7 @@ import com.impulsive.app.core.util.shouldUseDarkTheme
 import com.impulsive.app.core.util.timeOfDayForHour
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.components.BottomNavBar
+import com.impulsive.app.frontend.components.BottomNavIndicatorState
 import com.impulsive.app.frontend.components.BottomNavItem
 import com.impulsive.app.frontend.components.BodyModeLockedSheet
 import com.impulsive.app.frontend.components.MindCoreScene
@@ -96,6 +97,7 @@ import com.impulsive.app.frontend.components.ModeSelectionSheet
 import com.impulsive.app.frontend.components.SoulModeLockedSheet
 import com.impulsive.app.frontend.components.impulsiveGlowBorderStroke
 import com.impulsive.app.frontend.components.impulsiveGlowShadow
+import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsivePsychologicalDark
@@ -159,15 +161,15 @@ fun HomeScreen(
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
+    onOpenRhythmTilesTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenTasks: () -> Unit = {},
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
     onOpenFocus: () -> Unit = {},
-    onNavigateFromModeContext: () -> Unit = {},
-    bottomNavIndicatorStartFrom: BottomNavItem? = null,
-    onBottomNavIndicatorStartConsumed: () -> Unit = {},
+    indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
+    isActive: Boolean = true,
     onOpenReading: () -> Unit = onOpenResetReadTask,
 ) {
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
@@ -205,7 +207,7 @@ fun HomeScreen(
         adjustedNextReleaseWindow = taskRewardState.adjustedNextReleaseWindow,
         now = currentNow,
     )
-    val recommendedMindTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
+    val recommendedMindTaskType = taskRewardState.recommendedTaskType
     var mindModeSheetVisible by remember { mutableStateOf(false) }
     var modeSelectionSheetVisible by remember { mutableStateOf(false) }
     var bodyModeSheetVisible by remember { mutableStateOf(false) }
@@ -223,10 +225,8 @@ fun HomeScreen(
             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
-            PsychologyTaskType.ResetRead,
-            PsychologyTaskType.TriggerDecoder,
-            PsychologyTaskType.ThoughtCapture,
-            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
+            PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
+            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
         }
     }
 
@@ -376,10 +376,6 @@ fun HomeScreen(
                 BottomNavItem.Home
             },
             onSelect = { item ->
-                val fromModeContext = modeSelectionSheetVisible ||
-                    mindModeSheetVisible ||
-                    bodyModeSheetVisible ||
-                    soulModeSheetVisible
                 when (item) {
                     BottomNavItem.Home -> {
                         mindModeSheetVisible = false
@@ -399,7 +395,6 @@ fun HomeScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenScore()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Settings -> {
                         mindModeSheetVisible = false
@@ -407,7 +402,6 @@ fun HomeScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenSettings()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Focus -> {
                         mindModeSheetVisible = false
@@ -415,7 +409,6 @@ fun HomeScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenFocus()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                 }
             },
@@ -434,8 +427,8 @@ fun HomeScreen(
                 mindModeSheetVisible ||
                 bodyModeSheetVisible ||
                 soulModeSheetVisible,
-            indicatorStartFrom = bottomNavIndicatorStartFrom,
-            onIndicatorStartConsumed = onBottomNavIndicatorStartConsumed,
+            indicatorState = indicatorState,
+            isActive = isActive,
         )
     }
 }
@@ -662,10 +655,10 @@ private fun TaskToCompletePreviewCard(
     onViewAllTasks: () -> Unit,
     palette: HomeReadablePalette,
 ) {
-    val recommendedTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
+    val recommendedTaskType = taskRewardState.recommendedTaskType
     val recommendedTask = recommendedTaskType.homePreview()
     val recommendedReward = taskRewardState.taskStatuses.first {
-        it.taskType.asVisiblePsychologyTaskType() == recommendedTaskType
+        it.taskType == recommendedTaskType
     }
     val hasWaitCut = recommendedReward.hasVisibleWaitCut()
 
@@ -985,13 +978,6 @@ private data class HomeRecommendedTask(
     val description: String,
 )
 
-private fun PsychologyTaskType.asVisiblePsychologyTaskType(): PsychologyTaskType = when (this) {
-    PsychologyTaskType.TriggerDecoder,
-    PsychologyTaskType.ThoughtCapture,
-    PsychologyTaskType.ShortReadingBurst -> PsychologyTaskType.ResetRead
-    else -> this
-}
-
 private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) {
     PsychologyTaskType.ReflexOverride -> HomeRecommendedTask(
         title = "Reflex Override",
@@ -1001,18 +987,16 @@ private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) 
         title = "Block Cascade",
         description = "Load visual focus with a calm falling-block challenge.",
     )
-    PsychologyTaskType.ResetRead -> HomeRecommendedTask(
-        title = "Reset Read",
-        description = "Read one focused reset and let the timer finish.",
-    )
     PsychologyTaskType.SkylineReset -> HomeRecommendedTask(
         title = "SkyStack",
         description = "Place sliding blocks and keep a calm tower steady.",
     )
-    PsychologyTaskType.TriggerDecoder,
-    PsychologyTaskType.ThoughtCapture,
-    PsychologyTaskType.ShortReadingBurst -> HomeRecommendedTask(
-        title = "Reset Read",
+    PsychologyTaskType.RhythmTiles -> HomeRecommendedTask(
+        title = "Rhythm Tiles",
+        description = "Tap falling tiles and hold attention through a full rhythm round.",
+    )
+    PsychologyTaskType.ResetRead -> HomeRecommendedTask(
+        title = "Reset Reading",
         description = "Read one focused reset and let the timer finish.",
     )
 }

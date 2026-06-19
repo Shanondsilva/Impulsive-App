@@ -1,38 +1,36 @@
 package com.impulsive.app.frontend.screens.focus
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,29 +39,31 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.impulsive.app.backend.domain.model.focus.DefaultFocusDurationOptions
 import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
 import com.impulsive.app.backend.domain.model.focus.FocusSessionState
-import com.impulsive.app.backend.domain.model.focus.elapsedFocusSeconds
-import com.impulsive.app.backend.domain.model.focus.focusCompletionLevelPoints
 import com.impulsive.app.backend.domain.model.focus.formattedRemaining
-import com.impulsive.app.backend.domain.model.focus.progressFraction
+import com.impulsive.app.backend.domain.model.focus.focusCompletionLevelPoints
+import com.impulsive.app.backend.domain.model.focus.remainingSeconds
 import com.impulsive.app.backend.session.focus.FocusSessionViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.frontend.components.BodyModeLockedSheet
 import com.impulsive.app.frontend.components.BottomNavBar
+import com.impulsive.app.frontend.components.BottomNavIndicatorState
 import com.impulsive.app.frontend.components.BottomNavItem
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.components.MindModeStatusSheet
 import com.impulsive.app.frontend.components.ModeSelectionSheet
 import com.impulsive.app.frontend.components.SoulModeLockedSheet
+import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsiveFocusModeDark
@@ -76,11 +76,9 @@ fun FocusScreen(
     onOpenHome: () -> Unit = {},
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    onOpenSession: () -> Unit = {},
     onOpenTasks: () -> Unit = {},
-    onNavigateFromModeContext: () -> Unit = {},
-    bottomNavIndicatorStartFrom: BottomNavItem? = null,
-    onBottomNavIndicatorStartConsumed: () -> Unit = {},
+    indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
+    isActive: Boolean = true,
 ) {
     val session by focusViewModel.session.collectAsStateWithLifecycle()
     val now by focusViewModel.now.collectAsStateWithLifecycle()
@@ -94,6 +92,7 @@ fun FocusScreen(
     var bodyModeSheetVisible by remember { mutableStateOf(false) }
     var soulModeSheetVisible by remember { mutableStateOf(false) }
     var showFocusAppsSheet by remember { mutableStateOf(false) }
+    var completedSummarySession by remember { mutableStateOf<FocusSessionState?>(null) }
     val bottomNavReservedSpace = 104.dp
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val accent = if (isDark) ImpulsiveFocusModeDark else ImpulsiveFocusMode
@@ -102,6 +101,18 @@ fun FocusScreen(
     val cardColor = if (isDark) Color(0xFF171D22) else Color(0xFFFFFBFF)
     val borderColor = if (isDark) accent.copy(alpha = 0.34f) else Color(0xFFF0D8D8)
 
+    LaunchedEffect(session?.sessionId, session?.phase) {
+        val currentSession = session
+        when {
+            currentSession?.phase == FocusSessionPhase.Completed -> {
+                completedSummarySession = currentSession
+            }
+            currentSession != null && !currentSession.isLive -> {
+                focusViewModel.clearFinishedSession()
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -109,22 +120,68 @@ fun FocusScreen(
             .statusBarsPadding(),
     ) {
         ImpulsiveAmbientBackground(lightweight = true)
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(top = 18.dp, bottom = 132.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
         ) {
-            when {
-                session == null -> FocusSetupContent(
-                    selectedMinutes = selectedMinutes,
-                    onSelectedMinutesChanged = { selectedMinutes = it },
+            val compactHeight = maxHeight < 720.dp
+            val compactWidth = maxWidth < 380.dp
+            val focusSetupScrollState = rememberScrollState()
+            val focusHorizontalPadding = if (compactWidth) 16.dp else 20.dp
+            val focusTopPadding = if (compactHeight) 12.dp else 18.dp
+            val focusBottomPadding = bottomNavReservedSpace + if (compactHeight) 20.dp else 28.dp
+            val focusContentSpacing = if (compactHeight) 12.dp else 18.dp
+            val focusClockSizeDp = when {
+                maxHeight < 620.dp || maxWidth < 360.dp -> 188
+                maxHeight < 720.dp -> 206
+                else -> 230
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(focusSetupScrollState)
+                    .padding(horizontal = focusHorizontalPadding)
+                    .padding(top = focusTopPadding, bottom = focusBottomPadding),
+                verticalArrangement = Arrangement.spacedBy(focusContentSpacing),
+            ) {
+                val liveSession = session?.takeIf { it.isLive }
+                val primaryClockDisplayText = liveSession?.formattedRemaining(now)
+                val activeRemainingSeconds = liveSession?.remainingSeconds(now)
+                val displayMinutes = liveSession?.durationMinutes ?: selectedMinutes
+
+                LaunchedEffect(liveSession?.sessionId, liveSession?.phase, activeRemainingSeconds) {
+                    if (
+                        liveSession?.phase == FocusSessionPhase.Running &&
+                        activeRemainingSeconds == 0L
+                    ) {
+                        focusViewModel.completeElapsedSessionIfNeeded(now)
+                    }
+                }
+
+                FocusSetupContent(
+                    selectedMinutes = displayMinutes,
+                    now = now,
+                    primaryClockDisplayText = primaryClockDisplayText,
+                    activeRemainingSeconds = activeRemainingSeconds,
+                    onSelectedMinutesChanged = {
+                        if (liveSession == null) {
+                            selectedMinutes = it
+                        }
+                    },
                     onBeginFocus = {
                         focusViewModel.startSession(selectedMinutes)
-                        onOpenSession()
                     },
+                    isFocusActive = liveSession != null,
+                    activeSessionPhase = liveSession?.phase,
+                    onTogglePause = {
+                        val currentSession = session
+                        if (currentSession?.phase == FocusSessionPhase.Running) {
+                            focusViewModel.pause()
+                        } else if (currentSession?.phase == FocusSessionPhase.Paused) {
+                            focusViewModel.resume()
+                        }
+                    },
+                    onEndSession = focusViewModel::endEarly,
                     effectiveFocusApps = effectiveFocusApps,
                     onEditFocusApps = { showFocusAppsSheet = true },
                     accent = accent,
@@ -132,28 +189,7 @@ fun FocusScreen(
                     muted = muted,
                     cardColor = cardColor,
                     borderColor = borderColor,
-                )
-                session?.isLive == true -> FocusResumeCard(
-                    session = session,
-                    now = now,
-                    onResumeFocus = onOpenSession,
-                    onEndSession = focusViewModel::endEarly,
-                    accent = accent,
-                    text = text,
-                    muted = muted,
-                    cardColor = cardColor,
-                    borderColor = borderColor,
-                )
-                else -> FocusCompletionCard(
-                    session = session,
-                    now = now,
-                    onDone = focusViewModel::clearFinishedSession,
-                    onStartAnother = focusViewModel::clearFinishedSession,
-                    accent = accent,
-                    text = text,
-                    muted = muted,
-                    cardColor = cardColor,
-                    borderColor = borderColor,
+                    clockSizeDp = focusClockSizeDp,
                 )
             }
         }
@@ -218,10 +254,6 @@ fun FocusScreen(
                 BottomNavItem.Focus
             },
             onSelect = { item ->
-                val fromModeContext = modeSelectionSheetVisible ||
-                    mindModeSheetVisible ||
-                    bodyModeSheetVisible ||
-                    soulModeSheetVisible
                 when (item) {
                     BottomNavItem.Home -> {
                         modeSelectionSheetVisible = false
@@ -229,7 +261,6 @@ fun FocusScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenHome()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Trigger -> {
                         mindModeSheetVisible = false
@@ -243,7 +274,6 @@ fun FocusScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenSettings()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Progress -> {
                         modeSelectionSheetVisible = false
@@ -251,7 +281,6 @@ fun FocusScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenScore()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Focus -> {
                         modeSelectionSheetVisible = false
@@ -276,8 +305,22 @@ fun FocusScreen(
                 mindModeSheetVisible ||
                 bodyModeSheetVisible ||
                 soulModeSheetVisible,
-            indicatorStartFrom = bottomNavIndicatorStartFrom,
-            onIndicatorStartConsumed = onBottomNavIndicatorStartConsumed,
+            indicatorState = indicatorState,
+            isActive = isActive,
+        )
+    }
+
+    completedSummarySession?.let { summarySession ->
+        FocusCompletionSummaryDialog(
+            completedSession = summarySession,
+            blockedAppsCount = effectiveFocusApps.size,
+            accent = accent,
+            text = text,
+            muted = muted,
+            onDismiss = {
+                completedSummarySession = null
+                focusViewModel.clearFinishedSession()
+            },
         )
     }
 
@@ -288,16 +331,134 @@ fun FocusScreen(
                 onSelectedPackageNamesChanged = focusViewModel::setFocusBlockedPackages,
                 onDone = { showFocusAppsSheet = false },
                 allowShowMoreApps = true,
+                useFocusCopy = true,
             )
         }
+    }
+
+}
+
+@Composable
+private fun FocusCompletionSummaryDialog(
+    completedSession: FocusSessionState,
+    blockedAppsCount: Int,
+    accent: Color,
+    text: Color,
+    muted: Color,
+    onDismiss: () -> Unit,
+) {
+    val levelPoints = focusCompletionLevelPoints(completedSession.durationMinutes)
+    val blockedAppsText = when (blockedAppsCount) {
+        0 -> "No apps blocked"
+        1 -> "1 app guarded"
+        else -> "$blockedAppsCount apps guarded"
+    }
+    val interruptionsText = when (completedSession.interruptionCount) {
+        0 -> "No interruptions opened"
+        1 -> "1 interruption recovered"
+        else -> "${completedSession.interruptionCount} interruptions recovered"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Focus complete",
+                color = text,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = "You protected your focus window.",
+                    color = muted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+                FocusSummaryRow(
+                    label = "Time completed",
+                    value = formatCleanFocusDuration(completedSession.durationMinutes),
+                    text = text,
+                    muted = muted,
+                )
+
+                FocusSummaryRow(
+                    label = "Distractions blocked",
+                    value = blockedAppsText,
+                    text = text,
+                    muted = muted,
+                )
+
+                FocusSummaryRow(
+                    label = "Interruptions recovered",
+                    value = interruptionsText,
+                    text = text,
+                    muted = muted,
+                )
+
+                FocusSummaryRow(
+                    label = "Level Points earned",
+                    value = "+$levelPoints LP",
+                    text = text,
+                    muted = muted,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = "Done",
+                    color = accent,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun FocusSummaryRow(
+    label: String,
+    value: String,
+    text: Color,
+    muted: Color,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = muted,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        Text(
+            text = value,
+            color = text,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+        )
     }
 }
 
 @Composable
 private fun FocusSetupContent(
     selectedMinutes: Int,
+    now: LocalDateTime,
+    primaryClockDisplayText: String?,
+    activeRemainingSeconds: Long?,
     onSelectedMinutesChanged: (Int) -> Unit,
     onBeginFocus: () -> Unit,
+    isFocusActive: Boolean,
+    activeSessionPhase: FocusSessionPhase?,
+    onTogglePause: () -> Unit,
+    onEndSession: () -> Unit,
     effectiveFocusApps: Set<String>,
     onEditFocusApps: () -> Unit,
     accent: Color,
@@ -305,6 +466,7 @@ private fun FocusSetupContent(
     muted: Color,
     cardColor: Color,
     borderColor: Color,
+    clockSizeDp: Int,
 ) {
     Text(
         text = "FOCUS",
@@ -312,245 +474,77 @@ private fun FocusSetupContent(
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.Bold,
     )
+
     Text(
-        text = "Start a focus session",
+        text = "Take a break.",
         color = text,
         style = MaterialTheme.typography.headlineMedium,
         fontWeight = FontWeight.Bold,
     )
+
+    
+
+    CleanFocusDurationClock(
+        durationMinutes = selectedMinutes,
+        currentTime = now,
+        accent = accent,
+        text = text,
+        muted = muted,
+        primaryDisplayText = primaryClockDisplayText,
+        activeRemainingSeconds = activeRemainingSeconds,
+        isInteractionEnabled = !isFocusActive,
+        recommendedMinutes = listOf(15, 30, 60),
+        clockSizeDp = clockSizeDp,
+        onDurationMinutesChanged = onSelectedMinutesChanged,
+    )
+
+    val blockedAppsCardShape = RoundedCornerShape(28.dp)
+
     Surface(
         color = cardColor,
-        shape = RoundedCornerShape(28.dp),
+        shape = blockedAppsCardShape,
         border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(blockedAppsCardShape)
+            .impulsiveNoSquareRippleClickable { onEditFocusApps() },
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            val appCount = effectiveFocusApps.size
+
             Text(
-                text = "Duration",
+                text = "Apps blocked during focus",
                 color = text,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DefaultFocusDurationOptions.forEach { minutes ->
-                    FocusChip(
-                        label = "$minutes min",
-                        selected = selectedMinutes == minutes,
-                        accent = accent,
-                        onClick = { onSelectedMinutesChanged(minutes) },
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "Blocked during focus",
-                        color = text,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    val appCount = effectiveFocusApps.size
-                    Text(
-                        text = if (appCount == 1) "1 app" else "$appCount apps",
-                        color = muted,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                TextButton(onClick = onEditFocusApps) {
-                    Text("Edit", color = accent)
-                }
-            }
-        }
-    }
-    Surface(
-        color = cardColor.copy(alpha = 0.72f),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.7f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Lock,
-                contentDescription = null,
-                tint = muted,
-                modifier = Modifier.size(20.dp),
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Cold", "Warm", "Hot").forEach { label ->
-                        DisabledTemperatureChip(label = label)
-                    }
-                }
-                Text(
-                    text = "Temperature focus unlocks with premium",
-                    color = muted,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-    }
-    FocusPrimaryButton(
-        text = "Begin focus",
-        accent = accent,
-        onClick = onBeginFocus,
-    )
-    Text(
-        text = "Distracting apps stay quiet until the timer ends",
-        color = muted,
-        style = MaterialTheme.typography.bodySmall,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
 
-@Composable
-private fun FocusResumeCard(
-    session: FocusSessionState?,
-    now: LocalDateTime,
-    onResumeFocus: () -> Unit,
-    onEndSession: () -> Unit,
-    accent: Color,
-    text: Color,
-    muted: Color,
-    cardColor: Color,
-    borderColor: Color,
-) {
-    if (session == null) return
-    Surface(
-        color = cardColor,
-        shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text("Session in progress", color = muted, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Text("${session.formattedRemaining(now)} left", color = text, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            Text("Picking up where you left off", color = muted, style = MaterialTheme.typography.bodyMedium)
-            LinearProgressIndicator(
-                progress = { session.progressFraction(now) },
-                color = accent,
-                trackColor = accent.copy(alpha = 0.16f),
-                drawStopIndicator = {},
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(7.dp)
-                    .clip(RoundedCornerShape(50)),
+            Text(
+                text = if (appCount == 1) "1 app" else "$appCount apps",
+                color = muted,
+                style = MaterialTheme.typography.bodyMedium,
             )
-            FocusPrimaryButton("Resume focus", accent, onResumeFocus)
-            TextButton(onClick = onEndSession, modifier = Modifier.fillMaxWidth()) {
-                Text("End session", color = muted)
-            }
         }
     }
-}
 
-@Composable
-private fun FocusCompletionCard(
-    session: FocusSessionState?,
-    now: LocalDateTime,
-    onDone: () -> Unit,
-    onStartAnother: () -> Unit,
-    accent: Color,
-    text: Color,
-    muted: Color,
-    cardColor: Color,
-    borderColor: Color,
-) {
-    if (session == null) return
-    val focusedMinutes = if (session.phase == FocusSessionPhase.Completed) {
-        session.durationMinutes
+    val pauseButtonText = if (activeSessionPhase == FocusSessionPhase.Running) {
+        "Pause"
     } else {
-        (session.elapsedFocusSeconds(now) / 60).toInt().coerceAtLeast(0)
+        "Resume"
     }
-    Surface(
-        color = cardColor,
-        shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text("Focus complete", color = text, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("$focusedMinutes minutes protected", color = muted, style = MaterialTheme.typography.bodyLarge)
-            FocusStatRow("Time focused", "$focusedMinutes min", text, muted)
-            FocusStatRow("Interruptions handled", session.interruptionCount.toString(), text, muted)
-            if (session.phase == FocusSessionPhase.Completed) {
-                FocusStatRow(
-                    "Level Points earned",
-                    "+${focusCompletionLevelPoints(session.durationMinutes)}",
-                    accent,
-                    muted,
-                )
-            }
-            FocusPrimaryButton("Done", accent, onDone)
-            TextButton(onClick = onStartAnother, modifier = Modifier.fillMaxWidth()) {
-                Text("Start another", color = muted)
-            }
-        }
-    }
-}
 
-@Composable
-private fun FocusChip(
-    label: String,
-    selected: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    val chipShape = RoundedCornerShape(50)
-    Surface(
-        color = if (selected) accent else MaterialTheme.colorScheme.surfaceVariant,
-        shape = chipShape,
-        modifier = Modifier
-            .clip(chipShape)
-            .impulsiveNoSquareRippleClickable { onClick() },
-    ) {
-        Text(
-            text = label,
-            color = if (selected) Color(0xFF281D38) else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
-        )
-    }
-}
-
-@Composable
-private fun DisabledTemperatureChip(label: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
-        shape = RoundedCornerShape(50),
-    ) {
-        Text(
-            text = label,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        )
-    }
+    FocusStableSessionControls(
+        isFocusActive = isFocusActive,
+        pauseText = pauseButtonText,
+        accent = accent,
+        muted = muted,
+        onStart = onBeginFocus,
+        onPauseResume = onTogglePause,
+        onEndSession = onEndSession,
+    )
 }
 
 @Composable
@@ -580,6 +574,161 @@ private fun FocusPrimaryButton(
 }
 
 @Composable
+private fun FocusStableSessionControls(
+    isFocusActive: Boolean,
+    pauseText: String,
+    accent: Color,
+    muted: Color,
+    onStart: () -> Unit,
+    onPauseResume: () -> Unit,
+    onEndSession: () -> Unit,
+) {
+    val splitProgress by animateFloatAsState(
+        targetValue = if (isFocusActive) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = 420,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "focusStableSplitProgress",
+    )
+
+    val progress = splitProgress.coerceIn(0f, 1f)
+    val easedProgress = smoothStableFocusProgress(progress)
+    val endAlpha = smoothStableFocusProgress(((progress - 0.08f) / 0.92f).coerceIn(0f, 1f))
+    val primaryStartAlpha = (1f - smoothStableFocusProgress((progress / 0.55f).coerceIn(0f, 1f)))
+        .coerceIn(0f, 1f)
+    val primaryActiveAlpha = smoothStableFocusProgress(((progress - 0.25f) / 0.75f).coerceIn(0f, 1f))
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(54.dp),
+    ) {
+        val finalGap = 12.dp
+        val finalButtonWidth = (maxWidth - finalGap) / 2
+        val primaryWidth = lerp(maxWidth, finalButtonWidth, easedProgress)
+
+        FocusActionPill(
+            text = "End session",
+            background = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+            contentColor = muted,
+            border = BorderStroke(1.dp, accent.copy(alpha = 0.28f)),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .width(finalButtonWidth)
+                .height(54.dp)
+                .alpha(endAlpha),
+            onClick = {
+                if (isFocusActive) {
+                    onEndSession()
+                }
+            },
+        )
+
+        FocusStablePrimaryPill(
+            startAlpha = primaryStartAlpha,
+            activeAlpha = primaryActiveAlpha,
+            activeText = pauseText,
+            accent = accent,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .width(primaryWidth)
+                .height(54.dp),
+            onClick = {
+                if (isFocusActive) {
+                    onPauseResume()
+                } else {
+                    onStart()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun FocusStablePrimaryPill(
+    startAlpha: Float,
+    activeAlpha: Float,
+    activeText: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val buttonShape = RoundedCornerShape(50)
+
+    Surface(
+        color = accent,
+        shape = buttonShape,
+        modifier = modifier
+            .clip(buttonShape)
+            .impulsiveNoSquareRippleClickable { onClick() },
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Start",
+                color = Color(0xFF281D38),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.alpha(startAlpha),
+            )
+
+            Text(
+                text = activeText,
+                color = Color(0xFF281D38),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.alpha(activeAlpha),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FocusActionPill(
+    text: String,
+    background: Color,
+    contentColor: Color,
+    border: BorderStroke?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val buttonShape = RoundedCornerShape(50)
+
+    Surface(
+        color = background,
+        shape = buttonShape,
+        border = border,
+        modifier = modifier
+            .height(54.dp)
+            .clip(buttonShape)
+            .impulsiveNoSquareRippleClickable { onClick() },
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                color = contentColor,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+private fun smoothStableFocusProgress(value: Float): Float {
+    val clamped = value.coerceIn(0f, 1f)
+    return clamped * clamped * (3f - 2f * clamped)
+}
+
+@Composable
 private fun Modifier.impulsiveNoSquareRippleClickable(
     onClick: () -> Unit,
 ): Modifier = clickable(
@@ -587,20 +736,3 @@ private fun Modifier.impulsiveNoSquareRippleClickable(
     indication = null,
     onClick = onClick,
 )
-
-@Composable
-private fun FocusStatRow(
-    label: String,
-    value: String,
-    text: Color,
-    muted: Color,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, color = muted, style = MaterialTheme.typography.bodyMedium)
-        Text(value, color = text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-    }
-}

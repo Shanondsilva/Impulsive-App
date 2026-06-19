@@ -2,6 +2,8 @@ package com.impulsive.app.backend.data.repository
 
 import com.impulsive.app.backend.data.local.dao.RecoverySessionDao
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
+import com.impulsive.app.backend.data.sync.RecoverySessionCloudSync
+import com.google.firebase.auth.FirebaseAuth
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -19,7 +21,7 @@ class RecoverySessionRepository(
         triggerSource: String = "manual_demo",
         recoveryType: String = "psychological_90_second_reset",
     ): Long {
-        return recoverySessionDao.insertSession(
+        val newId = recoverySessionDao.insertSession(
             RecoverySessionEntity(
                 startedAt = startedAt,
                 completedAt = completedAt,
@@ -31,6 +33,11 @@ class RecoverySessionRepository(
                 recoveryType = recoveryType,
             ),
         )
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid != null) {
+            runCatching { RecoverySessionCloudSync().sync(recoverySessionDao, uid) }
+        }
+        return newId
     }
 
     suspend fun getTodaySessionCount(today: LocalDate = LocalDate.now(zoneId)): Int {

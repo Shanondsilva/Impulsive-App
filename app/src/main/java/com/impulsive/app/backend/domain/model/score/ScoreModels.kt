@@ -38,6 +38,7 @@ enum class ScoreGameType(
     BreathControl("BREATH_CONTROL", "Breath Control"),
     RageDischarge("RAGE_DISCHARGE", "Rage Discharge"),
     RhythmTiles("RHYTHM_TILES", "Rhythm Tiles"),
+    FocusSession("FOCUS_SESSION", "Focus session"),
     Unknown("UNKNOWN", "Pivot Game");
 
     companion object {
@@ -211,12 +212,18 @@ fun buildScoreDashboardState(
         .distinct()
         .filterNot { it == ScoreGameType.Unknown }
         .ifEmpty { DefaultScoreGameOrder }
-    val scoreSessions = sessions.filter { it.gameType in visibleGameTypes }
-    val filtered = scoreSessions.filter { it.completedAt.isInRange(selectedRange, now) }
+    // Focus sessions are a scored activity: they appear in the control-points total
+    // and the recent timeline, but never in games-completed, personal bests, or the
+    // best-game pick, which stay games-only.
+    val activityTypes = visibleGameTypes + ScoreGameType.FocusSession
+    val gameSessions = sessions.filter { it.gameType in visibleGameTypes }
+    val activitySessions = sessions.filter { it.gameType in activityTypes }
+    val filtered = gameSessions.filter { it.completedAt.isInRange(selectedRange, now) }
+    val filteredActivities = activitySessions.filter { it.completedAt.isInRange(selectedRange, now) }
     val validSessions = filtered.filter { it.validCompletion }
-    val personalBests = buildPersonalBests(scoreSessions, visibleGameTypes)
+    val personalBests = buildPersonalBests(gameSessions, visibleGameTypes)
     val safeExitCount = filtered.count { it.outcome == ScoreSessionOutcome.WalkedAway }
-    val totalControlPoints = filtered.sumOf { it.controlPoints }
+    val totalControlPoints = filteredActivities.sumOf { it.controlPoints }
     val bestGame = validSessions.maxByOrNull { it.score }?.gameType?.displayName ?: "None yet"
     val urgeDrops = filtered.mapNotNull { it.urgeDrop }
     val averageUrgeDrop = urgeDrops.takeIf { it.isNotEmpty() }?.average()?.toFloat()
@@ -251,7 +258,7 @@ fun buildScoreDashboardState(
         urgeTrend = urgeTrend,
         windowUsage = windowUsage,
         personalBests = personalBests,
-        recentSessions = filtered
+        recentSessions = filteredActivities
             .sortedByDescending { it.completedAt }
             .take(RecentSessionLimit)
             .map {

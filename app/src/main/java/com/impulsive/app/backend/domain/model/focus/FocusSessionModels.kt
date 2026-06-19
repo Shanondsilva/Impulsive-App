@@ -5,7 +5,7 @@ import java.time.LocalDateTime
 import java.util.UUID
 
 const val MinFocusMinutes = 5
-const val MaxFocusMinutes = 120
+const val MaxFocusMinutes = 1440
 val DefaultFocusDurationOptions = listOf(15, 25, 45, 60)
 
 enum class FocusSessionPhase {
@@ -70,3 +70,10 @@ fun FocusSessionState.formattedRemaining(now: LocalDateTime): String {
 /** 25 minutes = 40 LP. Linear in duration, floored and capped to stay sane. */
 fun focusCompletionLevelPoints(durationMinutes: Int): Int =
     (durationMinutes * 8 / 5).coerceIn(20, 120)
+
+/**
+ * A completed focus session also logs a score that feeds the control-points total
+ * and the recent timeline. 25 minutes = 500. Linear in duration, floored and capped.
+ */
+fun focusCompletionScore(durationMinutes: Int): Int =
+    (durationMinutes * 20).coerceIn(100, 2000)

@@ -370,7 +370,7 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
             difficulty = difficulty,
             gameOver = earlyExit,
             durationSec = min(ReflexGameConfig.ROUND_SECONDS, ((SystemClock.uptimeMillis() - startMs) / 1000L).toInt()),
-            validCompletion = score > 0 && hits > 0 && ((SystemClock.uptimeMillis() - startMs) / 1000L) >= 5L,
+            validCompletion = !earlyExit && score > 0 && hits > 0 && ((SystemClock.uptimeMillis() - startMs) / 1000L) >= 5L,
         )
         targets = emptyList()
         viewModelScope.launch { dataSource.save(nextHistory) }

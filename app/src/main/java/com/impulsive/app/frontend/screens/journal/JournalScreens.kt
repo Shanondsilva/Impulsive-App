@@ -55,6 +55,7 @@ import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PushPin
@@ -242,6 +243,7 @@ fun JournalListScreen(
         NotesCreateFab(
             expanded = createMenuExpanded,
             enabled = state.canCreateMore,
+            feedbackAvailable = !state.feedbackDoneToday,
             onToggle = { createMenuExpanded = !createMenuExpanded },
             onCreateText = {
                 createMenuExpanded = false
@@ -254,6 +256,10 @@ fun JournalListScreen(
             onCreateDraw = {
                 createMenuExpanded = false
                 onCreateNote(JournalNoteType.Sketch)
+            },
+            onCreateFeedback = {
+                createMenuExpanded = false
+                onCreateNote(JournalNoteType.Feedback)
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -300,6 +306,7 @@ fun JournalEditorScreen(
     val state by viewModel.editorState.collectAsStateWithLifecycle()
     val listState by viewModel.listState.collectAsStateWithLifecycle()
     val isAtSaveLimit = noteId == 0L && !listState.canCreateMore
+    val feedbackLocked = state.type == JournalNoteType.Feedback && noteId != 0L
     var reminderDialogOpen by remember { mutableStateOf(false) }
     var labelDialogOpen by remember { mutableStateOf(false) }
 
@@ -308,7 +315,11 @@ fun JournalEditorScreen(
     }
 
     fun exitEditor() {
-        viewModel.saveCurrentIfNeeded(onBack)
+        if (feedbackLocked) {
+            onBack()
+        } else {
+            viewModel.saveCurrentIfNeeded(onBack)
+        }
     }
 
     BackHandler { exitEditor() }
@@ -341,10 +352,31 @@ fun JournalEditorScreen(
             label = { Text("Title") },
             shape = RoundedCornerShape(22.dp),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            readOnly = feedbackLocked,
         )
+
+        if (state.type == JournalNoteType.Feedback) {
+            Text(
+                text = if (feedbackLocked) {
+                    "Saved. A feedback note can't be edited."
+                } else {
+                    "Heads up: this saves once and can't be edited after."
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
 
         when (state.type) {
             JournalNoteType.Text -> TextEditorBody(state.bodyDraft, viewModel::updateBody)
+            JournalNoteType.Feedback -> TextEditorBody(
+                body = state.bodyDraft,
+                onBodyChanged = viewModel::updateBody,
+                heading = "Today's feedback",
+                placeholder = "What did you do? How did it help? When did it happen?\n" +
+                    "e.g. did some progress, helped a lot, around 19:30",
+                readOnly = feedbackLocked,
+            )
             JournalNoteType.Checklist -> ChecklistEditorBody(
                 items = state.checklistItems,
                 onItemChanged = viewModel::updateChecklistItem,
@@ -566,10 +598,12 @@ private fun NotesCountRow(count: Int, max: Int) {
 private fun NotesCreateFab(
     expanded: Boolean,
     enabled: Boolean,
+    feedbackAvailable: Boolean,
     onToggle: () -> Unit,
     onCreateText: () -> Unit,
     onCreateList: () -> Unit,
     onCreateDraw: () -> Unit,
+    onCreateFeedback: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val rotation by animateFloatAsState(
@@ -587,6 +621,12 @@ private fun NotesCreateFab(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (expanded) {
+            NotesCreateOption(
+                label = if (feedbackAvailable) "Feedback" else "Feedback done",
+                icon = { Icon(Icons.Outlined.Feedback, contentDescription = null) },
+                enabled = enabled && feedbackAvailable,
+                onClick = onCreateFeedback,
+            )
             NotesCreateOption(
                 label = "Draw",
                 icon = { Icon(Icons.Outlined.Brush, contentDescription = null) },
@@ -811,13 +851,15 @@ private fun NoteToolDock(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    JournalNoteType.entries.forEach { type ->
-                        ToolChoiceChip(
-                            type = type,
-                            selected = selectedType == type,
-                            onClick = { onSelectType(type) },
-                        )
-                    }
+                    JournalNoteType.entries
+                        .filter { it != JournalNoteType.Feedback }
+                        .forEach { type ->
+                            ToolChoiceChip(
+                                type = type,
+                                selected = selectedType == type,
+                                onClick = { onSelectType(type) },
+                            )
+                        }
                 }
             }
         }
@@ -1048,7 +1090,13 @@ private fun NewNoteTypeDialog(
 }
 
 @Composable
-private fun TextEditorBody(body: String, onBodyChanged: (String) -> Unit) {
+private fun TextEditorBody(
+    body: String,
+    onBodyChanged: (String) -> Unit,
+    heading: String = "Write freely",
+    placeholder: String = "What happened, what helped, or what should I remember?",
+    readOnly: Boolean = false,
+) {
     val editorShape = RoundedCornerShape(28.dp)
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
@@ -1071,7 +1119,7 @@ private fun TextEditorBody(body: String, onBodyChanged: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Write freely",
+                text = heading,
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
@@ -1080,6 +1128,7 @@ private fun TextEditorBody(body: String, onBodyChanged: (String) -> Unit) {
             BasicTextField(
                 value = body,
                 onValueChange = onBodyChanged,
+                readOnly = readOnly,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 350.dp),
@@ -1096,7 +1145,7 @@ private fun TextEditorBody(body: String, onBodyChanged: (String) -> Unit) {
                     ) {
                         if (body.isBlank()) {
                             Text(
-                                text = "What happened, what helped, or what should I remember?",
+                                text = placeholder,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
@@ -1865,6 +1914,7 @@ private fun JournalNoteEntity.preview(): String {
             .ifBlank { "Empty list" }
         JournalNoteType.Sketch -> if (sketch.isBlank()) "Blank drawing" else "Drawing saved"
         JournalNoteType.Reminder -> body.ifBlank { "Reminder note" }
+        JournalNoteType.Feedback -> body.ifBlank { "Feedback note" }
     }
 }
 
@@ -1891,6 +1941,7 @@ private fun JournalNoteType.accentColor(): Color = when (this) {
     JournalNoteType.Checklist -> ImpulsivePhysical
     JournalNoteType.Sketch -> ImpulsiveSpiritual
     JournalNoteType.Reminder -> ImpulsiveFocusMode
+    JournalNoteType.Feedback -> ImpulsivePsychological
 }
 
 private fun JournalNoteType.smallIcon() = when (this) {
@@ -1898,6 +1949,7 @@ private fun JournalNoteType.smallIcon() = when (this) {
     JournalNoteType.Checklist -> Icons.Outlined.Checklist
     JournalNoteType.Sketch -> Icons.Outlined.Brush
     JournalNoteType.Reminder -> Icons.Outlined.Notifications
+    JournalNoteType.Feedback -> Icons.Outlined.Feedback
 }
 
 private const val HighlightPsychology = "PSYCHOLOGY"

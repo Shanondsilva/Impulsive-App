@@ -1,9 +1,9 @@
 package com.impulsive.app.frontend.components
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -59,6 +59,18 @@ enum class BottomNavItem {
     Settings,
 }
 
+class BottomNavIndicatorState(
+    val leftIndex: Animatable<Float, AnimationVector1D>,
+    val rightIndex: Animatable<Float, AnimationVector1D>,
+)
+
+@Composable
+fun rememberBottomNavIndicatorState(initialIndex: Int = 0): BottomNavIndicatorState {
+    val left = remember { Animatable(initialIndex.toFloat()) }
+    val right = remember { Animatable(initialIndex.toFloat()) }
+    return remember(left, right) { BottomNavIndicatorState(left, right) }
+}
+
 @Composable
 fun BottomNavBar(
     selected: BottomNavItem,
@@ -67,8 +79,8 @@ fun BottomNavBar(
     hapticsEnabled: Boolean = true,
     settingsBadgeVisible: Boolean = false,
     modeSelectorOpen: Boolean = false,
-    indicatorStartFrom: BottomNavItem? = null,
-    onIndicatorStartConsumed: () -> Unit = {},
+    indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
+    isActive: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberImpulsiveHaptics(hapticsEnabled)
@@ -104,37 +116,29 @@ fun BottomNavBar(
                 .fillMaxSize(),
         ) {
             val itemSlotWidth = (maxWidth - (navHorizontalPadding * 2)) / BottomNavItemCount
-            fun indicatorLeftFor(index: Int): Dp = navHorizontalPadding +
-                (itemSlotWidth * index.toFloat()) +
+            fun indicatorLeftFor(index: Float): Dp = navHorizontalPadding +
+                (itemSlotWidth * index) +
                 ((itemSlotWidth - selectedIndicatorSize) / 2)
 
-            val initialIndex = remember { indicatorStartFrom?.navIndex() ?: selectedIndex }
-            val leftEdge = remember {
-                Animatable(indicatorLeftFor(initialIndex), Dp.VectorConverter)
-            }
-            val rightEdge = remember {
-                Animatable(indicatorLeftFor(initialIndex) + selectedIndicatorSize, Dp.VectorConverter)
-            }
-            LaunchedEffect(Unit) {
-                if (indicatorStartFrom != null) onIndicatorStartConsumed()
-            }
-            LaunchedEffect(selectedIndex, itemSlotWidth) {
-                val targetLeft = indicatorLeftFor(selectedIndex)
-                val targetRight = targetLeft + selectedIndicatorSize
-                val movingRight = targetLeft > leftEdge.value
+            LaunchedEffect(selectedIndex, itemSlotWidth, isActive) {
+                if (!isActive) return@LaunchedEffect
+                val target = selectedIndex.toFloat()
+                val movingRight = target > indicatorState.leftIndex.value
                 // The edge facing the travel direction moves on a fast spring while
                 // the trailing edge follows on a soft one, so the pill stretches in
                 // flight and settles back to its normal width on arrival.
-                val fastSpring = spring<Dp>(dampingRatio = 0.78f, stiffness = 420f)
-                val softSpring = spring<Dp>(dampingRatio = 0.92f, stiffness = 170f)
-                launch { leftEdge.animateTo(targetLeft, if (movingRight) softSpring else fastSpring) }
-                launch { rightEdge.animateTo(targetRight, if (movingRight) fastSpring else softSpring) }
+                val fastSpring = spring<Float>(dampingRatio = 0.78f, stiffness = 420f)
+                val softSpring = spring<Float>(dampingRatio = 0.92f, stiffness = 170f)
+                launch { indicatorState.leftIndex.animateTo(target, if (movingRight) softSpring else fastSpring) }
+                launch { indicatorState.rightIndex.animateTo(target, if (movingRight) fastSpring else softSpring) }
             }
+            val leftEdge = indicatorLeftFor(indicatorState.leftIndex.value)
+            val rightEdge = indicatorLeftFor(indicatorState.rightIndex.value) + selectedIndicatorSize
             BottomNavSelectedIndicator(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = leftEdge.value)
-                    .width((rightEdge.value - leftEdge.value).coerceAtLeast(0.dp)),
+                    .offset(x = leftEdge)
+                    .width((rightEdge - leftEdge).coerceAtLeast(0.dp)),
                 isDark = isDark,
                 selectedGlow = selectedGlow,
                 size = selectedIndicatorSize,

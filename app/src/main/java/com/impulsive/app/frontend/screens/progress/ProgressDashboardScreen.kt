@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.impulsive.app.backend.data.repository.ResetReadRepository
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.score.ScoreDashboardState
@@ -87,6 +88,7 @@ import com.impulsive.app.backend.domain.model.score.UrgeTrendState
 import com.impulsive.app.backend.domain.model.score.WindowUsageState
 import com.impulsive.app.backend.domain.model.release.TaperProposal
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
+import com.impulsive.app.backend.domain.model.tasks.ResetReadSessionRecord
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.progress.ScoreViewModel
@@ -95,11 +97,13 @@ import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.frontend.components.BodyModeLockedSheet
 import com.impulsive.app.frontend.components.BottomNavBar
+import com.impulsive.app.frontend.components.BottomNavIndicatorState
 import com.impulsive.app.frontend.components.BottomNavItem
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.components.MindModeStatusSheet
 import com.impulsive.app.frontend.components.ModeSelectionSheet
 import com.impulsive.app.frontend.components.SoulModeLockedSheet
+import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsiveOverallTheme
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
@@ -137,19 +141,60 @@ private data class ScoreScreenColors(
     val coralGlow: Color,
 )
 
+private data class ResetReadProgressStats(
+    val completedCount: Int,
+    val abandonedCount: Int,
+    val safeReadingMinutes: Int,
+    val helpfulRatingCount: Int,
+    val highlyHelpfulCount: Int,
+    val averageHelpfulness: Double?,
+    val lastCompletedAt: LocalDateTime?,
+)
+
+private fun buildResetReadProgressStats(
+    sessions: List<ResetReadSessionRecord>,
+): ResetReadProgressStats {
+    val completedSessions = sessions.filter { it.validCompletion }
+    val abandonedCount = sessions.count { !it.validCompletion }
+    val safeSeconds = completedSessions.sumOf { session ->
+        session.secondsSpent.coerceAtLeast(0)
+    }
+    val safeReadingMinutes = if (safeSeconds == 0) {
+        0
+    } else {
+        (safeSeconds + 59) / 60
+    }
+    val helpfulRatings = completedSessions.mapNotNull { it.helpfulnessRating }
+    val lastCompletedAt = completedSessions
+        .maxByOrNull { it.completedAt }
+        ?.completedAt
+
+    return ResetReadProgressStats(
+        completedCount = completedSessions.size,
+        abandonedCount = abandonedCount,
+        safeReadingMinutes = safeReadingMinutes,
+        helpfulRatingCount = helpfulRatings.size,
+        highlyHelpfulCount = helpfulRatings.count { it >= 4 },
+        averageHelpfulness = helpfulRatings
+            .takeIf { it.isNotEmpty() }
+            ?.average(),
+        lastCompletedAt = lastCompletedAt,
+    )
+}
+
 @Composable
 fun ProgressDashboardScreen(
     onOpenHome: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenFocus: () -> Unit = {},
-    onNavigateFromModeContext: () -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
+    onOpenRhythmTilesTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     modifier: Modifier = Modifier,
-    bottomNavIndicatorStartFrom: BottomNavItem? = null,
-    onBottomNavIndicatorStartConsumed: () -> Unit = {},
+    indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
+    isActive: Boolean = true,
     viewModel: ScoreViewModel = viewModel(),
     onboardingViewModel: OnboardingViewModel = viewModel(),
     protectionSetupViewModel: ProtectionSetupViewModel = viewModel(),
@@ -163,6 +208,11 @@ fun ProgressDashboardScreen(
     val taperProposal by taperViewModel.proposal.collectAsStateWithLifecycle()
     val colors = rememberScoreColors()
     val context = LocalContext.current
+    val resetReadRepository = remember { ResetReadRepository(context) }
+    val resetReadSessions by resetReadRepository.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val resetReadProgressStats = remember(resetReadSessions) {
+        buildResetReadProgressStats(resetReadSessions)
+    }
     val storeManager = remember { com.impulsive.app.backend.data.repository.GameStoreManager(context) }
     val dailyEarned by storeManager.dailyEarned.collectAsStateWithLifecycle(initialValue = emptyMap())
     val lifetimePoints by storeManager.lifetimePoints.collectAsStateWithLifecycle(initialValue = 0)
@@ -185,10 +235,8 @@ fun ProgressDashboardScreen(
             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
-            PsychologyTaskType.ResetRead,
-            PsychologyTaskType.TriggerDecoder,
-            PsychologyTaskType.ThoughtCapture,
-            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
+            PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
+            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
         }
     }
 
@@ -259,6 +307,14 @@ fun ProgressDashboardScreen(
                 personalBests = uiState.personalBests,
                 recentSessions = uiState.recentSessions,
                 colors = colors,
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            ResetReadingProgressCard(
+                stats = resetReadProgressStats,
+                colors = colors,
+                onOpenResetReadTask = onOpenResetReadTask,
             )
 
             Spacer(modifier = Modifier.height(26.dp))
@@ -361,10 +417,6 @@ fun ProgressDashboardScreen(
                 BottomNavItem.Progress
             },
             onSelect = { item ->
-                val fromModeContext = modeSelectionSheetVisible ||
-                    mindModeSheetVisible ||
-                    bodyModeSheetVisible ||
-                    soulModeSheetVisible
                 when (item) {
                     BottomNavItem.Home -> {
                         mindModeSheetVisible = false
@@ -372,7 +424,6 @@ fun ProgressDashboardScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenHome()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Trigger -> {
                         mindModeSheetVisible = false
@@ -386,7 +437,6 @@ fun ProgressDashboardScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenSettings()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Progress -> {
                         mindModeSheetVisible = false
@@ -397,7 +447,6 @@ fun ProgressDashboardScreen(
                     BottomNavItem.Focus -> {
                         modeSelectionSheetVisible = false
                         onOpenFocus()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                 }
             },
@@ -416,8 +465,8 @@ fun ProgressDashboardScreen(
                 mindModeSheetVisible ||
                 bodyModeSheetVisible ||
                 soulModeSheetVisible,
-            indicatorStartFrom = bottomNavIndicatorStartFrom,
-            onIndicatorStartConsumed = onBottomNavIndicatorStartConsumed,
+            indicatorState = indicatorState,
+            isActive = isActive,
         )
     }
 }
@@ -1319,6 +1368,180 @@ private fun TaperProposalCard(
 }
 
 @Composable
+private fun ResetReadingProgressCard(
+    stats: ResetReadProgressStats,
+    colors: ScoreScreenColors,
+    onOpenResetReadTask: () -> Unit,
+) {
+    val isDark = colors.background.luminance() < 0.5f
+    val lastCompletedLabel = stats.lastCompletedAt?.relativeLabel() ?: "Not yet"
+    val helpfulnessLabel = stats.averageHelpfulness?.let { average ->
+        "${String.format(Locale.UK, "%.1f", average)}/5"
+    } ?: "Not rated"
+
+    Surface(
+        color = colors.elevatedSurface,
+        shape = RoundedCornerShape(28.dp),
+        border = if (isDark) {
+            BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.34f))
+        } else {
+            null
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = if (isDark) 18.dp else 2.dp,
+                shape = RoundedCornerShape(28.dp),
+                clip = false,
+                ambientColor = colors.lavenderGlow.copy(alpha = if (isDark) 0.22f else 0.08f),
+                spotColor = colors.lavenderGlow.copy(alpha = if (isDark) 0.16f else 0.08f),
+            )
+            .clickable { onOpenResetReadTask() },
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ScoreIconBadge(
+                        icon = Icons.Filled.AutoAwesome,
+                        accentColor = ImpulsivePsychological,
+                        colors = colors,
+                        size = 36.dp,
+                        iconSize = 19.dp,
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Reset Reading",
+                            color = colors.text,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "90-second reading recovery proof",
+                            color = colors.muted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Open",
+                    color = ImpulsivePsychological,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ResetReadMetricPill(
+                    label = "Completed",
+                    value = stats.completedCount.formatNumber(),
+                    detail = "valid reads",
+                    colors = colors,
+                    modifier = Modifier.weight(1f),
+                )
+                ResetReadMetricPill(
+                    label = "Safe time",
+                    value = "${stats.safeReadingMinutes.formatNumber()}m",
+                    detail = "reading time",
+                    colors = colors,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ResetReadMetricPill(
+                    label = "Helpful",
+                    value = stats.highlyHelpfulCount.formatNumber(),
+                    detail = "$helpfulnessLabel avg",
+                    colors = colors,
+                    modifier = Modifier.weight(1f),
+                )
+                ResetReadMetricPill(
+                    label = "Last reset",
+                    value = lastCompletedLabel,
+                    detail = if (stats.abandonedCount > 0) {
+                        "${stats.abandonedCount.formatNumber()} abandoned"
+                    } else {
+                        "no abandoned exits"
+                    },
+                    colors = colors,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResetReadMetricPill(
+    label: String,
+    value: String,
+    detail: String,
+    colors: ScoreScreenColors,
+    modifier: Modifier = Modifier,
+) {
+    val isDark = colors.background.luminance() < 0.5f
+
+    Surface(
+        color = if (isDark) {
+            colors.surface.copy(alpha = 0.72f)
+        } else {
+            Color.White.copy(alpha = 0.46f)
+        },
+        shape = RoundedCornerShape(22.dp),
+        border = if (isDark) {
+            BorderStroke(1.dp, colors.faintLine.copy(alpha = 0.42f))
+        } else {
+            null
+        },
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                text = label,
+                color = colors.muted,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = value,
+                color = colors.text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = detail,
+                color = colors.muted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SafeExitAndUrgeCards(
     uiState: ScoreDashboardState,
     colors: ScoreScreenColors,
@@ -2037,6 +2260,7 @@ private fun ScoreGameType.accentColor(): Color = when (this) {
     ScoreGameType.BreathControl -> ImpulsivePsychological
     ScoreGameType.RageDischarge -> ImpulsiveFocusMode
     ScoreGameType.RhythmTiles -> ImpulsivePsychological
+    ScoreGameType.FocusSession -> ImpulsiveFocusMode
     ScoreGameType.Unknown -> ImpulsivePsychological
 }
 
@@ -2051,6 +2275,7 @@ private fun ScoreGameType.scoreIcon(): ImageVector = when (this) {
     ScoreGameType.BreathControl -> Icons.Filled.ShowChart
     ScoreGameType.RageDischarge -> Icons.Filled.AutoAwesome
     ScoreGameType.RhythmTiles -> Icons.Filled.AutoAwesome
+    ScoreGameType.FocusSession -> Icons.Filled.Psychology
     ScoreGameType.Unknown -> Icons.Filled.SportsEsports
 }
 

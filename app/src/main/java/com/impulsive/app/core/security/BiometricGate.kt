@@ -9,6 +9,10 @@ object BiometricGate {
 
     private const val Authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK
 
+    private const val DeviceCredentialAuthenticators =
+        BiometricManager.Authenticators.BIOMETRIC_WEAK or
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+
     fun isBiometricAvailable(activity: FragmentActivity): Boolean =
         BiometricManager.from(activity).canAuthenticate(Authenticators) ==
             BiometricManager.BIOMETRIC_SUCCESS
@@ -40,6 +44,39 @@ object BiometricGate {
             .setSubtitle(subtitle)
             .setNegativeButtonText("Use PIN")
             .setAllowedAuthenticators(Authenticators)
+            .build()
+        prompt.authenticate(info)
+    }
+
+    fun canAuthenticateDeviceCredential(activity: FragmentActivity): Boolean =
+        BiometricManager.from(activity).canAuthenticate(DeviceCredentialAuthenticators) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+
+    fun promptDeviceCredential(
+        activity: FragmentActivity,
+        title: String,
+        subtitle: String,
+        onSuccess: () -> Unit,
+        onError: () -> Unit,
+    ) {
+        val executor = ContextCompat.getMainExecutor(activity)
+        val prompt = BiometricPrompt(
+            activity,
+            executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    onSuccess()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    onError()
+                }
+            },
+        )
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title)
+            .setSubtitle(subtitle)
+            .setAllowedAuthenticators(DeviceCredentialAuthenticators)
             .build()
         prompt.authenticate(info)
     }

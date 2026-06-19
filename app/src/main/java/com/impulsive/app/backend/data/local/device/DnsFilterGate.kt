@@ -2,6 +2,7 @@ package com.impulsive.app.backend.data.local.device
 
 import android.content.Context
 import com.impulsive.app.backend.domain.model.protection.DnsFilterGateEvaluator
+import com.impulsive.app.backend.service.protection.ImpulsiveVpnService
 
 /**
  * Single entry point for the DNS filter pre-enable gate. Reads the live device state from
@@ -18,8 +19,10 @@ class DnsFilterGate(
     fun evaluate(): DnsFilterGateEvaluator.GateResult =
         DnsFilterGateEvaluator.evaluate(
             privateDnsBypassesFilter = privateDnsChecker.bypassesLocalDnsFilter(),
-            anotherVpnActive = activeVpnChecker.isAnotherVpnActive(),
+            anotherVpnActive = activeVpnChecker.isAnotherVpnActive() && !ImpulsiveVpnService.isRunning,
         )
+
+    fun isProtectionOn(): Boolean = ImpulsiveVpnService.isRunning
 
     fun privateDnsState(): PrivateDnsChecker.State = privateDnsChecker.read()
 

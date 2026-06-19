@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.impulsive.app.MainActivity
 import com.impulsive.app.R
+import com.impulsive.app.backend.domain.model.focus.FocusSessionState
+import com.impulsive.app.backend.domain.model.focus.remainingSeconds
 import com.impulsive.app.backend.domain.model.protection.toImpulsiveCompactTime
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -77,6 +79,56 @@ class ProtectionNotificationHelper(
             .build()
     }
 
+    fun showFocusSessionNotification(
+        session: FocusSessionState,
+        now: LocalDateTime,
+        hideSensitive: Boolean = false,
+    ) {
+        val remainingSeconds = session.remainingSeconds(now).coerceAtLeast(0L)
+        val focusEndMillis = now
+            .plusSeconds(remainingSeconds)
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+
+        val notification = NotificationCompat.Builder(context, MonitoringChannelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(if (hideSensitive) "Impulsive" else "Focus is running")
+            .setContentText(
+                if (hideSensitive) {
+                    "Open Impulsive to view your focus session."
+                } else {
+                    "Guarding your focus. Time remaining."
+                },
+            )
+            .setContentIntent(homePendingIntent(FocusSessionNotificationId))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setWhen(focusEndMillis)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        runCatching {
+            NotificationManagerCompat.from(context).notify(FocusSessionNotificationId, notification)
+        }
+    }
+
+    fun cancelFocusSessionNotification() {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(FocusSessionNotificationId)
+        }
+    }
+
+    fun cancelBlockFullScreen() {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(BlockFullScreenNotificationId)
+        }
+    }
+
     fun showBlockedAttemptNotification(
         sourcePackageName: String,
         sourceLabel: String,
@@ -110,6 +162,7 @@ class ProtectionNotificationHelper(
         sourcePackageName: String,
         sourceLabel: String,
         hideSensitive: Boolean = false,
+        isFocusSession: Boolean = false,
     ) {
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -118,6 +171,7 @@ class ProtectionNotificationHelper(
                 context = context,
                 sourcePackageName = sourcePackageName,
                 sourceLabel = sourceLabel,
+                isFocusSession = isFocusSession,
             ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -184,6 +238,25 @@ class ProtectionNotificationHelper(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+    fun createVpnNotification(): Notification {
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            1002,
+            MainActivity.createHomeIntent(context),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(context, MonitoringChannelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(context.getString(R.string.notif_vpn_title))
+            .setContentText(context.getString(R.string.notif_vpn_body))
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
     companion object {
         const val MonitoringChannelId = "impulsive_protection_monitoring"
         const val BlockedAttemptChannelId = "impulsive_blocked_attempts"
@@ -193,5 +266,7 @@ class ProtectionNotificationHelper(
         const val ReleaseWindowPausedNotificationId = 4203
         const val ProtectionResumedNotificationId = 4204
         const val BlockFullScreenNotificationId = 4205
+        const val VpnNotificationId = 4206
+        const val FocusSessionNotificationId = 4207
     }
 }

@@ -25,6 +25,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 if (setup.selectedBlockedAppPackageNames.isNotEmpty()) {
                     ProtectionServiceController.start(appContext)
                 }
+                com.impulsive.app.backend.service.journal.FeedbackPromptScheduler(appContext)
+                    .scheduleDailyNudge()
             } finally {
                 pendingResult.finish()
             }

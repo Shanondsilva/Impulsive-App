@@ -147,11 +147,13 @@ import com.impulsive.app.core.util.ThemeMode
 import com.impulsive.app.frontend.components.AvatarStyle
 import com.impulsive.app.frontend.components.BodyModeLockedSheet
 import com.impulsive.app.frontend.components.BottomNavBar
+import com.impulsive.app.frontend.components.BottomNavIndicatorState
 import com.impulsive.app.frontend.components.BottomNavItem
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.components.MindModeStatusSheet
 import com.impulsive.app.frontend.components.ModeSelectionSheet
 import com.impulsive.app.frontend.components.SoulModeLockedSheet
+import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.utils.ImpulsiveHaptics
@@ -165,15 +167,15 @@ fun SettingsScreen(
     onOpenHome: () -> Unit = onBackHome,
     onOpenScore: () -> Unit = {},
     onOpenFocus: () -> Unit = {},
-    onNavigateFromModeContext: () -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
+    onOpenRhythmTilesTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenUninstallProtection: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
-    bottomNavIndicatorStartFrom: BottomNavItem? = null,
-    onBottomNavIndicatorStartConsumed: () -> Unit = {},
+    indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
+    isActive: Boolean = true,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
@@ -219,10 +221,8 @@ fun SettingsScreen(
             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
-            PsychologyTaskType.ResetRead,
-            PsychologyTaskType.TriggerDecoder,
-            PsychologyTaskType.ThoughtCapture,
-            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
+            PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
+            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
         }
     }
     val appLockGuard = rememberAppLockGuardController()
@@ -267,7 +267,7 @@ fun SettingsScreen(
             if (protectionSetupState.profileBadgeShouldShow) {
                 ProtectionSetupIncompleteCard(
                     protectionSetupState = protectionSetupState,
-                    onOpenProtectionSetup = { appLockGuard.run(appLockEnabled) { showBlockedAppsSheet = true } },
+                    onOpenProtectionSetup = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
                 )
             }
             PlusGroup(
@@ -294,7 +294,7 @@ fun SettingsScreen(
                 protectionState = protectionSetupState,
                 appLockEnabled = appLockEnabled,
                 guard = appLockGuard::run,
-                onOpenBlockedApps = { appLockGuard.run(appLockEnabled) { showBlockedAppsSheet = true } },
+                onOpenBlockedApps = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
                 onOpenUninstallProtection = onOpenUninstallProtection,
                 onOpenWebsiteProtectionPlus = onOpenWebsiteProtectionPlus,
             )
@@ -415,10 +415,6 @@ fun SettingsScreen(
                 BottomNavItem.Settings
             },
             onSelect = { item ->
-                val fromModeContext = modeSelectionSheetVisible ||
-                    mindModeSheetVisible ||
-                    bodyModeSheetVisible ||
-                    soulModeSheetVisible
                 when (item) {
                     BottomNavItem.Home -> {
                         mindModeSheetVisible = false
@@ -426,7 +422,6 @@ fun SettingsScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenHome()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Progress -> {
                         mindModeSheetVisible = false
@@ -434,7 +429,6 @@ fun SettingsScreen(
                         bodyModeSheetVisible = false
                         soulModeSheetVisible = false
                         onOpenScore()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                     BottomNavItem.Trigger -> {
                         mindModeSheetVisible = false
@@ -451,7 +445,6 @@ fun SettingsScreen(
                     BottomNavItem.Focus -> {
                         modeSelectionSheetVisible = false
                         onOpenFocus()
-                        if (fromModeContext) onNavigateFromModeContext()
                     }
                 }
             },
@@ -471,8 +464,8 @@ fun SettingsScreen(
                 mindModeSheetVisible ||
                 bodyModeSheetVisible ||
                 soulModeSheetVisible,
-            indicatorStartFrom = bottomNavIndicatorStartFrom,
-            onIndicatorStartConsumed = onBottomNavIndicatorStartConsumed,
+            indicatorState = indicatorState,
+            isActive = isActive,
         )
 
         if (showBlockedAppsSheet) {

@@ -41,7 +41,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import kotlin.random.Random
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -64,9 +66,16 @@ import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
 import com.impulsive.app.backend.domain.game.RhythmTilesCatalog
 import com.impulsive.app.backend.domain.game.RhythmTilesConfig
 import com.impulsive.app.backend.domain.game.RhythmTilesResult
+import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
+import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
+import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
+import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
+import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.game.RhythmTilesUiState
 import com.impulsive.app.backend.session.game.RhythmTilesViewModel
+import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.settings.AppSettingsViewModel
+import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.frontend.components.GameSoundToggle
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.components.UrgeRatingRow
@@ -74,19 +83,44 @@ import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.utils.RhythmNotePlayer
 import com.impulsive.app.frontend.utils.rememberRhythmNotePlayer
 import kotlinx.coroutines.isActive
+import java.time.LocalDateTime
 
 @Composable
 fun RhythmTilesScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlayAnother: () -> Unit = {},
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.RECOVERY_GAME,
     viewModel: RhythmTilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
     val notePlayer = rememberRhythmNotePlayer(appSettingsState.soundEffectsEnabled)
+    val currentNow by produceState(initialValue = LocalDateTime.now()) {
+        while (true) {
+            value = LocalDateTime.now()
+            kotlinx.coroutines.delay(60_000L)
+        }
+    }
+    val baseReleasePlan = calculateReleasePlan(
+        selectedDailyUrgeCount = onboardingState.answers.dailyRelapseUrgeCount,
+        now = currentNow,
+        activeDayStart = minuteOfDayToLocalTime(onboardingState.answers.activeDayStartMinute),
+        activeDayEnd = minuteOfDayToLocalTime(onboardingState.answers.activeDayEndMinute),
+    )
+    val taskRewardState = taskRewardStoreState.toTaskRewardState(baseReleasePlan)
+    val releasePlan = calculateRewardedReleasePlan(
+        releasePlan = baseReleasePlan,
+        adjustedNextReleaseWindow = taskRewardState.adjustedNextReleaseWindow,
+        now = currentNow,
+    )
+    var rewardLogged by remember(launchSource) { mutableStateOf(false) }
 
     LaunchedEffect(launchSource) {
         if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {
@@ -94,7 +128,38 @@ fun RhythmTilesScreen(
         }
     }
 
-    BackHandler { onExit() }
+    LaunchedEffect(uiState.result, launchSource) {
+        val result = uiState.result
+        if (
+            launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE &&
+            result != null &&
+            result.validCompletion &&
+            !result.gameOver &&
+            !rewardLogged
+        ) {
+            rewardLogged = true
+            taskRewardViewModel.completeTask(
+                taskType = PsychologyTaskType.RhythmTiles,
+                releasePlan = releasePlan,
+                now = LocalDateTime.now(),
+                launchedFrom = "TASK_TO_COMPLETE",
+                gameType = "RHYTHM_TILES",
+                score = result.score,
+                durationSec = result.durationSec,
+                validCompletion = true,
+            )
+        }
+    }
+
+    val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
+    // A block-launched round that ended early has no allowed exit: the only way on
+    // is to finish a full round. Hub rounds keep back.
+    val mustReplay = uiState.view == GameView.Result && uiState.result?.gameOver == true
+    BackHandler {
+        if (!(mustReplay && taskLaunch)) {
+            onExit()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -109,12 +174,14 @@ fun RhythmTilesScreen(
                 .fillMaxWidth()
                 .padding(top = 6.dp, bottom = 4.dp),
         ) {
-            IconButton(onClick = onExit) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onBackground,
-                )
+            if (!(mustReplay && taskLaunch)) {
+                IconButton(onClick = onExit) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onBackground,
+                    )
+                }
             }
             Text(
                 text = "Rhythm Tiles",
@@ -154,6 +221,7 @@ fun RhythmTilesScreen(
                 onUrgeAfterSelected = viewModel::setUrgeAfter,
                 onWalkAway = viewModel::walkAway,
                 onPlayAgain = viewModel::playAgain,
+                onPlayAnother = onPlayAnother,
                 onExit = onExit,
             )
             GameView.Walked -> RhythmWalkedView(score = uiState.walkScore, onExit = onExit)
@@ -251,18 +319,22 @@ private fun RhythmReadyView(
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
+        val showUrgeGate = remember { Random.nextInt(10) < 4 }
         var selectedUrgeBefore by remember { mutableStateOf<Int?>(null) }
-        UrgeRatingRow(
-            label = "How strong is the urge right now?",
-            selected = selectedUrgeBefore,
-            onSelect = { value ->
-                selectedUrgeBefore = value
-                onUrgeBeforeSelected(value)
-            },
-        )
+        if (showUrgeGate) {
+            UrgeRatingRow(
+                label = "How strong is the urge right now?",
+                selected = selectedUrgeBefore,
+                onSelect = { value ->
+                    selectedUrgeBefore = value
+                    onUrgeBeforeSelected(value)
+                },
+            )
+        }
         Spacer(modifier = Modifier.height(18.dp))
         Button(
             onClick = onStart,
+            enabled = !showUrgeGate || selectedUrgeBefore != null,
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = ImpulsivePsychological,
@@ -456,12 +528,13 @@ private fun RhythmResultView(
     onUrgeAfterSelected: (Int) -> Unit,
     onWalkAway: () -> Unit,
     onPlayAgain: () -> Unit,
+    onPlayAnother: () -> Unit,
     onExit: () -> Unit,
 ) {
     if (result == null) return
     RhythmCenterPanel {
         Text(
-            text = if (result.gameOver) "Round complete" else "Rhythm Tiles complete",
+            text = if (result.gameOver) "Round didn't finish" else "Rhythm Tiles complete",
             color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
@@ -506,23 +579,41 @@ private fun RhythmResultView(
         RhythmStatRow("Loops", result.loopsCompleted.toString())
         RhythmStatRow("Duration", "${result.durationSec}s")
         Spacer(modifier = Modifier.height(18.dp))
-        Button(
-            onClick = onWalkAway,
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = ImpulsivePsychological,
-                contentColor = Color.White,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Walk away (+${RhythmTilesConfig.WALK_AWAY_BONUS})")
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        TextButton(onClick = onPlayAgain, modifier = Modifier.fillMaxWidth()) {
-            Text("Play again")
-        }
-        TextButton(onClick = onExit, modifier = Modifier.fillMaxWidth()) {
-            Text("Done")
+        if (result.gameOver) {
+            Button(
+                onClick = onPlayAgain,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Play same game")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = onPlayAnother, modifier = Modifier.fillMaxWidth()) {
+                Text("Play another")
+            }
+        } else {
+            Button(
+                onClick = onWalkAway,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Walk away (+${RhythmTilesConfig.WALK_AWAY_BONUS})")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = onPlayAgain, modifier = Modifier.fillMaxWidth()) {
+                Text("Play again")
+            }
+            TextButton(onClick = onExit, modifier = Modifier.fillMaxWidth()) {
+                Text("Done")
+            }
         }
     }
 }

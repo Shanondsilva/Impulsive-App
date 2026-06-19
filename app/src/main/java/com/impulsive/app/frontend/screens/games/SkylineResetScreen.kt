@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import kotlin.random.Random
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -100,6 +101,7 @@ private val SkyPanelStroke = Color(0xFFD9CCFF).copy(alpha = 0.14f)
 fun SkylineResetScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlayAnother: () -> Unit = {},
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -132,6 +134,9 @@ fun SkylineResetScreen(
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
+    // A block-launched round that ended without completing has no allowed exit:
+    // the only way on is to finish a full round. Hub rounds keep their exit.
+    val mustReplay = uiState.view == SkylineResetView.Result && !uiState.completed
     var rewardLogged by remember(launchSource) { mutableStateOf(false) }
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
         while (true) {
@@ -180,7 +185,11 @@ fun SkylineResetScreen(
         onExit()
     }
 
-    BackHandler { exitSafely() }
+    BackHandler {
+        if (!(mustReplay && taskLaunch)) {
+            exitSafely()
+        }
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -220,12 +229,14 @@ fun SkylineResetScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = ::exitSafely) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color(0xFFF7F2FF),
-                )
+            if (!(mustReplay && taskLaunch)) {
+                IconButton(onClick = ::exitSafely) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color(0xFFF7F2FF),
+                    )
+                }
             }
             Text(
                 text = "SkyStack",
@@ -266,6 +277,7 @@ fun SkylineResetScreen(
                     rewardLogged = false
                     viewModel.start()
                 },
+                onPlayAnother = onPlayAnother,
             )
         }
     }
@@ -300,18 +312,22 @@ private fun ReadyPanel(
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(18.dp))
+            val showUrgeGate = remember { Random.nextInt(10) < 4 }
             var selectedUrgeBefore by remember { mutableStateOf<Int?>(null) }
-            UrgeRatingRow(
-                label = "How strong is the urge right now?",
-                selected = selectedUrgeBefore,
-                onSelect = { value ->
-                    selectedUrgeBefore = value
-                    onUrgeBeforeSelected(value)
-                },
-            )
+            if (showUrgeGate) {
+                UrgeRatingRow(
+                    label = "How strong is the urge right now?",
+                    selected = selectedUrgeBefore,
+                    onSelect = { value ->
+                        selectedUrgeBefore = value
+                        onUrgeBeforeSelected(value)
+                    },
+                )
+            }
             Spacer(modifier = Modifier.height(18.dp))
             Button(
                 onClick = onStart,
+                enabled = !showUrgeGate || selectedUrgeBefore != null,
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ImpulsivePsychological,
@@ -640,6 +656,7 @@ private fun ResultPanel(
     taskLaunch: Boolean,
     onDone: () -> Unit,
     onPlayAgain: () -> Unit,
+    onPlayAnother: () -> Unit,
 ) {
     CenterPanel {
         Box(
@@ -691,22 +708,48 @@ private fun ResultPanel(
         StatRow("Perfect drops", uiState.perfectCount.toString())
         StatRow("Time", "${uiState.secondsPlayed}s")
         Spacer(modifier = Modifier.height(22.dp))
-        Button(
-            onClick = onDone,
-            enabled = !taskLaunch || !uiState.completed || taskCompletionResult != null,
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = ImpulsivePsychological,
-                contentColor = ImpulsiveText,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (taskLaunch && uiState.completed && taskCompletionResult == null) "Saving" else "Done")
-        }
-        if (!taskLaunch) {
+        if (!uiState.completed) {
+            Button(
+                onClick = onPlayAgain,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = ImpulsiveText,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Play same game")
+            }
             Spacer(modifier = Modifier.height(10.dp))
-            TextButton(onClick = onPlayAgain, modifier = Modifier.fillMaxWidth()) {
-                Text("Play again")
+            Button(
+                onClick = onPlayAnother,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsiveSurface,
+                    contentColor = ImpulsiveText,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Play another")
+            }
+        } else {
+            Button(
+                onClick = onDone,
+                enabled = !taskLaunch || taskCompletionResult != null,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = ImpulsiveText,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (taskLaunch && taskCompletionResult == null) "Saving" else "Done")
+            }
+            if (!taskLaunch) {
+                Spacer(modifier = Modifier.height(10.dp))
+                TextButton(onClick = onPlayAgain, modifier = Modifier.fillMaxWidth()) {
+                    Text("Play again")
+                }
             }
         }
     }

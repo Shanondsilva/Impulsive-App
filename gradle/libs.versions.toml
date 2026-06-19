@@ -3,7 +3,7 @@
 agp = "8.11.2"
 kotlin = "2.3.20"
 ksp = "2.3.9"
-compileSdk = "35"
+compileSdk = "36"
 minSdk = "26"
 targetSdk = "35"
 
@@ -23,6 +23,7 @@ splashscreen = "1.0.1"
 # Compose
 composeBom = "2025.01.00"
 lottieCompose = "6.7.1"
+media3 = "1.10.1"
 
 # Firebase
 firebaseBom = "33.7.0"
@@ -33,6 +34,9 @@ crashlytics = "3.0.2"
 googleid = "1.1.1"
 facebookLogin = "18.0.3"
 coroutinesPlayServices = "1.8.1"
+
+# Billing
+billing = "8.0.0"
 
 # Test
 junit = "4.13.2"
@@ -72,11 +76,17 @@ compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 lottie-compose = { module = "com.airbnb.android:lottie-compose", version.ref = "lottieCompose" }
+media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
+media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 
 # Firebase BOM + unversioned BOM members
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-auth = { module = "com.google.firebase:firebase-auth" }
+firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
 firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
+
+# Billing
+billing-ktx = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }
 
 # Auth
 google-identity-googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }

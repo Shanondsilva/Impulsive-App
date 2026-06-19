@@ -7,14 +7,20 @@ package com.impulsive.app.backend.domain.model.protection
  * lower case with any trailing dot removed before comparison.
  */
 object BlockedDomainMatcher {
-    fun isBlocked(hostname: String, blockedDomains: Set<String>): Boolean {
-        if (blockedDomains.isEmpty()) return false
+    fun isBlocked(hostname: String, blockedDomains: Set<String>): Boolean =
+        matchedBlockedEntry(hostname, blockedDomains) != null
+
+    fun matchedBlockedEntry(hostname: String, blockedDomains: Set<String>): String? {
+        if (blockedDomains.isEmpty()) return null
         val host = normalize(hostname)
-        if (host.isEmpty()) return false
-        return blockedDomains.any { entry ->
+        if (host.isEmpty()) return null
+        for (entry in blockedDomains) {
             val blocked = normalize(entry)
-            blocked.isNotEmpty() && (host == blocked || host.endsWith(".$blocked"))
+            if (blocked.isNotEmpty() && (host == blocked || host.endsWith(".$blocked"))) {
+                return blocked
+            }
         }
+        return null
     }
 
     private fun normalize(value: String): String =

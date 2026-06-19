@@ -1,5 +1,6 @@
 package com.impulsive.app.frontend.screens.tasks
 
+import android.net.Uri
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -53,6 +54,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
@@ -70,6 +75,7 @@ import com.impulsive.app.backend.domain.model.tasks.TaskCompletionResult
 import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.tasks.ResetReadLaunchMode
 import com.impulsive.app.backend.session.tasks.ResetReadPhase
 import com.impulsive.app.backend.session.tasks.ResetReadUiState
 import com.impulsive.app.backend.session.tasks.ResetReadViewModel
@@ -88,6 +94,7 @@ import java.time.LocalDateTime
 fun ResetReadScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    launchMode: ResetReadLaunchMode = ResetReadLaunchMode.Normal,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     resetReadViewModel: ResetReadViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -98,6 +105,9 @@ fun ResetReadScreen(
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     var rewardLogged by remember { mutableStateOf(false) }
+    LaunchedEffect(launchMode) {
+        resetReadViewModel.configureLaunchMode(launchMode)
+    }
     val currentNow by produceState(initialValue = LocalDateTime.now()) {
         while (true) {
             value = LocalDateTime.now()
@@ -136,6 +146,12 @@ fun ResetReadScreen(
         if (uiState.validCompletion) {
             taskRewardViewModel.clearLastCompletionResult()
         } else if (uiState.article != null) {
+            val failureReason = when (uiState.phase) {
+                ResetReadPhase.Reading -> "exit_during_reading"
+                ResetReadPhase.Question -> "exit_before_answer"
+                ResetReadPhase.Success -> "exit_after_incomplete_success_state"
+            }
+            resetReadViewModel.recordAbandonedSessionIfNeeded(failureReason)
             logCompletion(validCompletion = false)
         }
         onExit()
@@ -199,6 +215,7 @@ fun ResetReadScreen(
                 ResetReadPhase.Success -> ResetReadSuccess(
                     uiState = uiState,
                     taskCompletionResult = taskCompletionResult,
+                    onRateHelpfulness = resetReadViewModel::rateHelpfulness,
                     onDone = ::exitSafely,
                 )
             }
@@ -220,7 +237,7 @@ private fun ReaderHeader(onExit: () -> Unit) {
             )
         }
         Text(
-            text = "Reset Read",
+            text = "Reset Reading",
             color = MaterialTheme.colorScheme.onBackground,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
@@ -302,7 +319,7 @@ private fun ReadProgressPanel(uiState: ResetReadUiState) {
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "${article?.estimatedReadMinutes ?: 0} min read",
+                        text = resetReadDurationLabel(uiState.requiredReadSeconds),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelMedium,
                     )
@@ -336,11 +353,27 @@ private fun NativeArticleView(
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
-    LaunchedEffect(scrollState.value, scrollState.maxValue) {
+    var nonScrollableAutoMarked by remember(article.id) { mutableStateOf(false) }
+
+    LaunchedEffect(article.id, scrollState.value, scrollState.maxValue) {
         val maxValue = scrollState.maxValue
-        val progress = if (maxValue <= 0) 0f else scrollState.value / maxValue.toFloat()
-        onScrollProgress(progress)
-        if (maxValue > 0 && scrollState.value >= maxValue - 8) onReachedEnd()
+        if (maxValue > 0) {
+            val progress = (scrollState.value / maxValue.toFloat()).coerceIn(0f, 1f)
+            onScrollProgress(progress)
+            if (scrollState.value >= maxValue - 8) {
+                onReachedEnd()
+            }
+        }
+    }
+
+    LaunchedEffect(article.id) {
+        withFrameMillis { }
+        withFrameMillis { }
+        if (scrollState.maxValue <= 0 && !nonScrollableAutoMarked) {
+            nonScrollableAutoMarked = true
+            onScrollProgress(1f)
+            onReachedEnd()
+        }
     }
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -386,6 +419,11 @@ private fun NativeArticleView(
                     }
                     is ArticleBlock.Img -> InlineArticleImage(
                         key = block.key,
+                        caption = block.caption,
+                    )
+                    is ArticleBlock.Video -> InlineArticleVideo(
+                        assetFileName = block.assetFileName,
+                        title = block.title,
                         caption = block.caption,
                     )
                 }
@@ -445,6 +483,85 @@ private fun InlineArticleImage(
     }
 }
 
+@Composable
+private fun InlineArticleVideo(
+    assetFileName: String,
+    title: String,
+    caption: String? = null,
+) {
+    val context = LocalContext.current
+    val safeAssetFileName = remember(assetFileName) {
+        assetFileName
+            .substringAfterLast("/")
+            .substringAfterLast("\\")
+            .trim()
+    }
+    val mediaUri = remember(safeAssetFileName) {
+        Uri.parse("asset:///reset_reading/videos/$safeAssetFileName")
+    }
+    val exoPlayer = remember(mediaUri) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(mediaUri))
+            playWhenReady = false
+            prepare()
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    Surface(
+        color = ImpulsiveSurface,
+        shape = RoundedCornerShape(22.dp),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+        } else {
+            null
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        player = exoPlayer
+                        useController = true
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    }
+                },
+                update = { playerView ->
+                    playerView.player = exoPlayer
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(190.dp)
+                    .clip(RoundedCornerShape(18.dp)),
+            )
+
+            if (caption != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+    }
+}
+
 private fun DrawScope.drawAbstractIllustration(key: String) {
     val center = Offset(size.width / 2f, size.height / 2f)
     drawRoundRect(
@@ -480,15 +597,124 @@ private fun DrawScope.drawAbstractIllustration(key: String) {
                 )
             }
         }
-        "steady_line" -> drawLine(
-            color = ImpulsivePsychological.copy(alpha = 0.78f),
-            start = Offset(size.width * 0.10f, size.height * 0.70f),
-            end = Offset(size.width * 0.90f, size.height * 0.70f),
-            strokeWidth = 12f,
-        )
+        "steady_wave" -> {
+            drawLine(
+                color = ImpulsiveSurface.copy(alpha = 0.72f),
+                start = Offset(size.width * 0.12f, size.height * 0.70f),
+                end = Offset(size.width * 0.88f, size.height * 0.70f),
+                strokeWidth = 8f,
+            )
+            drawPath(
+                path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(size.width * 0.12f, size.height * 0.66f)
+                    cubicTo(
+                        size.width * 0.26f,
+                        size.height * 0.18f,
+                        size.width * 0.42f,
+                        size.height * 0.18f,
+                        size.width * 0.54f,
+                        size.height * 0.52f,
+                    )
+                    cubicTo(
+                        size.width * 0.66f,
+                        size.height * 0.86f,
+                        size.width * 0.80f,
+                        size.height * 0.74f,
+                        size.width * 0.88f,
+                        size.height * 0.54f,
+                    )
+                },
+                color = ImpulsivePsychological.copy(alpha = 0.78f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 12f),
+            )
+            drawCircle(
+                color = ImpulsivePhysical.copy(alpha = 0.50f),
+                radius = size.minDimension * 0.07f,
+                center = Offset(size.width * 0.54f, size.height * 0.52f),
+            )
+            drawCircle(
+                color = ImpulsiveSpiritual.copy(alpha = 0.42f),
+                radius = size.minDimension * 0.05f,
+                center = Offset(size.width * 0.84f, size.height * 0.55f),
+            )
+        }
+        "steady_line" -> {
+            drawLine(
+                color = ImpulsiveSurface.copy(alpha = 0.72f),
+                start = Offset(size.width * 0.12f, size.height * 0.68f),
+                end = Offset(size.width * 0.88f, size.height * 0.68f),
+                strokeWidth = 8f,
+            )
+            drawPath(
+                path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(size.width * 0.14f, size.height * 0.36f)
+                    cubicTo(
+                        size.width * 0.30f,
+                        size.height * 0.20f,
+                        size.width * 0.38f,
+                        size.height * 0.78f,
+                        size.width * 0.54f,
+                        size.height * 0.58f,
+                    )
+                    cubicTo(
+                        size.width * 0.66f,
+                        size.height * 0.46f,
+                        size.width * 0.76f,
+                        size.height * 0.68f,
+                        size.width * 0.88f,
+                        size.height * 0.66f,
+                    )
+                },
+                color = ImpulsivePsychological.copy(alpha = 0.78f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 10f),
+            )
+            drawCircle(
+                color = ImpulsivePhysical.copy(alpha = 0.44f),
+                radius = size.minDimension * 0.06f,
+                center = Offset(size.width * 0.14f, size.height * 0.36f),
+            )
+            drawCircle(
+                color = ImpulsiveSpiritual.copy(alpha = 0.46f),
+                radius = size.minDimension * 0.06f,
+                center = Offset(size.width * 0.88f, size.height * 0.66f),
+            )
+        }
         "calm_task" -> {
-            drawCircle(color = ImpulsivePhysical.copy(alpha = 0.45f), radius = size.minDimension * 0.28f, center = center)
-            drawCircle(color = ImpulsivePsychological.copy(alpha = 0.55f), radius = size.minDimension * 0.10f, center = center)
+            drawRoundRect(
+                color = ImpulsiveSurface.copy(alpha = 0.78f),
+                topLeft = Offset(size.width * 0.18f, size.height * 0.24f),
+                size = Size(size.width * 0.64f, size.height * 0.48f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(24f, 24f),
+            )
+            drawCircle(
+                color = ImpulsivePhysical.copy(alpha = 0.45f),
+                radius = size.minDimension * 0.12f,
+                center = Offset(size.width * 0.34f, size.height * 0.48f),
+            )
+            drawLine(
+                color = ImpulsivePsychological.copy(alpha = 0.70f),
+                start = Offset(size.width * 0.46f, size.height * 0.48f),
+                end = Offset(size.width * 0.66f, size.height * 0.48f),
+                strokeWidth = 8f,
+            )
+            drawRoundRect(
+                color = ImpulsivePsychological.copy(alpha = 0.52f),
+                topLeft = Offset(size.width * 0.62f, size.height * 0.36f),
+                size = Size(size.width * 0.16f, size.height * 0.24f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(14f, 14f),
+            )
+            drawLine(
+                color = ImpulsiveText.copy(alpha = 0.42f),
+                start = Offset(size.width * 0.66f, size.height * 0.48f),
+                end = Offset(size.width * 0.70f, size.height * 0.54f),
+                strokeWidth = 5f,
+            )
+            drawLine(
+                color = ImpulsiveText.copy(alpha = 0.42f),
+                start = Offset(size.width * 0.70f, size.height * 0.54f),
+                end = Offset(size.width * 0.76f, size.height * 0.42f),
+                strokeWidth = 5f,
+            )
         }
         "task_stack" -> {
             repeat(3) { index ->
@@ -540,8 +766,50 @@ private fun DrawScope.drawAbstractIllustration(key: String) {
             strokeWidth = 10f,
         )
         "shortcut_map" -> {
-            drawLine(color = ImpulsivePhysical.copy(alpha = 0.58f), start = Offset(size.width * 0.18f, size.height * 0.78f), end = Offset(size.width * 0.84f, size.height * 0.28f), strokeWidth = 8f)
-            drawLine(color = ImpulsivePsychological.copy(alpha = 0.62f), start = Offset(size.width * 0.18f, size.height * 0.30f), end = Offset(size.width * 0.84f, size.height * 0.74f), strokeWidth = 8f)
+            drawPath(
+                path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(size.width * 0.16f, size.height * 0.72f)
+                    cubicTo(
+                        size.width * 0.34f,
+                        size.height * 0.44f,
+                        size.width * 0.48f,
+                        size.height * 0.76f,
+                        size.width * 0.64f,
+                        size.height * 0.50f,
+                    )
+                    cubicTo(
+                        size.width * 0.72f,
+                        size.height * 0.38f,
+                        size.width * 0.78f,
+                        size.height * 0.32f,
+                        size.width * 0.84f,
+                        size.height * 0.26f,
+                    )
+                },
+                color = ImpulsivePhysical.copy(alpha = 0.54f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 8f),
+            )
+            drawLine(
+                color = ImpulsivePsychological.copy(alpha = 0.76f),
+                start = Offset(size.width * 0.20f, size.height * 0.32f),
+                end = Offset(size.width * 0.82f, size.height * 0.66f),
+                strokeWidth = 10f,
+            )
+            listOf(
+                Offset(size.width * 0.16f, size.height * 0.72f),
+                Offset(size.width * 0.64f, size.height * 0.50f),
+                Offset(size.width * 0.84f, size.height * 0.26f),
+            ).forEachIndexed { index, point ->
+                drawCircle(
+                    color = if (index == 1) {
+                        ImpulsivePsychological.copy(alpha = 0.58f)
+                    } else {
+                        ImpulsiveSpiritual.copy(alpha = 0.46f)
+                    },
+                    radius = size.minDimension * 0.06f,
+                    center = point,
+                )
+            }
         }
         "soft_branches" -> {
             drawLine(color = ImpulsivePsychological.copy(alpha = 0.72f), start = Offset(size.width * 0.18f, size.height * 0.72f), end = Offset(size.width * 0.62f, size.height * 0.42f), strokeWidth = 10f)
@@ -702,6 +970,7 @@ private fun ClosingQuestion(
 private fun ResetReadSuccess(
     uiState: ResetReadUiState,
     taskCompletionResult: TaskCompletionResult?,
+    onRateHelpfulness: (Int) -> Unit,
     onDone: () -> Unit,
 ) {
     CenterPanel {
@@ -716,7 +985,7 @@ private fun ResetReadSuccess(
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Reset Read complete",
+            text = "Reset Reading complete",
             color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
@@ -737,6 +1006,15 @@ private fun ResetReadSuccess(
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
         )
+
+        if (uiState.askHelpfulnessRating) {
+            Spacer(modifier = Modifier.height(18.dp))
+            ResetReadHelpfulnessRating(
+                selectedRating = uiState.helpfulnessRating,
+                onRateHelpfulness = onRateHelpfulness,
+            )
+        }
+
         Spacer(modifier = Modifier.height(22.dp))
         Button(
             onClick = onDone,
@@ -749,6 +1027,93 @@ private fun ResetReadSuccess(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (taskCompletionResult == null) "Saving" else "Done")
+        }
+    }
+}
+
+@Composable
+private fun ResetReadHelpfulnessRating(
+    selectedRating: Int?,
+    onRateHelpfulness: (Int) -> Unit,
+) {
+    Surface(
+        color = ImpulsiveSurface,
+        shape = RoundedCornerShape(24.dp),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+        } else {
+            null
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "Was this read helpful?",
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+
+            Text(
+                text = "This only appears sometimes so Impulsive can learn better topics.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                (1..5).forEach { rating ->
+                    val selected = selectedRating == rating
+                    Surface(
+                        color = if (selected) {
+                            ImpulsivePsychological.copy(alpha = 0.72f)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        shape = CircleShape,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selected) {
+                                ImpulsiveText.copy(alpha = 0.24f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                            },
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .clickable { onRateHelpfulness(rating) },
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = rating.toString(),
+                                color = if (selected) ImpulsiveText else MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = "1 = not helpful   5 = very helpful",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -806,7 +1171,22 @@ private fun resultLabel(result: TaskCompletionResult?): String {
     } else {
         "Window already protected"
     }
-    return "$wait  +${result.levelPointsAwarded} LP"
+    val points = if (result.levelPointsAwarded > 0) {
+        "+${result.levelPointsAwarded} LP"
+    } else {
+        "No extra LP today"
+    }
+    return "$wait  $points"
+}
+
+private fun resetReadDurationLabel(seconds: Int): String {
+    return when {
+        seconds <= 0 -> ""
+        seconds < 60 -> "${seconds}s reset"
+        seconds == 90 -> "90 sec reset"
+        seconds % 60 == 0 -> "${seconds / 60} min reset"
+        else -> "${seconds / 60} min ${seconds % 60}s reset"
+    }
 }
 
 private fun Int.formatMinutes(): String =

@@ -7,7 +7,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -25,6 +28,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -35,7 +39,7 @@ import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
-import com.impulsive.app.frontend.components.BottomNavItem
+import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.screens.dashboard.HomeScreen
 import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
 import com.impulsive.app.frontend.screens.games.ReflexGameScreen
@@ -48,15 +52,18 @@ import com.impulsive.app.frontend.screens.journal.JournalHubScreen
 import com.impulsive.app.frontend.screens.journal.JournalListScreen
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
+import com.impulsive.app.backend.service.protection.ImpulsiveVpnController
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.protection.DnsFilterGateViewModel
+import com.impulsive.app.backend.session.premium.PremiumViewModel
+import com.impulsive.app.backend.domain.model.premium.PremiumFeature
+import com.impulsive.app.backend.service.billing.BillingManager
 import com.impulsive.app.frontend.screens.onboarding.LoginSignupGuestScreen
 import com.impulsive.app.frontend.screens.onboarding.NotificationPermissionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingDailyRelapseCountScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingQuestionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingStartingPointScreen
 import com.impulsive.app.frontend.screens.onboarding.PersonalisingSetupScreen
-import com.impulsive.app.frontend.screens.focus.ActiveFocusSessionScreen
 import com.impulsive.app.frontend.screens.focus.FocusScreen
 import com.impulsive.app.frontend.screens.focus.FocusRecoveryScreen
 import com.impulsive.app.frontend.screens.onboarding.ProtectionSetupOnboardingScreen
@@ -72,6 +79,7 @@ import com.impulsive.app.frontend.screens.protection.DnsFilterGateScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
+import com.impulsive.app.backend.session.tasks.ResetReadLaunchMode
 import com.impulsive.app.security.antibypass.UninstallProtectionManager
 import kotlinx.coroutines.launch
 
@@ -101,7 +109,6 @@ object AppRoutes {
     const val Settings = "settings"
     const val Score = "score"
     const val Focus = "focus"
-    const val FocusSession = "focus_session"
     const val FocusRecovery = "focus_recovery"
     const val RecoveryGames = "recovery_games"
     const val ReflexGame = "reflex_game"
@@ -113,6 +120,7 @@ object AppRoutes {
     const val RhythmTilesGame = "rhythm_tiles_game"
     const val RhythmTilesTask = "rhythm_tiles_task"
     const val ResetReadTask = "reset_read_task"
+    const val ResetReadFallbackTask = "reset_read_fallback_task"
     const val TaskToComplete = "task_to_complete"
     const val WebsiteProtectionPlus = "website_protection_plus"
     const val DnsFilterGate = "dns_filter_gate"
@@ -145,7 +153,9 @@ fun AppNavHost(
     val usageAccessChecker = remember(context) { UsageAccessPermissionChecker(context) }
     val uninstallProtectionManager = remember(context) { UninstallProtectionManager(context) }
     var pendingDailyRelapseCount by remember { mutableStateOf<Int?>(null) }
-    var bottomNavIndicatorStartFrom by remember { mutableStateOf<BottomNavItem?>(null) }
+    val bottomNavIndicatorState = rememberBottomNavIndicatorState()
+    val bottomNavCurrentEntry by navController.currentBackStackEntryAsState()
+    val bottomNavCurrentRoute = bottomNavCurrentEntry?.destination?.route
 
     fun syncUsageAccessPermission() {
         protectionSetupViewModel.setUsageAccessEnabled(usageAccessChecker.hasUsageAccess())
@@ -181,21 +191,6 @@ fun AppNavHost(
         syncBackgroundActivityPermission()
         syncNotificationPermission()
         syncUninstallProtection()
-    }
-
-    fun bottomNavItemForCurrentRoute(): BottomNavItem {
-        return when (navController.currentBackStackEntry?.destination?.route) {
-            AppRoutes.Home -> BottomNavItem.Home
-            AppRoutes.Score -> BottomNavItem.Progress
-            AppRoutes.Settings -> BottomNavItem.Settings
-            AppRoutes.Focus -> BottomNavItem.Focus
-            else -> BottomNavItem.Home
-        }
-    }
-
-    fun prepareBottomNavTopLevelTransition(target: BottomNavItem) {
-        val current = bottomNavItemForCurrentRoute()
-        bottomNavIndicatorStartFrom = if (current != target) current else null
     }
 
     DisposableEffect(context, lifecycleOwner, usageAccessChecker, uninstallProtectionManager) {
@@ -507,6 +502,9 @@ fun AppNavHost(
                     onOpenSkylineResetTask = {
                         navController.navigate(AppRoutes.SkylineResetTask)
                     },
+                    onOpenRhythmTilesTask = {
+                        navController.navigate(AppRoutes.RhythmTilesTask)
+                    },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
@@ -514,11 +512,9 @@ fun AppNavHost(
                         navController.navigate(AppRoutes.TaskToComplete)
                     },
                     onOpenScore = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Progress)
                         navController.navigateMainTop(AppRoutes.Score)
                     },
                     onOpenSettings = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Settings)
                         navController.navigateMainTop(AppRoutes.Settings)
                     },
                     onOpenWebsiteProtectionPlus = {
@@ -527,55 +523,36 @@ fun AppNavHost(
                         }
                     },
                     onOpenFocus = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Focus)
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
-                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
-                    onBottomNavIndicatorStartConsumed = {
-                        bottomNavIndicatorStartFrom = null
-                    },
-                    onNavigateFromModeContext = {
-                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
-                    },
+                    indicatorState = bottomNavIndicatorState,
+                    isActive = bottomNavCurrentRoute == AppRoutes.Home,
                 )
             }
 
             composable(AppRoutes.Focus) {
                 FocusScreen(
                     onOpenHome = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Home)
                         navController.navigateMainTop(AppRoutes.Home)
                     },
                     onOpenScore = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Progress)
                         navController.navigateMainTop(AppRoutes.Score)
                     },
                     onOpenSettings = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Settings)
                         navController.navigateMainTop(AppRoutes.Settings)
-                    },
-                    onOpenSession = {
-                        navController.navigate(AppRoutes.FocusSession)
                     },
                     onOpenTasks = {
                         navController.navigate(AppRoutes.TaskToComplete)
                     },
-                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
-                    onBottomNavIndicatorStartConsumed = {
-                        bottomNavIndicatorStartFrom = null
-                    },
-                    onNavigateFromModeContext = {
-                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
-                    },
+                    indicatorState = bottomNavIndicatorState,
+                    isActive = bottomNavCurrentRoute == AppRoutes.Focus,
                 )
             }
 
             composable(AppRoutes.FocusRecovery) {
                 FocusRecoveryScreen(
                     onReturnToFocus = {
-                        navController.navigate(AppRoutes.FocusSession) {
-                            launchSingleTop = true
-                        }
+                        navController.navigateMainTop(AppRoutes.Focus)
                     },
                     onEndedCalmly = {
                         navController.navigateMainTop(AppRoutes.Focus)
@@ -583,24 +560,15 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.FocusSession) {
-                ActiveFocusSessionScreen(
-                    onExit = { navController.popBackStack() },
-                )
-            }
-
             composable(AppRoutes.Score) {
                 ProgressDashboardScreen(
                     onOpenHome = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Home)
                         navController.navigateBackToHome()
                     },
                     onOpenSettings = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Settings)
                         navController.navigateMainTop(AppRoutes.Settings)
                     },
                     onOpenFocus = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Focus)
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
                     onOpenReflexOverrideTask = {
@@ -612,27 +580,23 @@ fun AppNavHost(
                     onOpenSkylineResetTask = {
                         navController.navigate(AppRoutes.SkylineResetTask)
                     },
+                    onOpenRhythmTilesTask = {
+                        navController.navigate(AppRoutes.RhythmTilesTask)
+                    },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
-                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
-                    onBottomNavIndicatorStartConsumed = {
-                        bottomNavIndicatorStartFrom = null
-                    },
-                    onNavigateFromModeContext = {
-                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
-                    },
+                    indicatorState = bottomNavIndicatorState,
+                    isActive = bottomNavCurrentRoute == AppRoutes.Score,
                 )
             }
 
             composable(AppRoutes.Settings) {
                 SettingsScreen(
                     onOpenScore = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Progress)
                         navController.navigateMainTop(AppRoutes.Score)
                     },
                     onOpenFocus = {
-                        prepareBottomNavTopLevelTransition(BottomNavItem.Focus)
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
                     onOpenReflexOverrideTask = {
@@ -643,6 +607,9 @@ fun AppNavHost(
                     },
                     onOpenSkylineResetTask = {
                         navController.navigate(AppRoutes.SkylineResetTask)
+                    },
+                    onOpenRhythmTilesTask = {
+                        navController.navigate(AppRoutes.RhythmTilesTask)
                     },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
@@ -663,27 +630,37 @@ fun AppNavHost(
                             ?.currentState
                             ?.isAtLeast(Lifecycle.State.RESUMED) == true
                         if (isResumed) {
-                            prepareBottomNavTopLevelTransition(BottomNavItem.Home)
                             navController.navigateBackToHome()
                         }
                     },
-                    bottomNavIndicatorStartFrom = bottomNavIndicatorStartFrom,
-                    onBottomNavIndicatorStartConsumed = {
-                        bottomNavIndicatorStartFrom = null
-                    },
-                    onNavigateFromModeContext = {
-                        bottomNavIndicatorStartFrom = BottomNavItem.Trigger
-                    },
+                    indicatorState = bottomNavIndicatorState,
+                    isActive = bottomNavCurrentRoute == AppRoutes.Settings,
                 )
             }
 
             composable(AppRoutes.WebsiteProtectionPlus) {
+                val premiumViewModel: PremiumViewModel = viewModel()
+                val isPlus by remember(premiumViewModel) {
+                    premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
+                }.collectAsStateWithLifecycle()
+                val context = LocalContext.current
+                val billingManager = remember { BillingManager(context) }
+                val priceLabel by billingManager.formattedPrice.collectAsStateWithLifecycle()
+                DisposableEffect(billingManager) {
+                    billingManager.connect()
+                    onDispose { billingManager.release() }
+                }
                 WebsiteProtectionPlusScreen(
                     onBack = { navController.safePopBackStack() },
                     onOpenDnsFilterCheck = {
                         navController.navigate(AppRoutes.DnsFilterGate) {
                             launchSingleTop = true
                         }
+                    },
+                    isPlus = isPlus,
+                    priceLabel = priceLabel,
+                    onPurchase = {
+                        (context as? Activity)?.let { billingManager.launchPurchase(it) }
                     },
                 )
             }
@@ -692,14 +669,33 @@ fun AppNavHost(
                 val dnsFilterGateViewModel: DnsFilterGateViewModel = viewModel()
                 val dnsFilterGateState by dnsFilterGateViewModel.state.collectAsStateWithLifecycle()
                 val context = LocalContext.current
+                val vpnConsentLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult(),
+                ) { result ->
+                    if (result.resultCode == Activity.RESULT_OK) {
+                        ImpulsiveVpnController.start(context)
+                        navController.safePopBackStack()
+                    }
+                }
                 DnsFilterGateScreen(
                     state = dnsFilterGateState,
                     onOpenPrivateDnsSettings = {
                         context.startActivity(dnsFilterGateViewModel.privateDnsSettingsIntent())
                     },
                     onRefresh = { dnsFilterGateViewModel.refresh() },
-                    // Pops back for now. Repointed to the enable flow once the VpnService exists.
-                    onContinue = { navController.safePopBackStack() },
+                    onContinue = {
+                        val consent = ImpulsiveVpnController.consentIntent(context)
+                        if (consent != null) {
+                            vpnConsentLauncher.launch(consent)
+                        } else {
+                            ImpulsiveVpnController.start(context)
+                            navController.safePopBackStack()
+                        }
+                    },
+                    onTurnOff = {
+                        ImpulsiveVpnController.stop(context)
+                        navController.safePopBackStack()
+                    },
                     onBack = { navController.safePopBackStack() },
                 )
             }
@@ -729,6 +725,11 @@ fun AppNavHost(
             composable(AppRoutes.ReflexGame) {
                 ReflexGameScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.ReflexOverride,
+                        asTask = false,
+                    ),
                     launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
                 )
             }
@@ -736,6 +737,11 @@ fun AppNavHost(
             composable(AppRoutes.ReflexGameTask) {
                 ReflexGameScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.ReflexOverride,
+                        asTask = true,
+                    ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
                 )
             }
@@ -743,6 +749,11 @@ fun AppNavHost(
             composable(AppRoutes.BlockCascadeGame) {
                 BlockCascadeScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade,
+                        asTask = false,
+                    ),
                     launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
                 )
             }
@@ -750,6 +761,11 @@ fun AppNavHost(
             composable(AppRoutes.BlockCascadeTask) {
                 BlockCascadeScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade,
+                        asTask = true,
+                    ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
                 )
             }
@@ -757,6 +773,11 @@ fun AppNavHost(
             composable(AppRoutes.SkylineResetGame) {
                 SkylineResetScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset,
+                        asTask = false,
+                    ),
                     launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
                 )
             }
@@ -764,6 +785,11 @@ fun AppNavHost(
             composable(AppRoutes.SkylineResetTask) {
                 SkylineResetScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset,
+                        asTask = true,
+                    ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
                 )
             }
@@ -771,6 +797,11 @@ fun AppNavHost(
             composable(AppRoutes.RhythmTilesGame) {
                 RhythmTilesScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles,
+                        asTask = false,
+                    ),
                     launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
                 )
             }
@@ -778,12 +809,25 @@ fun AppNavHost(
             composable(AppRoutes.RhythmTilesTask) {
                 RhythmTilesScreen(
                     onExit = { navController.safePopBackStack() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles,
+                        asTask = true,
+                    ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
                 )
             }
 
             composable(AppRoutes.ResetReadTask) {
                 ResetReadScreen(
+                    launchMode = ResetReadLaunchMode.Normal,
+                    onExit = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(AppRoutes.ResetReadFallbackTask) {
+                ResetReadScreen(
+                    launchMode = ResetReadLaunchMode.Fallback,
                     onExit = { navController.safePopBackStack() },
                 )
             }
@@ -895,6 +939,14 @@ fun AppNavHost(
                             navController.navigate(gameRoute) { launchSingleTop = true }
                         }
                     },
+                    onStartReadingTask = {
+                        blockGuard.run(appLockEnabled) {
+                            urgeEventScope.launch {
+                                urgeEventRepository.recordEvent(source = "support_reading_task", packageName = sourcePackageName)
+                            }
+                            navController.navigate(AppRoutes.ResetReadFallbackTask) { launchSingleTop = true }
+                        }
+                    },
                     onReturnHome = {
                         blockGuard.run(appLockEnabled) {
                             navController.navigateBackToHome()
@@ -919,6 +971,9 @@ fun AppNavHost(
                     },
                     onOpenSkylineResetTask = {
                         navController.navigate(AppRoutes.SkylineResetTask)
+                    },
+                    onOpenRhythmTilesTask = {
+                        navController.navigate(AppRoutes.RhythmTilesTask)
                     },
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
@@ -974,5 +1029,65 @@ private fun NavHostController.navigateMainTop(route: String) {
             inclusive = false
         }
         launchSingleTop = true
+    }
+}
+
+// Maps a recovery game to its route in either the hub context or the block-task
+// context, so play-another can stay in the same launch context.
+private fun recoveryGameRoute(
+    game: com.impulsive.app.backend.domain.model.score.ScoreGameType,
+    asTask: Boolean,
+): String = when (game) {
+    com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade ->
+        if (asTask) AppRoutes.BlockCascadeTask else AppRoutes.BlockCascadeGame
+    com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset ->
+        if (asTask) AppRoutes.SkylineResetTask else AppRoutes.SkylineResetGame
+    com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles ->
+        if (asTask) AppRoutes.RhythmTilesTask else AppRoutes.RhythmTilesGame
+    else ->
+        if (asTask) AppRoutes.ReflexGameTask else AppRoutes.ReflexGame
+}
+
+// Builds a play-another callback that picks a different recovery game, keeps the
+// same launch context, records it served in the block-task context, and replaces
+// the current game in the back stack so back does not return to it.
+@Composable
+private fun rememberPlayAnotherGame(
+    navController: NavHostController,
+    current: com.impulsive.app.backend.domain.model.score.ScoreGameType,
+    asTask: Boolean,
+): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val scoreRepository = remember(context) {
+        com.impulsive.app.backend.data.repository.ScoreRepository(context)
+    }
+    val urgeEventRepository = remember(context) {
+        com.impulsive.app.backend.data.repository.UrgeEventRepository(context)
+    }
+    val servedGamesRepository = remember(context) {
+        com.impulsive.app.backend.data.repository.ServedGamesRepository(context)
+    }
+    val sessions by scoreRepository.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val urgeEvents by urgeEventRepository.events.collectAsStateWithLifecycle(initialValue = emptyList())
+    val recentlyServed by servedGamesRepository.served.collectAsStateWithLifecycle(initialValue = emptyList())
+    return {
+        val pool = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.candidates
+            .filter { it != current }
+        var chosen = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.selectNextGame(
+            sessions = sessions,
+            urgeEvents = urgeEvents,
+            recentlyServed = recentlyServed,
+        )
+        if (chosen == current) {
+            chosen = pool.random()
+        }
+        if (asTask) {
+            scope.launch { servedGamesRepository.recordServed(chosen) }
+        }
+        navController.navigate(recoveryGameRoute(chosen, asTask)) {
+            launchSingleTop = true
+            popUpTo(recoveryGameRoute(current, asTask)) { inclusive = true }
+        }
     }
 }

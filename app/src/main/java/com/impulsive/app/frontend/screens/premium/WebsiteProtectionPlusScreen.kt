@@ -48,6 +48,9 @@ import com.impulsive.app.frontend.theme.ImpulsivePsychological
 fun WebsiteProtectionPlusScreen(
     onBack: () -> Unit,
     onOpenDnsFilterCheck: () -> Unit,
+    isPlus: Boolean,
+    priceLabel: String?,
+    onPurchase: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val background = MaterialTheme.colorScheme.background
@@ -97,6 +100,9 @@ fun WebsiteProtectionPlusScreen(
                 surface = surface,
                 text = text,
                 muted = muted,
+                isPlus = isPlus,
+                priceLabel = priceLabel,
+                onPurchase = onPurchase,
             )
 
             PlusIncludedCard(
@@ -126,18 +132,20 @@ fun WebsiteProtectionPlusScreen(
                 muted = muted,
             )
 
-            Button(
-                onClick = onOpenDnsFilterCheck,
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = accent,
-                    contentColor = Color(0xFF2F2637),
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-            ) {
-                Text("Check phone settings")
+            if (isPlus) {
+                Button(
+                    onClick = onOpenDnsFilterCheck,
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accent,
+                        contentColor = Color(0xFF2F2637),
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Text("Check phone settings")
+                }
             }
             Text(
                 text = "Impulsive Core stays free. Plus adds stronger website protection.",
@@ -156,6 +164,9 @@ private fun PlusHeroCard(
     surface: Color,
     text: Color,
     muted: Color,
+    isPlus: Boolean,
+    priceLabel: String?,
+    onPurchase: () -> Unit,
 ) {
     Surface(
         color = surface,
@@ -226,29 +237,34 @@ private fun PlusHeroCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        text = "£2.99/month",
+                        text = if (priceLabel != null) "$priceLabel/month" else "£2.99/month",
                         color = text,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "Monthly subscription through Google Play when billing is connected.",
+                        text = if (isPlus) {
+                            "Your Plus subscription is active."
+                        } else {
+                            "Monthly subscription through Google Play."
+                        },
                         color = muted,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Button(
-                        onClick = {},
-                        enabled = false,
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            disabledContainerColor = accent.copy(alpha = 0.20f),
-                            disabledContentColor = muted,
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                    ) {
-                        Text("Google Play billing coming soon")
+                    if (!isPlus) {
+                        Button(
+                            onClick = onPurchase,
+                            shape = RoundedCornerShape(18.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accent,
+                                contentColor = Color(0xFF2F2637),
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                        ) {
+                            Text("Subscribe")
+                        }
                     }
                 }
             }

@@ -45,6 +45,7 @@ fun DnsFilterGateScreen(
     onOpenPrivateDnsSettings: () -> Unit,
     onRefresh: () -> Unit,
     onContinue: () -> Unit,
+    onTurnOff: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -120,7 +121,15 @@ fun DnsFilterGateScreen(
                     )
                 }
 
-                if (state.hasChecked && state.canEnable) {
+                if (state.protectionOn) {
+                    GateCard(
+                        icon = Icons.Filled.CheckCircle,
+                        title = "Website protection is on",
+                        body = "Impulsive is checking sites during your protected time.",
+                    )
+                }
+
+                if (state.hasChecked && state.canEnable && !state.protectionOn) {
                     GateCard(
                         icon = Icons.Filled.CheckCircle,
                         title = "Nothing is in the way",
@@ -133,6 +142,12 @@ fun DnsFilterGateScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 when {
+                    state.protectionOn -> {
+                        PrimaryGateButton(
+                            text = "Turn off protection",
+                            onClick = onTurnOff,
+                        )
+                    }
                     state.canEnable -> {
                         PrimaryGateButton(
                             text = "Continue",

@@ -11,12 +11,10 @@ enum class PsychologyTaskType(
     val taskTitle: String,
 ) {
     ReflexOverride("reflex_override", "Reflex Override"),
-    TriggerDecoder("trigger_decoder", "Cue Decoder"),
-    ThoughtCapture("thought_capture", "Thought Capture"),
-    ShortReadingBurst("short_reading_burst", "Short Reading Burst"),
     BlockCascade("block_cascade", "Block Cascade"),
     SkylineReset("skyline_reset", "SkyStack"),
-    ResetRead("reset_read", "Reset Read"),
+    RhythmTiles("rhythm_tiles", "Rhythm Tiles"),
+    ResetRead("reset_read", "Reset Reading"),
 }
 
 enum class TriggerType {
@@ -168,20 +166,20 @@ val PsychologyTaskRewardDefinitions = listOf(
     TaskRewardDefinition(PsychologyTaskType.ReflexOverride, "Reflex Override", 120, 10, 45, 2, 0, 1),
     TaskRewardDefinition(PsychologyTaskType.BlockCascade, "Block Cascade", 90, 15, 45, 3, 10, 1),
     TaskRewardDefinition(PsychologyTaskType.SkylineReset, "SkyStack", 90, 15, 45, 3, 10, 1),
-    TaskRewardDefinition(PsychologyTaskType.ResetRead, "Reset Read", 60, 15, 30, 8, 10, 2),
+    TaskRewardDefinition(PsychologyTaskType.RhythmTiles, "Rhythm Tiles", 90, 15, 45, 3, 10, 1),
+    // Reset Reading reward rule:
+    // First-ever valid Reset Reading gives 15 LP.
+    // The first valid Reset Reading on a later local day gives 3 LP.
+    // Extra valid Reset Reading completions on the same local day give 0 LP.
+    // Wait-cut logic stays dynamic and is still controlled by the existing wait-cut functions.
+    TaskRewardDefinition(PsychologyTaskType.ResetRead, "Reset Reading", 60, 15, 30, 3, 10, 0),
 )
-
-private fun PsychologyTaskType.asVisiblePsychologyTaskType(): PsychologyTaskType = when (this) {
-    PsychologyTaskType.TriggerDecoder,
-    PsychologyTaskType.ThoughtCapture,
-    PsychologyTaskType.ShortReadingBurst -> PsychologyTaskType.ResetRead
-    else -> this
-}
 
 fun PsychologyTaskType.isGameTask(): Boolean =
     this == PsychologyTaskType.ReflexOverride ||
         this == PsychologyTaskType.BlockCascade ||
-        this == PsychologyTaskType.SkylineReset
+        this == PsychologyTaskType.SkylineReset ||
+        this == PsychologyTaskType.RhythmTiles
 
 fun pointsNeededForNextLevel(level: Int): Int = when (level) {
     1 -> 100
@@ -290,12 +288,9 @@ fun TaskRewardStoreState.toTaskRewardState(
             availableWaitReductionMinutes = availableWaitCut,
         )
     }
-    val visibleRecentRecommendedTaskTypes = recentRecommendedTaskTypes.map {
-        it.asVisiblePsychologyTaskType()
-    }
     val recommendation = recommendPsychologyTask(
         taskStatuses = statuses,
-        recentRecommendedTaskTypes = visibleRecentRecommendedTaskTypes,
+        recentRecommendedTaskTypes = recentRecommendedTaskTypes,
         currentUrgeIntensity = currentUrgeIntensity,
         currentTriggerType = currentTriggerType,
         currentTriggerSource = currentTriggerSource,
@@ -312,14 +307,14 @@ fun TaskRewardStoreState.toTaskRewardState(
         nextReleaseWindow = releasePlan.nextReleaseWindow,
         adjustedNextReleaseWindow = adjustedNextReleaseWindow
             ?.takeIf { rewardedWindowKey == releasePlan.nextReleaseWindow.toString() },
-        lastRecommendedTaskType = lastRecommendedTaskType?.asVisiblePsychologyTaskType(),
-        lastCompletedTaskType = lastCompletedTaskType?.asVisiblePsychologyTaskType(),
-        recentRecommendedTaskTypes = visibleRecentRecommendedTaskTypes,
+        lastRecommendedTaskType = lastRecommendedTaskType,
+        lastCompletedTaskType = lastCompletedTaskType,
+        recentRecommendedTaskTypes = recentRecommendedTaskTypes,
         currentUrgeIntensity = currentUrgeIntensity,
         currentTriggerType = currentTriggerType,
         currentTriggerSource = currentTriggerSource,
         userEnergyState = userEnergyState,
-        recommendedTaskType = recommendation.taskType.asVisiblePsychologyTaskType(),
+        recommendedTaskType = recommendation.taskType,
         recommendedTaskReason = recommendation.reason,
     )
 }
@@ -345,11 +340,13 @@ fun recommendPsychologyTask(
             listOf(
                 PsychologyTaskType.BlockCascade,
                 PsychologyTaskType.SkylineReset,
+                PsychologyTaskType.RhythmTiles,
                 PsychologyTaskType.ReflexOverride,
             )
         currentTriggerSource != null -> listOf(
             PsychologyTaskType.BlockCascade,
             PsychologyTaskType.SkylineReset,
+            PsychologyTaskType.RhythmTiles,
             PsychologyTaskType.ReflexOverride,
         )
         currentTriggerType == TriggerType.RepeatedThought || currentTriggerType == TriggerType.Memory ->
@@ -366,6 +363,7 @@ fun recommendPsychologyTask(
             PsychologyTaskType.ReflexOverride,
             PsychologyTaskType.BlockCascade,
             PsychologyTaskType.SkylineReset,
+            PsychologyTaskType.RhythmTiles,
             PsychologyTaskType.ResetRead,
         )
     }
@@ -375,8 +373,8 @@ fun recommendPsychologyTask(
         recentRecommendedTaskTypes = recentRecommendedTaskTypes,
     )
     return TaskRecommendation(
-        taskType = selected.asVisiblePsychologyTaskType(),
-        reason = recommendationReasonFor(selected.asVisiblePsychologyTaskType()),
+        taskType = selected,
+        reason = recommendationReasonFor(selected),
     )
 }
 
@@ -403,10 +401,8 @@ private fun recommendationReasonFor(taskType: PsychologyTaskType): String = when
     PsychologyTaskType.ReflexOverride -> "Strong novelty and a quick attention pivot."
     PsychologyTaskType.BlockCascade -> "Loads visual attention so the difficult image has less room."
     PsychologyTaskType.SkylineReset -> "Steady visual stacking gives attention somewhere calm to land."
+    PsychologyTaskType.RhythmTiles -> "A 90-second rhythm challenge to lock attention onto timing and sound."
     PsychologyTaskType.ResetRead -> "A short, focused read to redirect attention."
-    PsychologyTaskType.TriggerDecoder -> "Hidden for now; not shown in the UI."
-    PsychologyTaskType.ThoughtCapture -> "Hidden for now; Reset Read owns the reading slot."
-    PsychologyTaskType.ShortReadingBurst -> "Hidden for now; Reset Read owns the reading slot."
 }
 
 fun calculateRewardedReleasePlan(

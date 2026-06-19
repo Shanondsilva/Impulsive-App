@@ -506,7 +506,7 @@ private fun MindModeDecisionTreeVisual(
         nodePill("Reflex Override", branchLeftX, branchTopY, ((stages[4].value * 5f) - 0f).coerceIn(0f, 1f))
         nodePill("Block Cascade", branchRightX, branchTopY, ((stages[4].value * 5f) - 1f).coerceIn(0f, 1f))
         nodePill("SkyStack", branchLeftX, branchBottomY, ((stages[4].value * 5f) - 2f).coerceIn(0f, 1f))
-        nodePill("Reset Read", branchRightX, branchBottomY, ((stages[4].value * 5f) - 3f).coerceIn(0f, 1f))
+        nodePill("Reset Reading", branchRightX, branchBottomY, ((stages[4].value * 5f) - 3f).coerceIn(0f, 1f))
         nodePill("Piano steps", centerX, branchThirdY, ((stages[4].value * 5f) - 4f).coerceIn(0f, 1f))
         nodePill("Complete", w * 0.30f, rewardY, stages[5].value)
         nodePill("Wait cut + LP", w * 0.70f, rewardY, stages[5].value)

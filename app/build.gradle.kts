@@ -14,7 +14,7 @@ if (file("google-services.json").exists()) {
 
 android {
     namespace = "com.impulsive.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.impulsive.app"
@@ -102,9 +102,12 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.lottie.compose)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
     implementation(libs.firebase.crashlytics)
 
     implementation(libs.androidx.core.splashscreen)
@@ -113,6 +116,7 @@ dependencies {
     implementation(libs.google.identity.googleid)
     implementation(libs.facebook.login)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.billing.ktx)
 
     debugImplementation(libs.compose.ui.tooling)
 

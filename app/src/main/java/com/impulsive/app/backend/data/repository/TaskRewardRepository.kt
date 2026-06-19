@@ -39,4 +39,14 @@ class TaskRewardRepository(
     suspend fun awardLevelPoints(points: Int) {
         dataSource.awardLevelPoints(points)
     }
+
+    suspend fun awardNoteCreationPointsIfNewDay(points: Int): Boolean =
+        dataSource.awardNoteCreationPointsIfNewDay(points)
+
+    suspend fun awardFeedbackAnswerPointsIfNewDay(points: Int): Boolean =
+        dataSource.awardFeedbackAnswerPointsIfNewDay(points)
+
+    suspend fun removeLegacyDeletedTaskRewards() {
+        dataSource.removeLegacyDeletedTaskRewards()
+    }
 }

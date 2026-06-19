@@ -15,6 +15,7 @@
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
 
     <queries>
         <intent>
@@ -74,6 +75,16 @@
                 android:value="User-enabled app protection monitor checks selected foreground apps with Usage Access and routes protected attempts back to Impulsive." />
         </service>
 
+        <service
+            android:name="com.impulsive.app.backend.service.protection.ImpulsiveVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="systemExempted">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".backend.service.protection.BootCompletedReceiver"
             android:enabled="true"
@@ -83,6 +94,11 @@
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".backend.service.journal.FeedbackAnswerReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <receiver
             android:name=".security.antibypass.ImpulsiveDeviceAdminReceiver"

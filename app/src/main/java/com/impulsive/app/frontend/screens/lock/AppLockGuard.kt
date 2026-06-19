@@ -59,17 +59,22 @@ fun AppLockGuardHost(
     }
 
     LaunchedEffect(pending) {
-        if (BiometricGate.isBiometricAvailable(activity)) {
-            BiometricGate.prompt(
-                activity = activity,
-                title = title,
-                subtitle = subtitle,
-                onSuccess = { consumeAndRun() },
-                onUsePin = { showPin = true },
-                onError = { controller.pending = null },
-            )
-        } else {
-            showPin = true
+        when {
+            BiometricGate.canAuthenticateDeviceCredential(activity) -> {
+                BiometricGate.promptDeviceCredential(
+                    activity = activity,
+                    title = title,
+                    subtitle = subtitle,
+                    onSuccess = { consumeAndRun() },
+                    onError = { controller.pending = null },
+                )
+            }
+            AppLockPreferencesDataSource(context).isEnabled() -> {
+                showPin = true
+            }
+            else -> {
+                consumeAndRun()
+            }
         }
     }
 

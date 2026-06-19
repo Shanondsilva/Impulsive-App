@@ -5,12 +5,19 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.repository.ResetReadRepository
+import com.impulsive.app.backend.domain.model.tasks.RESET_READ_MINIMUM_SECONDS
 import com.impulsive.app.backend.domain.model.tasks.ResetReadArticle
-import com.impulsive.app.backend.domain.model.tasks.resetReadArticleForDay
+import com.impulsive.app.backend.domain.model.tasks.ResetReadArticleExposureRecord
+import com.impulsive.app.backend.domain.model.tasks.ResetReadSessionRecord
+import com.impulsive.app.backend.domain.model.tasks.cooldownExcludedResetReadArticleIds
+import com.impulsive.app.backend.domain.model.tasks.fallbackResetReadArticleForDay
+import com.impulsive.app.backend.domain.model.tasks.recommendedResetReadArticleForDay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 
 enum class ResetReadPhase {
     Reading,
@@ -18,8 +25,14 @@ enum class ResetReadPhase {
     Success,
 }
 
+enum class ResetReadLaunchMode {
+    Normal,
+    Fallback,
+}
+
 data class ResetReadUiState(
     val article: ResetReadArticle? = null,
+    val launchMode: ResetReadLaunchMode = ResetReadLaunchMode.Normal,
     val readArticleIds: Set<String> = emptySet(),
     val foregroundReadMillis: Long = 0L,
     val scrollProgress: Float = 0f,
@@ -27,9 +40,17 @@ data class ResetReadUiState(
     val phase: ResetReadPhase = ResetReadPhase.Reading,
     val selectedOptionIndex: Int? = null,
     val markedRead: Boolean = false,
+    val recordedSession: Boolean = false,
+    val recordedSessionId: Long? = null,
+    val completedSessionCount: Int = 0,
+    val askHelpfulnessRating: Boolean = false,
+    val helpfulnessRating: Int? = null,
 ) {
+    val requiredReadSeconds: Int
+        get() = article?.minimumReadSeconds ?: RESET_READ_MINIMUM_SECONDS
+
     val minimumReadMillis: Long
-        get() = (article?.minimumReadSeconds ?: 0) * 1_000L
+        get() = requiredReadSeconds * 1_000L
 
     val timerProgress: Float
         get() = if (minimumReadMillis <= 0L) 0f else (foregroundReadMillis / minimumReadMillis.toFloat()).coerceIn(0f, 1f)
@@ -54,16 +75,35 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
 
     private var resumed = false
     private var lastFrameMs: Long? = null
+    private var recordedShownArticleId: String? = null
+    private var launchModeConfigured = false
+    private var latestDataLoaded = false
+    private var latestReadIds: Set<String> = emptySet()
+    private var latestSessions: List<ResetReadSessionRecord> = emptyList()
+    private var latestExposures: List<ResetReadArticleExposureRecord> = emptyList()
 
     init {
         viewModelScope.launch {
-            repository.readArticleIds.collect { readIds ->
-                val current = _uiState.value.article
-                if (current == null) {
-                    selectArticle(readIds)
-                } else {
-                    _uiState.update { it.copy(readArticleIds = readIds) }
+            combine(
+                repository.readArticleIds,
+                repository.sessions,
+                repository.articleExposures,
+            ) { readIds, sessions, exposures ->
+                Triple(readIds, sessions, exposures)
+            }.collect { (readIds, sessions, exposures) ->
+                latestDataLoaded = true
+                latestReadIds = readIds
+                latestSessions = sessions
+                latestExposures = exposures
+
+                _uiState.update {
+                    it.copy(
+                        readArticleIds = readIds,
+                        completedSessionCount = sessions.count { session -> session.validCompletion },
+                    )
                 }
+
+                selectArticleIfReady()
             }
         }
     }
@@ -95,6 +135,61 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun configureLaunchMode(launchMode: ResetReadLaunchMode) {
+        val current = _uiState.value
+        if (
+            launchModeConfigured &&
+            current.launchMode == launchMode &&
+            current.article != null
+        ) {
+            return
+        }
+
+        launchModeConfigured = true
+        recordedShownArticleId = null
+
+        _uiState.update {
+            it.copy(
+                launchMode = launchMode,
+                article = null,
+                foregroundReadMillis = 0L,
+                scrollProgress = 0f,
+                reachedEnd = false,
+                phase = ResetReadPhase.Reading,
+                selectedOptionIndex = null,
+                markedRead = false,
+                recordedSession = false,
+                recordedSessionId = null,
+                askHelpfulnessRating = false,
+                helpfulnessRating = null,
+            )
+        }
+
+        selectArticleIfReady()
+    }
+
+    private fun selectArticleIfReady() {
+        val state = _uiState.value
+        if (!launchModeConfigured || !latestDataLoaded || state.article != null) return
+
+        val article = selectArticle(
+            readIds = latestReadIds,
+            sessions = latestSessions,
+            exposures = latestExposures,
+            launchMode = state.launchMode,
+        )
+
+        recordArticleShownIfNeeded(article)
+
+        _uiState.update {
+            it.copy(
+                article = article,
+                readArticleIds = latestReadIds,
+                completedSessionCount = latestSessions.count { session -> session.validCompletion },
+            )
+        }
+    }
+
     fun updateScrollProgress(progress: Float) {
         _uiState.update {
             it.copy(
@@ -119,22 +214,175 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
         val state = _uiState.value
         val article = state.article ?: return
         if (state.phase != ResetReadPhase.Question || index !in article.closingQuestion.options.indices) return
+
         _uiState.update {
             it.copy(
                 selectedOptionIndex = index,
                 phase = ResetReadPhase.Success,
             )
         }
+
+        recordSessionIfNeeded(article = article, selectedOptionIndex = index)
         markReadIfNeeded(article.id)
     }
 
-    private fun selectArticle(readIds: Set<String>) {
-        val epochDay = java.time.LocalDate.now().toEpochDay()
-        val article = resetReadArticleForDay(epochDay, repository.articles)
-        _uiState.value = ResetReadUiState(
-            article = article,
-            readArticleIds = readIds,
+    fun recordAbandonedSessionIfNeeded(failureReason: String) {
+        val state = _uiState.value
+        val article = state.article ?: return
+        if (state.recordedSession || state.validCompletion) return
+
+        _uiState.update { it.copy(recordedSession = true) }
+
+        val completedAt = LocalDateTime.now()
+        val secondsSpent = state.secondsSpent.coerceAtLeast(0)
+        val selectedOptionIndex = state.selectedOptionIndex ?: -1
+        val answerText = article.closingQuestion.options.getOrNull(selectedOptionIndex).orEmpty()
+
+        val session = ResetReadSessionRecord(
+            id = System.currentTimeMillis(),
+            articleId = article.id,
+            articleTitle = article.title,
+            startedAt = completedAt.minusSeconds(secondsSpent.toLong()),
+            completedAt = completedAt,
+            selectedDurationSeconds = state.requiredReadSeconds,
+            requiredDurationSeconds = state.requiredReadSeconds,
+            secondsSpent = secondsSpent,
+            selectedOptionIndex = selectedOptionIndex,
+            validCompletion = false,
+            answerText = answerText,
+            completionQuality = "abandoned",
+            failureReason = failureReason,
+            rewardApplied = false,
+            waitCutMinutes = 0,
+            helpfulnessRating = null,
         )
+
+        viewModelScope.launch {
+            repository.recordSession(session)
+        }
+    }
+
+    fun rateHelpfulness(rating: Int) {
+        val state = _uiState.value
+        val article = state.article ?: return
+        val sessionId = state.recordedSessionId ?: return
+        val selectedOptionIndex = state.selectedOptionIndex ?: return
+        if (!state.validCompletion) return
+
+        val safeRating = rating.coerceIn(1, 5)
+        _uiState.update { it.copy(helpfulnessRating = safeRating) }
+
+        val completedAt = LocalDateTime.now()
+        val secondsSpent = state.secondsSpent.coerceAtLeast(state.requiredReadSeconds)
+        val answerText = article.closingQuestion.options.getOrNull(selectedOptionIndex).orEmpty()
+        val session = ResetReadSessionRecord(
+            id = sessionId,
+            articleId = article.id,
+            articleTitle = article.title,
+            startedAt = completedAt.minusSeconds(secondsSpent.toLong()),
+            completedAt = completedAt,
+            selectedDurationSeconds = state.requiredReadSeconds,
+            requiredDurationSeconds = state.requiredReadSeconds,
+            secondsSpent = secondsSpent,
+            selectedOptionIndex = selectedOptionIndex,
+            validCompletion = true,
+            answerText = answerText,
+            completionQuality = "valid",
+            failureReason = null,
+            rewardApplied = null,
+            waitCutMinutes = null,
+            helpfulnessRating = safeRating,
+        )
+
+        viewModelScope.launch {
+            repository.recordSession(session)
+        }
+    }
+
+    private fun selectArticle(
+        readIds: Set<String>,
+        sessions: List<ResetReadSessionRecord>,
+        exposures: List<ResetReadArticleExposureRecord>,
+        launchMode: ResetReadLaunchMode,
+    ): ResetReadArticle {
+        val now = LocalDateTime.now()
+        val epochDay = now.toLocalDate().toEpochDay()
+        val excludedArticleIds = cooldownExcludedResetReadArticleIds(
+            now = now,
+            sessions = sessions,
+            exposures = exposures,
+        )
+
+        return when (launchMode) {
+            ResetReadLaunchMode.Normal -> recommendedResetReadArticleForDay(
+                epochDay = epochDay,
+                articles = repository.articles,
+                sessions = sessions,
+                readIds = readIds,
+                excludedArticleIds = excludedArticleIds,
+            )
+            ResetReadLaunchMode.Fallback -> fallbackResetReadArticleForDay(
+                epochDay = epochDay,
+                articles = repository.articles,
+                excludedArticleIds = excludedArticleIds,
+            )
+        }
+    }
+
+    private fun recordSessionIfNeeded(
+        article: ResetReadArticle,
+        selectedOptionIndex: Int,
+    ) {
+        val state = _uiState.value
+        if (state.recordedSession || !state.validCompletion) return
+
+        val sessionId = System.currentTimeMillis()
+        val shouldAskHelpfulness = (state.completedSessionCount + 1) % 3 == 0
+        _uiState.update {
+            it.copy(
+                recordedSession = true,
+                recordedSessionId = sessionId,
+                askHelpfulnessRating = shouldAskHelpfulness,
+            )
+        }
+
+        val completedAt = LocalDateTime.now()
+        val secondsSpent = state.secondsSpent.coerceAtLeast(state.requiredReadSeconds)
+        val answerText = article.closingQuestion.options.getOrNull(selectedOptionIndex).orEmpty()
+        val session = ResetReadSessionRecord(
+            id = sessionId,
+            articleId = article.id,
+            articleTitle = article.title,
+            startedAt = completedAt.minusSeconds(secondsSpent.toLong()),
+            completedAt = completedAt,
+            selectedDurationSeconds = state.requiredReadSeconds,
+            requiredDurationSeconds = state.requiredReadSeconds,
+            secondsSpent = secondsSpent,
+            selectedOptionIndex = selectedOptionIndex,
+            validCompletion = true,
+            answerText = answerText,
+            completionQuality = "valid",
+            failureReason = null,
+            rewardApplied = null,
+            waitCutMinutes = null,
+            helpfulnessRating = null,
+        )
+
+        viewModelScope.launch {
+            repository.recordSession(session)
+        }
+    }
+
+    private fun recordArticleShownIfNeeded(article: ResetReadArticle) {
+        if (recordedShownArticleId == article.id) return
+        recordedShownArticleId = article.id
+
+        viewModelScope.launch {
+            repository.recordArticleShown(
+                articleId = article.id,
+                shownAt = LocalDateTime.now(),
+            )
+        }
     }
 
     private fun markReadIfNeeded(articleId: String) {

@@ -9,8 +9,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,15 +40,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-private data class CloudSpec(
-    val phase: Float,
-    val y: Float,
-    val w: Float,
-    val h: Float,
-    val alpha: Float,
-    val speed: Float,
-)
-
 private data class NightWindowGlowSpec(
     val x: Float,
     val y: Float,
@@ -54,17 +48,6 @@ private data class NightWindowGlowSpec(
     val phase: Float,
     val speed: Float,
     val isRound: Boolean = false,
-)
-
-private data class NightCloudDriftSpec(
-    val centerX: Float,
-    val centerY: Float,
-    val width: Float,
-    val height: Float,
-    val phase: Float,
-    val speed: Float,
-    val driftPx: Float,
-    val alpha: Float,
 )
 
 private data class PetalSpec(
@@ -78,7 +61,41 @@ private data class PetalSpec(
     val rotationTurns: Float,
 )
 
+private data class CloudImageSpec(
+    val startXFraction: Float,
+    val endXFraction: Float,
+    val yFraction: Float,
+    val widthFraction: Float,
+    val phase: Float,
+    val floatFraction: Float,
+    val alpha: Float,
+    val scale: Float,
+)
+
 private const val AmbientLoopMillis = 36_000
+
+private val CloudImageSpecs = listOf(
+    CloudImageSpec(
+        startXFraction = -0.22f,
+        endXFraction = 1.06f,
+        yFraction = 0.082f,
+        widthFraction = 0.255f,
+        phase = 0.18f,
+        floatFraction = 0.0040f,
+        alpha = 0.96f,
+        scale = 0.96f,
+    ),
+    CloudImageSpec(
+        startXFraction = -0.30f,
+        endXFraction = 1.02f,
+        yFraction = 0.165f,
+        widthFraction = 0.185f,
+        phase = 0.58f,
+        floatFraction = 0.0032f,
+        alpha = 0.90f,
+        scale = 0.86f,
+    ),
+)
 
 private val PetalSpecs = listOf(
     PetalSpec(startX = 0.12f, startY = -0.03f, delay = 0.03f, duration = 0.15f, drift = 0.07f, size = 0.80f, opacity = 0.34f, rotationTurns = 0.45f),
@@ -97,29 +114,6 @@ private val NightWindowGlowSpecs = listOf(
     NightWindowGlowSpec(x = 970f, y = 340f, width = 14f, height = 28f, phase = 0.66f, speed = 8.9f),
     NightWindowGlowSpec(x = 1028f, y = 443f, width = 30f, height = 30f, phase = 0.71f, speed = 7.2f, isRound = true),
     NightWindowGlowSpec(x = 1190f, y = 553f, width = 28f, height = 52f, phase = 0.86f, speed = 9.4f),
-)
-
-private val NightCloudDriftSpecs = listOf(
-    NightCloudDriftSpec(
-        centerX = 478f,
-        centerY = 134f,
-        width = 190f,
-        height = 58f,
-        phase = 0.00f,
-        speed = 2.0f,
-        driftPx = 10f,
-        alpha = 0.055f,
-    ),
-    NightCloudDriftSpec(
-        centerX = 1066f,
-        centerY = 122f,
-        width = 300f,
-        height = 82f,
-        phase = 0.50f,
-        speed = 2.3f,
-        driftPx = -12f,
-        alpha = 0.050f,
-    ),
 )
 
 private fun calmWave(progress: Float, phase: Float = 0f): Float =
@@ -154,6 +148,16 @@ fun MindCoreScene(
         label = "ambientTime",
     )
 
+    val cloudTime by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 180_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "cloudTime",
+    )
+
     val glowAlpha = 0.10f + 0.10f * calmWave(ambientTime, phase = 0.12f)
     val breath = 1.000f + 0.010f * calmWave(ambientTime, phase = 0.40f)
     val shimmerAlpha = 0.08f + 0.18f * calmWave(ambientTime, phase = 0.72f)
@@ -176,76 +180,13 @@ fun MindCoreScene(
                 },
         )
 
+        AnimatedHomeClouds(
+            timeOfDay = timeOfDay,
+            cloudTime = cloudTime,
+            modifier = Modifier.matchParentSize(),
+        )
+
         if (!isNight) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val w = size.width
-                val h = size.height
-                val sunCenter = when (timeOfDay) {
-                    TimeOfDay.Morning -> Offset(w * 0.22f, h * 0.18f)
-                    TimeOfDay.Afternoon -> null
-                    TimeOfDay.Evening -> Offset(w * 0.74f, h * 0.24f)
-                    TimeOfDay.Night -> Offset(w * 0.50f, h * 0.18f)
-                }
-                if (sunCenter != null) {
-                    val glowPulse = 0.92f + 0.08f * calmWave(ambientTime, phase = 0.08f)
-                    drawCircle(
-                        color = Color(0xFFFFF3B0).copy(alpha = 0.20f),
-                        radius = 36.dp.toPx() * glowPulse,
-                        center = sunCenter,
-                    )
-                    drawCircle(
-                        color = Color(0xFFFFF0A0).copy(alpha = 0.30f),
-                        radius = 24.dp.toPx() * glowPulse,
-                        center = sunCenter,
-                    )
-                    drawCircle(
-                        color = Color(0xFFFFE89A).copy(alpha = 0.92f),
-                        radius = 12.dp.toPx() * glowPulse,
-                        center = sunCenter,
-                    )
-                }
-            }
-
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val wScene = size.width
-                val hScene = size.height
-                val clouds = listOf(
-                    CloudSpec(phase = 0.00f, y = 0.11f, w = 0.24f, h = 0.052f, alpha = 0.42f, speed = 0.42f),
-                    CloudSpec(phase = 0.24f, y = 0.18f, w = 0.18f, h = 0.040f, alpha = 0.36f, speed = 0.34f),
-                    CloudSpec(phase = 0.56f, y = 0.09f, w = 0.21f, h = 0.048f, alpha = 0.32f, speed = 0.38f),
-                    CloudSpec(phase = 0.78f, y = 0.23f, w = 0.17f, h = 0.038f, alpha = 0.28f, speed = 0.30f),
-                )
-
-                clouds.forEach { (phase, y, width, height, alpha, speed) ->
-                    val loop = (((ambientTime * speed) + phase) % 1f)
-                    val smooth = 0.5f - 0.5f * cos(loop * 2f * PI.toFloat())
-                    val baseX = (-0.16f + smooth * 1.34f) * wScene
-                    val baseY = (y + sin((ambientTime + phase) * 2f * PI.toFloat()).toFloat() * 0.009f) * hScene
-                    val cloudColor = Color.White.copy(alpha = alpha)
-                    drawCircle(
-                        color = cloudColor,
-                        radius = height * hScene * 0.90f,
-                        center = Offset(baseX + width * wScene * 0.10f, baseY),
-                    )
-                    drawCircle(
-                        color = cloudColor.copy(alpha = alpha * 0.95f),
-                        radius = height * hScene * 1.05f,
-                        center = Offset(baseX + width * wScene * 0.34f, baseY - height * hScene * 0.14f),
-                    )
-                    drawCircle(
-                        color = cloudColor.copy(alpha = alpha * 0.92f),
-                        radius = height * hScene * 0.82f,
-                        center = Offset(baseX + width * wScene * 0.58f, baseY + height * hScene * 0.08f),
-                    )
-                    drawRoundRect(
-                        color = cloudColor.copy(alpha = alpha * 0.88f),
-                        topLeft = Offset(baseX + width * wScene * 0.14f, baseY - height * hScene * 0.28f),
-                        size = Size(width * wScene * 0.62f, height * hScene * 0.86f),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(height * hScene * 0.38f),
-                    )
-                }
-            }
-
             Canvas(modifier = Modifier.matchParentSize()) {
                 val w = size.width
                 val h = size.height
@@ -421,58 +362,6 @@ fun MindCoreScene(
                     y = imageTop + y * sceneScale,
                 )
 
-                NightCloudDriftSpecs.forEach { cloud ->
-                    val driftWave = sin(((ambientTime * cloud.speed) + cloud.phase) * 2f * PI).toFloat()
-                    val center = sceneOffset(
-                        x = cloud.centerX + driftWave * cloud.driftPx,
-                        y = cloud.centerY,
-                    )
-                    val cloudWidth = cloud.width * sceneScale
-                    val cloudHeight = cloud.height * sceneScale
-                    val cloudColor = Color(0xFFC6A0D8).copy(alpha = cloud.alpha)
-
-                    drawCircle(
-                        color = cloudColor,
-                        radius = cloudHeight * 0.48f,
-                        center = Offset(center.x - cloudWidth * 0.24f, center.y + cloudHeight * 0.03f),
-                    )
-                    drawCircle(
-                        color = cloudColor.copy(alpha = cloud.alpha * 0.92f),
-                        radius = cloudHeight * 0.62f,
-                        center = Offset(center.x - cloudWidth * 0.02f, center.y - cloudHeight * 0.18f),
-                    )
-                    drawCircle(
-                        color = cloudColor.copy(alpha = cloud.alpha * 0.82f),
-                        radius = cloudHeight * 0.44f,
-                        center = Offset(center.x + cloudWidth * 0.22f, center.y + cloudHeight * 0.02f),
-                    )
-                    drawRoundRect(
-                        color = cloudColor.copy(alpha = cloud.alpha * 0.76f),
-                        topLeft = Offset(center.x - cloudWidth * 0.38f, center.y - cloudHeight * 0.08f),
-                        size = Size(cloudWidth * 0.76f, cloudHeight * 0.38f),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cloudHeight * 0.19f),
-                    )
-                }
-
-                val moonWave = calmWave((ambientTime * 6f) % 1f, phase = 0.19f)
-                val moonCenter = sceneOffset(1345f, 115f)
-                val moonRadius = 85f * sceneScale * (0.95f + 0.05f * moonWave)
-                val moonAlpha = 0.15f + 0.15f * moonWave
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFFFE8A3).copy(alpha = moonAlpha),
-                            Color(0xFFFFE8A3).copy(alpha = moonAlpha * 0.30f),
-                            Color.Transparent,
-                        ),
-                        center = moonCenter,
-                        radius = moonRadius,
-                    ),
-                    radius = moonRadius,
-                    center = moonCenter,
-                )
-
                 NightWindowGlowSpecs.forEach { window ->
                     val windowWave = calmWave((ambientTime * window.speed) % 1f, phase = window.phase)
                     val flicker = 0.85f + 0.15f * windowWave
@@ -538,6 +427,61 @@ fun MindCoreScene(
         }
 
     }
+}
+
+@Composable
+private fun AnimatedHomeClouds(
+    timeOfDay: TimeOfDay,
+    cloudTime: Float,
+    modifier: Modifier = Modifier,
+) {
+    val cloudDrawable = cloudDrawableFor(timeOfDay)
+    val alphaMultiplier = when (timeOfDay) {
+        TimeOfDay.Morning -> 0.98f
+        TimeOfDay.Afternoon -> 1.00f
+        TimeOfDay.Evening -> 0.92f
+        TimeOfDay.Night -> 0.62f
+    }
+    val verticalNudge = when (timeOfDay) {
+        TimeOfDay.Morning -> 0.000f
+        TimeOfDay.Afternoon -> 0.000f
+        TimeOfDay.Evening -> 0.010f
+        TimeOfDay.Night -> 0.070f
+    }
+
+    BoxWithConstraints(modifier = modifier) {
+        CloudImageSpecs.forEach { cloud ->
+            val travelProgress = (cloudTime + cloud.phase) % 1f
+            val float = cos((travelProgress + cloud.phase) * 2f * PI).toFloat()
+            val xFraction = cloud.startXFraction +
+                (cloud.endXFraction - cloud.startXFraction) * travelProgress
+            val yFraction = cloud.yFraction + verticalNudge + float * cloud.floatFraction
+
+            Image(
+                painter = painterResource(id = cloudDrawable),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .offset(
+                        x = maxWidth * xFraction,
+                        y = maxHeight * yFraction,
+                    )
+                    .width(maxWidth * cloud.widthFraction)
+                    .graphicsLayer {
+                        alpha = cloud.alpha * alphaMultiplier
+                        scaleX = cloud.scale
+                        scaleY = cloud.scale
+                    },
+            )
+        }
+    }
+}
+
+private fun cloudDrawableFor(time: TimeOfDay): Int = when (time) {
+    TimeOfDay.Morning -> R.drawable.home_cloud_day
+    TimeOfDay.Afternoon -> R.drawable.home_cloud_day
+    TimeOfDay.Evening -> R.drawable.home_cloud_evening
+    TimeOfDay.Night -> R.drawable.home_cloud_night
 }
 
 private fun sceneDrawableFor(level: Int, time: TimeOfDay): Int {

@@ -47,6 +47,8 @@ import com.impulsive.app.backend.domain.model.protection.ProtectedAppCandidate
 import com.impulsive.app.backend.domain.model.protection.ProtectedAppCategory
 import com.impulsive.app.backend.domain.model.protection.toSuggestionGroups
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun BlockedAppsSelectionContent(
@@ -56,6 +58,7 @@ fun BlockedAppsSelectionContent(
     modifier: Modifier = Modifier,
     allowShowMoreApps: Boolean = false,
     seedRecommendedBrowsers: Boolean = false,
+    useFocusCopy: Boolean = false,
 ) {
     val context = LocalContext.current
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -64,10 +67,45 @@ fun BlockedAppsSelectionContent(
     val accentColor = Color(0xFF6F5A9A)
     val lavenderColor = Color(0xFFD0C3F1)
     var candidates by remember { mutableStateOf(emptyList<ProtectedAppCandidate>()) }
+    var isLoadingApps by remember { mutableStateOf(true) }
     var localSelection by remember(selectedPackageNames) { mutableStateOf(selectedPackageNames) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showMoreApps by rememberSaveable { mutableStateOf(false) }
     var showAppsInfo by rememberSaveable { mutableStateOf(false) }
+    val titleText = if (useFocusCopy) "Choose apps to block during focus" else "Choose apps to protect"
+    val subtitleText = if (useFocusCopy) {
+        "Pick the apps that usually pull you away while working or studying. This only affects Focus Mode."
+    } else {
+        "Review the suggested browsers before continuing."
+    }
+    val infoContentDescription = if (useFocusCopy) {
+        "About Focus app blocking"
+    } else {
+        "About app protection suggestions"
+    }
+    val infoDialogTitle = if (useFocusCopy) "Focus app blocking" else "App suggestions"
+    val infoDialogBody = if (useFocusCopy) {
+        "Choose the apps that usually break your focus. Select all only includes safe launchable apps, while system and utility apps stay out of that action."
+    } else {
+        "Impulsive can suggest apps that often lead into the loop. You stay in control of what gets protected."
+    }
+    val selectedSectionTitle = if (useFocusCopy) "Blocked in Focus" else "Selected"
+    val recommendedSectionTitle = if (useFocusCopy) "Common distractions" else "Recommended"
+    val reviewSectionTitle = if (useFocusCopy) "Other apps" else "Review"
+    val hiddenSafeSectionTitle = if (useFocusCopy) "System and utility apps" else "Not usually needed"
+    val saveButtonText = if (useFocusCopy) {
+        if (localSelection.isEmpty()) "Continue with no blocked apps" else "Save focus apps"
+    } else {
+        if (localSelection.isEmpty()) "Save without protected apps" else "Save protected apps"
+    }
+    val selectablePackageNames = remember(candidates) {
+        candidates
+            .filterNot { it.isHiddenSafe }
+            .map { it.packageName }
+            .toSet()
+    }
+    val allSelectableAppsSelected = selectablePackageNames.isNotEmpty() &&
+        localSelection.containsAll(selectablePackageNames)
     val groups = remember(candidates, localSelection, searchQuery, showMoreApps) {
         candidates.toSuggestionGroups(
             selectedPackageNames = localSelection,
@@ -76,9 +114,16 @@ fun BlockedAppsSelectionContent(
         )
     }
 
-    LaunchedEffect(Unit) {
-        val loaded = InstalledAppScanner(context).getLaunchableAppCandidates()
+    LaunchedEffect(seedRecommendedBrowsers) {
+        isLoadingApps = true
+
+        val appContext = context.applicationContext
+        val loaded = withContext(Dispatchers.IO) {
+            InstalledAppScanner(appContext).getLaunchableAppCandidates()
+        }
+
         candidates = loaded
+
         // First onboarding pass only: pre-select detected browsers as a default
         // suggestion. They show ticked and persist when the user saves, exactly
         // like a manual selection. The empty-selection guard means this never
@@ -93,6 +138,8 @@ fun BlockedAppsSelectionContent(
                 localSelection = localSelection + browserPackages
             }
         }
+
+        isLoadingApps = false
     }
 
     Column(
@@ -107,7 +154,7 @@ fun BlockedAppsSelectionContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Choose apps to protect",
+                text = titleText,
                 color = if (isDarkTheme) Color(0xFFF4ECFF) else Color(0xFF1F1B2E),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
@@ -115,16 +162,18 @@ fun BlockedAppsSelectionContent(
             IconButton(onClick = { showAppsInfo = true }) {
                 Icon(
                     imageVector = Icons.Outlined.Info,
-                    contentDescription = "About app protection suggestions",
+                    contentDescription = infoContentDescription,
                     tint = if (isDarkTheme) lavenderColor else accentColor,
                 )
             }
         }
+
         Text(
-            text = "Review the suggested browsers before continuing.",
+            text = subtitleText,
             color = secondaryTextColor,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
         )
+
         if (seedRecommendedBrowsers) {
             Text(
                 text = "Detected browsers are pre-selected. You can untick any.",
@@ -132,13 +181,39 @@ fun BlockedAppsSelectionContent(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        TextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search installed apps") },
-            singleLine = true,
-        )
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search installed apps") },
+                singleLine = true,
+            )
+
+            if (useFocusCopy) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        onClick = {
+                            localSelection = if (allSelectableAppsSelected) {
+                                localSelection - selectablePackageNames
+                            } else {
+                                localSelection + selectablePackageNames
+                            }
+                        },
+                        enabled = selectablePackageNames.isNotEmpty(),
+                    ) {
+                        Text(if (allSelectableAppsSelected) "Deselect all" else "Select all apps")
+                    }
+                }
+            }
+        }
 
         LazyColumn(
             modifier = Modifier
@@ -146,8 +221,26 @@ fun BlockedAppsSelectionContent(
                 .weight(1f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (isLoadingApps) {
+                item {
+                    Text(
+                        text = "Loading installed apps...",
+                        color = secondaryTextColor,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            } else if (candidates.isEmpty()) {
+                item {
+                    Text(
+                        text = "No installed apps found.",
+                        color = secondaryTextColor,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
             candidateSection(
-                title = "Selected",
+                title = selectedSectionTitle,
                 candidates = groups.selected,
                 localSelection = localSelection,
                 primaryTextColor = primaryTextColor,
@@ -155,7 +248,7 @@ fun BlockedAppsSelectionContent(
             ) { localSelection = localSelection.toggle(it) }
 
             candidateSection(
-                title = "Recommended",
+                title = recommendedSectionTitle,
                 candidates = groups.recommended,
                 localSelection = localSelection,
                 primaryTextColor = primaryTextColor,
@@ -163,7 +256,7 @@ fun BlockedAppsSelectionContent(
             ) { localSelection = localSelection.toggle(it) }
 
             candidateSection(
-                title = "Review",
+                title = reviewSectionTitle,
                 candidates = groups.review,
                 localSelection = localSelection,
                 primaryTextColor = primaryTextColor,
@@ -171,7 +264,7 @@ fun BlockedAppsSelectionContent(
             ) { localSelection = localSelection.toggle(it) }
 
             candidateSection(
-                title = "Not usually needed",
+                title = hiddenSafeSectionTitle,
                 candidates = groups.hiddenSafe,
                 localSelection = localSelection,
                 primaryTextColor = primaryTextColor,
@@ -187,6 +280,14 @@ fun BlockedAppsSelectionContent(
             }
         }
 
+        if (useFocusCopy && localSelection.isEmpty()) {
+            Text(
+                text = "No apps selected. Focus will still run as a timer, but no apps will be blocked.",
+                color = secondaryTextColor,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
         Button(
             onClick = {
                 onSelectedPackageNamesChanged(localSelection)
@@ -198,7 +299,7 @@ fun BlockedAppsSelectionContent(
                 contentColor = Color.White,
             ),
         ) {
-            Text(if (localSelection.isEmpty()) "Save without protected apps" else "Save protected apps")
+            Text(saveButtonText)
         }
 
         OutlinedButton(
@@ -219,9 +320,9 @@ fun BlockedAppsSelectionContent(
     if (showAppsInfo) {
         AlertDialog(
             onDismissRequest = { showAppsInfo = false },
-            title = { Text("App suggestions") },
+            title = { Text(infoDialogTitle) },
             text = {
-                Text("Impulsive can suggest apps that often lead into the loop. You stay in control of what gets protected.")
+                Text(infoDialogBody)
             },
             confirmButton = {
                 TextButton(

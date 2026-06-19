@@ -35,6 +35,8 @@
     <!-- Monitoring (persistent foreground) notification -->
     <string name="notif_monitoring_title">Impulsive protection is on</string>
     <string name="notif_monitoring_body">Protected apps are checked during your protected time.</string>
+    <string name="notif_vpn_title">Website protection is on</string>
+    <string name="notif_vpn_body">Impulsive is checking sites during your protected time.</string>
 
     <!-- Blocked attempt / full-screen notifications -->
     <string name="notif_blocked_attempt_title">Impulsive stepped in</string>
@@ -56,8 +58,9 @@
     <string name="block_screen_time_label_paused">Protection turns back on at</string>
     <string name="block_screen_detail_protected">Protection pauses for %1$d minutes when your planned window opens.</string>
     <string name="block_screen_detail_paused">This is your %1$d-minute planned window. Protection will resume automatically.</string>
-    <string name="block_screen_btn_start_task">Start control task</string>
+    <string name="block_screen_btn_start_task">Start Gaming Task</string>
+    <string name="block_screen_btn_start_reading_task">Start Reading Task</string>
     <string name="block_screen_btn_task_not_needed">Task not needed right now</string>
-    <string name="block_screen_btn_return_home">Return home</string>
+    <string name="block_screen_btn_return_home">Return Home</string>
     <string name="block_screen_source_label">Source: %1$s</string>
 </resources>

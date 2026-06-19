@@ -19,6 +19,7 @@ import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotifica
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationState
 import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
+import com.impulsive.app.backend.data.repository.ScoreRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.data.repository.UrgeEventRepository
 import com.impulsive.app.backend.data.repository.WindowOutcomeRepository
@@ -27,6 +28,10 @@ import com.impulsive.app.backend.data.repository.FocusSetupRepository
 import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
 import com.impulsive.app.backend.domain.model.focus.isElapsed
 import com.impulsive.app.backend.domain.model.focus.focusCompletionLevelPoints
+import com.impulsive.app.backend.domain.model.focus.focusCompletionScore
+import com.impulsive.app.backend.domain.model.score.ScoreGameType
+import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
+import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluator
@@ -61,6 +66,7 @@ class AppMonitorService : Service() {
     private val protectionSetupRepository by lazy { ProtectionSetupRepository(applicationContext) }
     private val onboardingRepository by lazy { OnboardingRepository(applicationContext) }
     private val taskRewardRepository by lazy { TaskRewardRepository(applicationContext) }
+    private val scoreRepository by lazy { ScoreRepository(applicationContext) }
     private val urgeEventRepository by lazy { UrgeEventRepository(applicationContext) }
     private val windowOutcomeRepository by lazy { WindowOutcomeRepository(applicationContext) }
     private val focusSessionRepository by lazy { FocusSessionRepository(applicationContext) }
@@ -116,11 +122,18 @@ class AppMonitorService : Service() {
 
     // Tracks screen-on state so we can slow the poll cadence when the screen is off.
     private var isScreenOn = true
+    private var isFocusSessionNotificationShowing = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_ON -> wakeMonitorForScreenOn()
-                Intent.ACTION_SCREEN_OFF -> isScreenOn = false
+                Intent.ACTION_SCREEN_OFF -> {
+                    isScreenOn = false
+                    updateFocusSessionNotificationVisibility(
+                        now = LocalDateTime.now(),
+                        foregroundPackage = null,
+                    )
+                }
             }
         }
     }
@@ -153,6 +166,7 @@ class AppMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        notificationHelper.cancelFocusSessionNotification()
         unregisterReceiver(screenReceiver)
         serviceScope.cancel()
         super.onDestroy()
@@ -200,14 +214,58 @@ class AppMonitorService : Service() {
         startMonitoringIfNeeded()
     }
 
+    private fun updateFocusSessionNotificationVisibility(
+        now: LocalDateTime,
+        foregroundPackage: String?,
+    ) {
+        val liveFocusSession = focusSession.value
+        if (liveFocusSession?.phase != FocusSessionPhase.Running) {
+            if (isFocusSessionNotificationShowing) {
+                notificationHelper.cancelFocusSessionNotification()
+                isFocusSessionNotificationShowing = false
+            }
+            return
+        }
+
+        val shouldShowFocusNotification = !isScreenOn ||
+            (foregroundPackage != null && foregroundPackage != applicationContext.packageName)
+
+        if (shouldShowFocusNotification) {
+            notificationHelper.showFocusSessionNotification(
+                session = liveFocusSession,
+                now = now,
+                hideSensitive = hideSensitiveNotifications.value,
+            )
+            isFocusSessionNotificationShowing = true
+        } else if (isFocusSessionNotificationShowing) {
+            notificationHelper.cancelFocusSessionNotification()
+            isFocusSessionNotificationShowing = false
+        }
+    }
+
     private suspend fun evaluateForegroundApp() {
-        if (!usageAccessChecker.hasUsageAccess()) return
+        val now = LocalDateTime.now()
+
+        if (!usageAccessChecker.hasUsageAccess()) {
+            updateFocusSessionNotificationVisibility(
+                now = now,
+                foregroundPackage = null,
+            )
+            return
+        }
+
         val protectedPackages = setupState.value.selectedBlockedAppPackageNames
         val windowSnapshot = currentProtectionWindowSnapshot()
         handleWindowNotifications(windowSnapshot)
         sweepSkippedWindows(windowSnapshot.now)
         checkFocusSessionCompletion(windowSnapshot.now)
-        val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage() ?: return
+        val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage()
+        updateFocusSessionNotificationVisibility(
+            now = windowSnapshot.now,
+            foregroundPackage = foregroundPackage,
+        )
+
+        if (foregroundPackage == null) return
         if (foregroundPackage == applicationContext.packageName) return
         // The user has moved off the app we last intercepted (home screen,
         // launcher, or any other app), so clear the handled latch. This lets the
@@ -253,9 +311,8 @@ class AppMonitorService : Service() {
 
     /**
      * Marks the focus session Completed exactly once when its time has fully
-     * elapsed. The Level Points award for a completed session will be wired
-     * here in a later prompt; this function must stay the single completion
-     * point so the reward can never double-fire.
+     * elapsed. This function stays the single completion point so rewards and
+     * score records can never double-fire.
      */
     private suspend fun checkFocusSessionCompletion(now: LocalDateTime) {
         val session = focusSession.value ?: return
@@ -264,6 +321,17 @@ class AppMonitorService : Service() {
         val completed = focusSessionRepository.completeIfElapsed(now) ?: return
         taskRewardRepository.awardLevelPoints(
             focusCompletionLevelPoints(completed.durationMinutes),
+        )
+        scoreRepository.recordSession(
+            ScoreSessionRecord(
+                gameType = ScoreGameType.FocusSession,
+                score = focusCompletionScore(completed.durationMinutes),
+                startedAt = completed.startedAt,
+                completedAt = completed.endedAt ?: now,
+                durationSec = completed.durationMinutes * 60,
+                outcome = ScoreSessionOutcome.Completed,
+                validCompletion = true,
+            ),
         )
     }
 
@@ -311,6 +379,7 @@ class AppMonitorService : Service() {
                 sourcePackageName = sourcePackageName,
                 sourceLabel = sourceLabel,
                 hideSensitive = hideSensitiveNotifications.value,
+                isFocusSession = true,
             )
         }
     }
@@ -428,6 +497,7 @@ class AppMonitorService : Service() {
     )
 
     private fun stopSelfSafely() {
+        notificationHelper.cancelFocusSessionNotification()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

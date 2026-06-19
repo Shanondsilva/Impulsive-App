@@ -264,14 +264,26 @@ class TaskRewardDataSource(
     private fun completedEverKey(taskType: PsychologyTaskType) =
         intPreferencesKey("${taskType.id}_completed_ever")
 
+    private fun completedEverKey(taskId: String) =
+        intPreferencesKey("${taskId}_completed_ever")
+
     private fun completedTodayCountKey(taskType: PsychologyTaskType) =
         intPreferencesKey("${taskType.id}_completed_today_count")
+
+    private fun completedTodayCountKey(taskId: String) =
+        intPreferencesKey("${taskId}_completed_today_count")
 
     private fun lastCompletedAtKey(taskType: PsychologyTaskType) =
         stringPreferencesKey("${taskType.id}_last_completed_at")
 
+    private fun lastCompletedAtKey(taskId: String) =
+        stringPreferencesKey("${taskId}_last_completed_at")
+
     private fun firstTimeWaitCutClaimedKey(taskType: PsychologyTaskType) =
         intPreferencesKey("first_time_wait_cut_claimed_${taskType.id}")
+
+    private fun firstTimeWaitCutClaimedKey(taskId: String) =
+        intPreferencesKey("first_time_wait_cut_claimed_${taskId}")
 
     private fun String?.toTaskTypeOrNull(): PsychologyTaskType? =
         PsychologyTaskType.entries.firstOrNull { it.id == this }
@@ -290,6 +302,96 @@ class TaskRewardDataSource(
         }
     }
 
+    /**
+     * Awards Level Points for a feedback note, but only once per calendar day, so the
+     * reward cannot be farmed. Returns true if it awarded, false if already given today.
+     */
+    suspend fun awardNoteCreationPointsIfNewDay(points: Int): Boolean {
+        if (points <= 0) return false
+        val today = LocalDate.now().toString()
+        var awarded = false
+        dataStore.edit { preferences ->
+            if (preferences[NoteRewardDateKey] == today) return@edit
+            val levelProgress = addLevelPoints(
+                currentLevel = preferences[CurrentLevelKey] ?: InitialLevel,
+                currentLevelPoints = preferences[CurrentLevelPointsKey] ?: InitialLevelPoints,
+                pointsToAdd = points,
+            )
+            preferences[CurrentLevelKey] = levelProgress.currentLevel
+            preferences[CurrentLevelPointsKey] = levelProgress.currentLevelPoints
+            preferences[NoteRewardDateKey] = today
+            awarded = true
+        }
+        return awarded
+    }
+
+    /**
+     * Awards Level Points for answering the end-of-day feedback notification, once per
+     * calendar day, tracked separately from the written-note reward.
+     */
+    suspend fun awardFeedbackAnswerPointsIfNewDay(points: Int): Boolean {
+        if (points <= 0) return false
+        val today = LocalDate.now().toString()
+        var awarded = false
+        dataStore.edit { preferences ->
+            if (preferences[FeedbackAnswerRewardDateKey] == today) return@edit
+            val levelProgress = addLevelPoints(
+                currentLevel = preferences[CurrentLevelKey] ?: InitialLevel,
+                currentLevelPoints = preferences[CurrentLevelPointsKey] ?: InitialLevelPoints,
+                pointsToAdd = points,
+            )
+            preferences[CurrentLevelKey] = levelProgress.currentLevel
+            preferences[CurrentLevelPointsKey] = levelProgress.currentLevelPoints
+            preferences[FeedbackAnswerRewardDateKey] = today
+            awarded = true
+        }
+        return awarded
+    }
+
+    suspend fun removeLegacyDeletedTaskRewards() {
+        dataStore.edit { preferences ->
+            LegacyDeletedTaskIds.forEach { taskId ->
+                preferences.remove(completedEverKey(taskId))
+                preferences.remove(completedTodayCountKey(taskId))
+                preferences.remove(lastCompletedAtKey(taskId))
+                preferences.remove(firstTimeWaitCutClaimedKey(taskId))
+            }
+
+            val lastRecommendedTaskType = preferences[LastRecommendedTaskTypeKey]
+            if (lastRecommendedTaskType != null && lastRecommendedTaskType in LegacyDeletedTaskIds) {
+                preferences.remove(LastRecommendedTaskTypeKey)
+            }
+
+            val lastCompletedTaskType = preferences[LastCompletedTaskTypeKey]
+            if (lastCompletedTaskType != null && lastCompletedTaskType in LegacyDeletedTaskIds) {
+                preferences.remove(LastCompletedTaskTypeKey)
+            }
+
+            val cleanedRecent = preferences[RecentRecommendedTaskTypesKey]
+                ?.split(StoredListSeparator)
+                ?.filterNot { it in LegacyDeletedTaskIds }
+                ?.joinToString(StoredListSeparator)
+
+            if (cleanedRecent.isNullOrBlank()) {
+                preferences.remove(RecentRecommendedTaskTypesKey)
+            } else {
+                preferences[RecentRecommendedTaskTypesKey] = cleanedRecent
+            }
+
+            val legacyUppercaseIds = LegacyDeletedTaskIds.map { it.uppercase() }.toSet()
+
+            val lastTaskType = preferences[LastTaskTypeKey]
+            if (lastTaskType != null && lastTaskType in legacyUppercaseIds) {
+                preferences.remove(LastTaskTypeKey)
+            }
+
+            val lastGameType = preferences[LastGameTypeKey]
+            if (lastGameType != null && lastGameType in legacyUppercaseIds) {
+                preferences.remove(LastGameTypeKey)
+            }
+        }
+    }
+
     private fun String?.toTaskTypeList(): List<PsychologyTaskType> {
         if (isNullOrBlank()) return emptyList()
         return split(StoredListSeparator).mapNotNull { it.toTaskTypeOrNull() }
@@ -300,6 +402,11 @@ class TaskRewardDataSource(
 
     private companion object {
         const val StoredListSeparator = "\u001F"
+        val LegacyDeletedTaskIds = setOf(
+            "trigger_decoder",
+            "thought_capture",
+            "short_reading_burst",
+        )
         val CurrentLevelKey = intPreferencesKey("current_level")
         val CurrentLevelPointsKey = intPreferencesKey("current_level_points")
         val RewardedWindowKey = stringPreferencesKey("rewarded_window_key")
@@ -319,6 +426,8 @@ class TaskRewardDataSource(
         val LastScoreKey = intPreferencesKey("last_score")
         val LastDurationSecKey = intPreferencesKey("last_duration_sec")
         val LastValidCompletionKey = intPreferencesKey("last_valid_completion")
+        val NoteRewardDateKey = stringPreferencesKey("note_reward_date")
+        val FeedbackAnswerRewardDateKey = stringPreferencesKey("feedback_answer_reward_date")
         val LastRewardWaitReductionMinutesKey = intPreferencesKey("last_reward_wait_reduction_minutes")
         val LastRewardLevelPointsKey = intPreferencesKey("last_reward_level_points")
         val LastWasFirstTimeRewardKey = intPreferencesKey("last_was_first_time_reward")

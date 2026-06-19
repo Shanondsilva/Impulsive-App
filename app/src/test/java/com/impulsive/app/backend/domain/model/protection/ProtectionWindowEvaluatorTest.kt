@@ -27,7 +27,7 @@ class ProtectionWindowEvaluatorTest {
 
         assertTrue(snapshot.isProtectionPaused)
         assertEquals(LocalDateTime.of(2026, 5, 31, 10, 0), snapshot.pausedWindowStart)
-        assertEquals(LocalDateTime.of(2026, 5, 31, 10, 25), snapshot.pausedWindowEnd)
+        assertEquals(LocalDateTime.of(2026, 5, 31, 10, 15), snapshot.pausedWindowEnd)
     }
 
     @Test

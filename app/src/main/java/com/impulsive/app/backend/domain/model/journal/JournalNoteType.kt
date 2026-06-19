@@ -4,7 +4,8 @@ enum class JournalNoteType(val storageValue: String, val label: String) {
     Text("TEXT", "Note"),
     Checklist("CHECKLIST", "List"),
     Sketch("SKETCH", "Drawing"),
-    Reminder("REMINDER", "Reminder");
+    Reminder("REMINDER", "Reminder"),
+    Feedback("FEEDBACK", "Feedback");
 
     companion object {
         fun fromStorage(value: String): JournalNoteType {

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +49,7 @@ fun ImpulsiveBlockScreen(
     sourcePackageName: String,
     sourceLabel: String,
     onStartControlTask: () -> Unit,
+    onStartReadingTask: () -> Unit,
     onReturnHome: () -> Unit,
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = viewModel(),
@@ -138,19 +141,43 @@ fun ImpulsiveBlockScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = onStartControlTask,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !windowSnapshot.isProtectionPaused,
-                ) {
-                    Text(
-                        if (windowSnapshot.isProtectionPaused) {
-                            stringResource(R.string.block_screen_btn_task_not_needed)
-                        } else {
-                            stringResource(R.string.block_screen_btn_start_task)
+                if (windowSnapshot.isProtectionPaused) {
+                    Button(
+                        onClick = onStartControlTask,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = false,
+                    ) {
+                        Text(stringResource(R.string.block_screen_btn_task_not_needed))
+                    }
+                } else {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(
+                                onClick = onStartControlTask,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(stringResource(R.string.block_screen_btn_start_task))
+                            }
+
+                            Button(
+                                onClick = onStartReadingTask,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(stringResource(R.string.block_screen_btn_start_reading_task))
+                            }
                         }
-                    )
+                    }
                 }
+
                 OutlinedButton(
                     onClick = onReturnHome,
                     modifier = Modifier.fillMaxWidth(),

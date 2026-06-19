@@ -22,7 +22,7 @@ data class ReleasePlanState(
 object ReleasePlanDefaults {
     val ActiveDayStart: LocalTime = LocalTime.of(7, 0)
     val ActiveDayEnd: LocalTime = LocalTime.of(23, 0)
-    const val ReleaseWindowMinutes = 25L
+    const val ReleaseWindowMinutes = 15L
     const val MinimumWakeBufferMinutes = 60L
     const val MinimumSleepBufferMinutes = 90L
 }

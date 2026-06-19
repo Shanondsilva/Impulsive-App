@@ -19,7 +19,12 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.firebase.auth.FirebaseAuth
+import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.preferences.AppLockPreferencesDataSource
+import com.impulsive.app.backend.data.sync.RecoverySessionCloudSync
+import com.impulsive.app.backend.data.sync.JournalNoteCloudSync
+import com.impulsive.app.backend.data.sync.JournalChecklistCloudSync
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.session.auth.AuthViewModel
@@ -50,7 +55,25 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
         blockLaunchBypassActive.value = pendingBlockRequest.value != null
+        if (pendingBlockRequest.value != null) {
+            cancelBlockFullScreenNotification()
+        }
         refreshEmailVerificationIfReturnIntent(intent)
+        com.impulsive.app.backend.service.journal.FeedbackPromptScheduler(this).scheduleDailyNudge()
+
+        lifecycleScope.launch {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@launch
+            val database = AppDatabase.getInstance(applicationContext)
+            runCatching {
+                RecoverySessionCloudSync().sync(database.recoverySessionDao(), uid)
+            }
+            runCatching {
+                JournalNoteCloudSync().sync(database.journalNoteDao(), uid)
+            }
+            runCatching {
+                JournalChecklistCloudSync().sync(database.journalNoteDao(), uid)
+            }
+        }
 
         setContent {
             val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -59,7 +82,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             val unlocked by unlockedThisSession
             val systemInDark = isSystemInDarkTheme()
 
-            // Single ticking time source — re-emits every minute so both shouldUseDarkTheme
+            // Single ticking time source, re-emits every minute so both shouldUseDarkTheme
             // and resolveSceneTime always see the same hour and update at boundary crossings.
             val currentHour by produceState(initialValue = LocalTime.now().hour) {
                 while (true) {
@@ -130,6 +153,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
         if (pendingBlockRequest.value != null) {
             blockLaunchBypassActive.value = true
+            cancelBlockFullScreenNotification()
         }
         refreshEmailVerificationIfReturnIntent(intent)
     }
@@ -208,6 +232,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             data = Uri.parse("package:$packageName")
         }
         runCatching { startActivity(intent) }
+    }
+
+    private fun cancelBlockFullScreenNotification() {
+        runCatching {
+            com.impulsive.app.backend.service.protection.ProtectionNotificationHelper(applicationContext)
+                .cancelBlockFullScreen()
+        }
     }
 
     companion object {

@@ -161,6 +161,14 @@ private val VisiblePsychologyTasks = listOf(
         iconBackground = ImpulsivePsychological.copy(alpha = 0.62f),
     ),
     PsychologyTask(
+        taskType = PsychologyTaskType.RhythmTiles,
+        title = "Rhythm Tiles",
+        description = "Tap falling tiles and keep rhythm through a 90-second focus round.",
+        chip = "Rhythm focus",
+        icon = Icons.Filled.AutoAwesome,
+        iconBackground = ImpulsivePsychological.copy(alpha = 0.66f),
+    ),
+    PsychologyTask(
         taskType = PsychologyTaskType.ReflexOverride,
         title = "Reflex Override",
         description = "Break autopilot with a fast reaction challenge.",
@@ -170,7 +178,7 @@ private val VisiblePsychologyTasks = listOf(
     ),
     PsychologyTask(
         taskType = PsychologyTaskType.ResetRead,
-        title = "Reset Read",
+        title = "Reset Reading",
         description = "Read for the full timer before choosing the next move.",
         chip = "Reader",
         icon = Icons.AutoMirrored.Outlined.Article,
@@ -178,19 +186,13 @@ private val VisiblePsychologyTasks = listOf(
     ),
 )
 
-private fun PsychologyTaskType.asVisiblePsychologyTaskType(): PsychologyTaskType = when (this) {
-    PsychologyTaskType.TriggerDecoder,
-    PsychologyTaskType.ThoughtCapture,
-    PsychologyTaskType.ShortReadingBurst -> PsychologyTaskType.ResetRead
-    else -> this
-}
-
 @Composable
 fun TaskToCompleteScreen(
     onBack: () -> Unit,
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
+    onOpenRhythmTilesTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -274,7 +276,7 @@ fun TaskToCompleteScreen(
 
             val orderedTasks = orderedVisibleTasks(taskRewardState, currentNow.toLocalDate())
             val highlightedTaskType = orderedTasks.firstOrNull()?.taskType
-            val recommendedTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
+            val recommendedTaskType = taskRewardState.recommendedTaskType
             orderedTasks.forEachIndexed { index, task ->
                 val rewardStatus = taskRewardState.rewardStatusForVisibleTask(task.taskType) ?: return@forEachIndexed
                 TaskChoiceCard(
@@ -288,14 +290,12 @@ fun TaskToCompleteScreen(
                     haptics = haptics,
                     colors = colors,
                     onStartTask = {
-                        when (task.taskType.asVisiblePsychologyTaskType()) {
+                        when (task.taskType) {
                             PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
                             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
-                            PsychologyTaskType.ResetRead,
-                            PsychologyTaskType.TriggerDecoder,
-                            PsychologyTaskType.ThoughtCapture,
-                            PsychologyTaskType.ShortReadingBurst -> onOpenResetReadTask()
+                            PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
+                            PsychologyTaskType.ResetRead -> onOpenResetReadTask()
                         }
                     },
                 )
@@ -319,10 +319,10 @@ private fun orderedVisibleTasks(
 ): List<PsychologyTask> {
     val incompleteTaskTypes = taskRewardState.taskStatuses
         .filterNot { it.lastCompletedAt?.toLocalDate() == today }
-        .map { it.taskType.asVisiblePsychologyTaskType() }
+        .map { it.taskType }
         .toSet()
     val visibleIncompleteTasks = VisiblePsychologyTasks.filter { it.taskType in incompleteTaskTypes }
-    val recommendedTaskType = taskRewardState.recommendedTaskType.asVisiblePsychologyTaskType()
+    val recommendedTaskType = taskRewardState.recommendedTaskType
     val visibleRecommended = VisiblePsychologyTasks.firstOrNull { it.taskType == recommendedTaskType }
         ?.takeIf { it.taskType in incompleteTaskTypes }
     return if (visibleRecommended == null) {
@@ -333,8 +333,7 @@ private fun orderedVisibleTasks(
 }
 
 private fun TaskRewardState.rewardStatusForVisibleTask(taskType: PsychologyTaskType): TaskRewardStatus? =
-    taskStatuses.firstOrNull { it.taskType == taskType } ?:
-        taskStatuses.firstOrNull { it.taskType.asVisiblePsychologyTaskType() == taskType }
+    taskStatuses.firstOrNull { it.taskType == taskType }
 
 @Composable
 private fun TaskHeader(

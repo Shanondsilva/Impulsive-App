@@ -55,6 +55,9 @@ interface JournalNoteDao {
     @Update
     suspend fun update(note: JournalNoteEntity)
 
+    @Query("SELECT * FROM journal_notes")
+    suspend fun getAllNotesForSync(): List<JournalNoteEntity>
+
     @Delete
     suspend fun delete(note: JournalNoteEntity)
 

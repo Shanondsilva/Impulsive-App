@@ -9,11 +9,13 @@ import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.LevelPreferencesDataSource
+import com.impulsive.app.backend.data.local.preferences.ResetReadProgressDataSource
 import com.impulsive.app.backend.data.local.preferences.ScoreDataSource
 import com.impulsive.app.backend.data.local.preferences.TaskRewardDataSource
 import com.impulsive.app.backend.data.local.preferences.UrgeEventDataSource
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.domain.model.score.UrgeEventRecord
+import com.impulsive.app.backend.domain.model.tasks.ResetReadSessionRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -24,6 +26,7 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class UserDataExporter(private val context: Context) {
 
@@ -45,6 +48,7 @@ class UserDataExporter(private val context: Context) {
         val level = runCatching { LevelPreferencesDataSource(context).currentLevel.first() }.getOrDefault(1)
         val rewards = runCatching { TaskRewardDataSource(context).storeState.first() }.getOrNull()
         val scoreSessions = runCatching { ScoreDataSource(context).sessions.first() }.getOrDefault(emptyList())
+        val resetReadSessions = runCatching { ResetReadProgressDataSource(context).sessions.first() }.getOrDefault(emptyList())
         val urgeEvents = runCatching { UrgeEventDataSource(context).events.first() }.getOrDefault(emptyList())
         val settings = AppSettingsPreferencesDataSource(context)
         val haptics = runCatching { settings.hapticsEnabled.first() }.getOrDefault(true)
@@ -65,6 +69,10 @@ class UserDataExporter(private val context: Context) {
             if (rewards != null) {
                 appendLine("Level points: ${rewards.currentLevelPoints}")
             }
+            appendLine()
+
+            appendLine("== Reset Reading summary ==")
+            appendResetReadingSummary(resetReadSessions)
             appendLine()
 
             appendLine("== Pivot sessions (${sessions.size}) ==")
@@ -114,6 +122,7 @@ class UserDataExporter(private val context: Context) {
         val level = runCatching { LevelPreferencesDataSource(context).currentLevel.first() }.getOrDefault(1)
         val rewards = runCatching { TaskRewardDataSource(context).storeState.first() }.getOrNull()
         val scoreSessions = runCatching { ScoreDataSource(context).sessions.first() }.getOrDefault(emptyList())
+        val resetReadSessions = runCatching { ResetReadProgressDataSource(context).sessions.first() }.getOrDefault(emptyList())
         val urgeEvents = runCatching { UrgeEventDataSource(context).events.first() }.getOrDefault(emptyList())
         val settings = AppSettingsPreferencesDataSource(context)
         val haptics = runCatching { settings.hapticsEnabled.first() }.getOrDefault(true)
@@ -135,6 +144,8 @@ class UserDataExporter(private val context: Context) {
                     .put("level", level)
                     .put("levelPoints", rewards?.currentLevelPoints ?: 0),
             )
+            .put("resetReadingSummary", resetReadSessions.toResetReadingSummaryJson())
+            .put("resetReadSessions", resetReadSessions.toResetReadSessionsJson())
             .put(
                 "settings",
                 JSONObject()
@@ -165,7 +176,39 @@ class UserDataExporter(private val context: Context) {
         appendLine(
             "- ${localDateTime(session.completedAt)} | ${session.gameType.displayName} | score ${session.score} | " +
                 "intensity $intensity | ${session.outcome.label} | ${session.durationSec}s | $valid",
+            )
+    }
+
+    private fun StringBuilder.appendResetReadingSummary(sessions: List<ResetReadSessionRecord>) {
+        val completedSessions = sessions.filter { it.validCompletion }
+        val abandonedCount = sessions.count { !it.validCompletion }
+        val safeSeconds = completedSessions.sumOf { session ->
+            session.secondsSpent.coerceAtLeast(0)
+        }
+        val safeReadingMinutes = if (safeSeconds == 0) {
+            0
+        } else {
+            (safeSeconds + 59) / 60
+        }
+        val helpfulRatings = completedSessions.mapNotNull { it.helpfulnessRating }
+        val highlyHelpfulCount = helpfulRatings.count { it >= 4 }
+        val averageHelpfulness = helpfulRatings
+            .takeIf { it.isNotEmpty() }
+            ?.average()
+        val lastCompletedAt = completedSessions
+            .maxByOrNull { it.completedAt }
+            ?.completedAt
+
+        appendLine("Completed resets: ${completedSessions.size}")
+        appendLine("Safe reading minutes: $safeReadingMinutes")
+        appendLine("Helpful reads: $highlyHelpfulCount")
+        appendLine(
+            "Average helpfulness: ${
+                averageHelpfulness?.let { average -> String.format(Locale.UK, "%.1f/5", average) } ?: "Not rated"
+            }",
         )
+        appendLine("Abandoned attempts: $abandonedCount")
+        appendLine("Last completed reset: ${lastCompletedAt?.let { localDateTime(it) } ?: "None yet"}")
     }
 
     private fun StringBuilder.appendUrgeEvent(event: UrgeEventRecord) {
@@ -190,6 +233,62 @@ class UserDataExporter(private val context: Context) {
             note.checklist.lineSequence().forEach { appendLine("    $it") }
         }
     }
+
+    private fun List<ResetReadSessionRecord>.toResetReadingSummaryJson(): JSONObject {
+        val completedSessions = filter { it.validCompletion }
+        val abandonedCount = count { !it.validCompletion }
+        val safeSeconds = completedSessions.sumOf { session ->
+            session.secondsSpent.coerceAtLeast(0)
+        }
+        val safeReadingMinutes = if (safeSeconds == 0) {
+            0
+        } else {
+            (safeSeconds + 59) / 60
+        }
+        val helpfulRatings = completedSessions.mapNotNull { it.helpfulnessRating }
+        val lastCompletedAt = completedSessions
+            .maxByOrNull { it.completedAt }
+            ?.completedAt
+
+        return JSONObject()
+            .put("completedCount", completedSessions.size)
+            .put("abandonedCount", abandonedCount)
+            .put("safeReadingMinutes", safeReadingMinutes)
+            .put("helpfulRatingCount", helpfulRatings.size)
+            .put("highlyHelpfulCount", helpfulRatings.count { it >= 4 })
+            .putNullable(
+                "averageHelpfulness",
+                helpfulRatings
+                    .takeIf { it.isNotEmpty() }
+                    ?.average(),
+            )
+            .putNullable("lastCompletedAt", lastCompletedAt?.toString())
+    }
+
+    private fun List<ResetReadSessionRecord>.toResetReadSessionsJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { session ->
+                array.put(
+                    JSONObject()
+                        .put("id", session.id)
+                        .put("articleId", session.articleId)
+                        .put("articleTitle", session.articleTitle)
+                        .put("startedAt", session.startedAt.toString())
+                        .put("completedAt", session.completedAt.toString())
+                        .put("selectedDurationSeconds", session.selectedDurationSeconds)
+                        .put("requiredDurationSeconds", session.requiredDurationSeconds)
+                        .put("secondsSpent", session.secondsSpent)
+                        .put("selectedOptionIndex", session.selectedOptionIndex)
+                        .put("validCompletion", session.validCompletion)
+                        .put("answerText", session.answerText)
+                        .put("completionQuality", session.completionQuality)
+                        .putNullable("failureReason", session.failureReason)
+                        .putNullable("rewardApplied", session.rewardApplied)
+                        .putNullable("waitCutMinutes", session.waitCutMinutes)
+                        .putNullable("helpfulnessRating", session.helpfulnessRating),
+                )
+            }
+        }
 
     private fun List<RecoverySessionEntity>.toRecoverySessionsJson(): JSONArray =
         JSONArray().also { array ->

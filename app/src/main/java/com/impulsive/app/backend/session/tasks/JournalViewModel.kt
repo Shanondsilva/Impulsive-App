@@ -7,6 +7,7 @@ import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.repository.JournalRepository
 import com.impulsive.app.backend.data.repository.MoveDirection
+import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -30,6 +33,7 @@ data class JournalListUiState(
     val recentNotes: List<JournalNoteEntity> = emptyList(),
     val noteCount: Int = 0,
     val maxNotes: Int = JournalViewModel.MaxNormalJournalSaves,
+    val feedbackDoneToday: Boolean = false,
 ) {
     val canCreateMore: Boolean get() = noteCount < maxNotes
 }
@@ -55,9 +59,12 @@ data class JournalEditorUiState(
 
 class JournalViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = JournalRepository(application)
+    private val taskRewardRepository = TaskRewardRepository(application)
 
     companion object {
         const val MaxNormalJournalSaves = 50
+        const val NoteCreationLevelPoints = 10
+        const val FeedbackNoteLevelPoints = 4
     }
 
     private val _listState = MutableStateFlow(JournalListUiState())
@@ -74,7 +81,14 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
     init {
         viewModelScope.launch {
             repository.observeNotes().collect { notes ->
-                _listState.update { it.copy(notes = notes) }
+                val today = LocalDate.now(ReminderZone)
+                val feedbackDoneToday = notes.any { note ->
+                    note.noteType == JournalNoteType.Feedback.storageValue &&
+                        Instant.ofEpochMilli(note.createdAtMillis)
+                            .atZone(ReminderZone)
+                            .toLocalDate() == today
+                }
+                _listState.update { it.copy(notes = notes, feedbackDoneToday = feedbackDoneToday) }
             }
         }
         viewModelScope.launch {
@@ -276,6 +290,11 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
     fun saveCurrent(onSaved: (() -> Unit)? = null) {
         val current = _editorState.value
         val isNewNote = current.noteId == 0L
+        val hasMeaningfulContent = current.bodyDraft.isNotBlank() ||
+            current.sketchDraft.isNotBlank() ||
+            current.titleDraft.isNotBlank() ||
+            current.checklistItems.any { it.text.isNotBlank() } ||
+            current.reminderAtMillis != null
         if (isNewNote && _listState.value.noteCount >= MaxNormalJournalSaves) {
             _editorState.update { it.copy(noteLimitReached = true, savedNoteId = null) }
             return
@@ -314,6 +333,22 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         }
         viewModelScope.launch {
             val savedId = repository.upsertNote(note, checklistEntities)
+            // A newly created note with real content earns level points once.
+            // Re-saving an existing note does not, since by then noteId is no longer
+            // 0, so the reward cannot be farmed by saving the same note repeatedly.
+            if (isNewNote && hasMeaningfulContent && current.type != JournalNoteType.Feedback) {
+                taskRewardRepository.awardLevelPoints(NoteCreationLevelPoints)
+            }
+            // The first feedback note of the day, with something written, earns a
+            // small Level Points reward. The award is capped to once per day in the
+            // reward store, and feedback notes are limited to one per day, so it
+            // cannot be farmed.
+            if (isNewNote &&
+                current.type == JournalNoteType.Feedback &&
+                current.bodyDraft.isNotBlank()
+            ) {
+                taskRewardRepository.awardNoteCreationPointsIfNewDay(FeedbackNoteLevelPoints)
+            }
             activeEditorNoteId = savedId
             _editorState.update {
                 it.copy(
@@ -449,6 +484,7 @@ private fun JournalNoteType.defaultTitle(): String = when (this) {
     JournalNoteType.Checklist -> "New list"
     JournalNoteType.Sketch -> "New drawing"
     JournalNoteType.Reminder -> "New reminder"
+    JournalNoteType.Feedback -> "Today's feedback"
 }
 
 private fun List<ChecklistDraftItem>.sortedForDisplay(): List<ChecklistDraftItem> {

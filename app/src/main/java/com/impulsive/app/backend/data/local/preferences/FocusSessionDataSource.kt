@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
 import com.impulsive.app.backend.domain.model.focus.FocusSessionState
+import com.impulsive.app.backend.domain.model.focus.isElapsed
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDateTime
@@ -24,6 +25,25 @@ class FocusSessionDataSource(context: Context) {
         dataStore.edit { preferences ->
             preferences[SessionKey] = session.encode()
         }
+    }
+
+    suspend fun completeIfElapsed(now: LocalDateTime): FocusSessionState? {
+        var completedSession: FocusSessionState? = null
+
+        dataStore.edit { preferences ->
+            val current = preferences[SessionKey]?.decodeFocusSessionOrNull() ?: return@edit
+            if (!current.isLive) return@edit
+            if (!current.isElapsed(now)) return@edit
+
+            val completed = current.copy(
+                phase = FocusSessionPhase.Completed,
+                endedAt = now,
+            )
+            preferences[SessionKey] = completed.encode()
+            completedSession = completed
+        }
+
+        return completedSession
     }
 
     suspend fun clearSession() {

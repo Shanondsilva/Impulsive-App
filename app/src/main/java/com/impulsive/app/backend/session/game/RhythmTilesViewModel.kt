@@ -341,7 +341,7 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
             loopsCompleted = loopsCompleted,
             gameOver = earlyExit,
             durationSec = durationSec,
-            validCompletion = score > 0 && hits > 0 && durationSec >= 5,
+            validCompletion = !earlyExit && score > 0 && hits > 0 && durationSec >= 5,
         )
         tiles = emptyList()
         viewModelScope.launch { dataSource.save(nextHistory) }

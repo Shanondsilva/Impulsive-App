@@ -4,7 +4,6 @@ import android.content.Context
 import com.impulsive.app.backend.data.local.preferences.FocusSessionDataSource
 import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
 import com.impulsive.app.backend.domain.model.focus.FocusSessionState
-import com.impulsive.app.backend.domain.model.focus.isElapsed
 import com.impulsive.app.backend.domain.model.focus.newFocusSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -63,14 +62,8 @@ class FocusSessionRepository(context: Context) {
      * completed session exactly once: subsequent calls return null so reward
      * granting cannot double-fire.
      */
-    suspend fun completeIfElapsed(now: LocalDateTime = LocalDateTime.now()): FocusSessionState? {
-        val current = dataSource.session.first() ?: return null
-        if (!current.isLive) return null
-        if (!current.isElapsed(now)) return null
-        val completed = current.copy(phase = FocusSessionPhase.Completed, endedAt = now)
-        dataSource.saveSession(completed)
-        return completed
-    }
+    suspend fun completeIfElapsed(now: LocalDateTime = LocalDateTime.now()): FocusSessionState? =
+        dataSource.completeIfElapsed(now)
 
     /** Ending early is calm and keeps the record; no punishment semantics. */
     suspend fun endEarly(now: LocalDateTime = LocalDateTime.now()) {

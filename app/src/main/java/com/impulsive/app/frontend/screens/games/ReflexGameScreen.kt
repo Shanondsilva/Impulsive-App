@@ -1,5 +1,6 @@
 package com.impulsive.app.frontend.screens.games
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -42,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlin.random.Random
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -88,6 +90,7 @@ private val ReflexPrimaryButtonText = Color(0xFF281D38)
 fun ReflexGameScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlayAnother: () -> Unit = {},
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.RECOVERY_GAME,
     viewModel: ReflexGameViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -158,6 +161,12 @@ fun ReflexGameScreen(
         }
     }
 
+    val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
+    val mustReplay = uiState.view == GameView.Result && uiState.result?.gameOver == true
+    // A block-launched round that ended early has no allowed exit: swallow back so
+    // the only way on is to finish a full round. Hub rounds keep back.
+    BackHandler(enabled = mustReplay && taskLaunch) { }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -169,29 +178,31 @@ fun ReflexGameScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(
-                onClick = {
-                    if (uiState.view == GameView.Result) {
-                        viewModel.recordCurrentResult(
-                            outcome = if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {
-                                if (uiState.result?.validCompletion == true) {
-                                    ScoreSessionOutcome.Completed
+            if (!(mustReplay && taskLaunch)) {
+                IconButton(
+                    onClick = {
+                        if (uiState.view == GameView.Result) {
+                            viewModel.recordCurrentResult(
+                                outcome = if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {
+                                    if (uiState.result?.validCompletion == true) {
+                                        ScoreSessionOutcome.Completed
+                                    } else {
+                                        ScoreSessionOutcome.Abandoned
+                                    }
                                 } else {
-                                    ScoreSessionOutcome.Abandoned
-                                }
-                            } else {
-                                ScoreSessionOutcome.ContinuedWithIntention
-                            },
-                        )
-                    }
-                    onExit()
-                },
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onBackground,
-                )
+                                    ScoreSessionOutcome.ContinuedWithIntention
+                                },
+                            )
+                        }
+                        onExit()
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onBackground,
+                    )
+                }
             }
             Text(
                 text = "Reflex Override",
@@ -228,6 +239,7 @@ fun ReflexGameScreen(
                     viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
                     viewModel.startCountdown()
                 },
+                onPlayAnother = onPlayAnother,
                 onExit = {
                     viewModel.recordCurrentResult(
                         outcome = if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {
@@ -277,18 +289,22 @@ private fun ReadyView(
             )
         }
         Spacer(modifier = Modifier.height(18.dp))
+        val showUrgeGate = remember { Random.nextInt(10) < 4 }
         var selectedUrgeBefore by remember { mutableStateOf<Int?>(null) }
-        UrgeRatingRow(
-            label = "How strong is the urge right now?",
-            selected = selectedUrgeBefore,
-            onSelect = { value ->
-                selectedUrgeBefore = value
-                onUrgeBeforeSelected(value)
-            },
-        )
+        if (showUrgeGate) {
+            UrgeRatingRow(
+                label = "How strong is the urge right now?",
+                selected = selectedUrgeBefore,
+                onSelect = { value ->
+                    selectedUrgeBefore = value
+                    onUrgeBeforeSelected(value)
+                },
+            )
+        }
         Spacer(modifier = Modifier.height(18.dp))
         Button(
             onClick = onStart,
+            enabled = !showUrgeGate || selectedUrgeBefore != null,
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = ImpulsivePsychological,
@@ -462,16 +478,15 @@ private fun ResultView(
     nextWindowText: String,
     onWalkAway: () -> Unit,
     onPlayAgain: () -> Unit,
+    onPlayAnother: () -> Unit,
     onExit: () -> Unit,
 ) {
     if (result == null) return
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
     CenterPanel {
         Text(
-            text = if (taskLaunch && result.validCompletion) {
-                "Reflex Override complete"
-            } else if (result.gameOver) {
-                "Round complete"
+            text = if (result.gameOver) {
+                "Round didn't finish"
             } else {
                 "Reflex Override complete"
             },
@@ -532,43 +547,72 @@ private fun ResultView(
             StatRow("Next window", nextWindowText.removePrefix("Next window in "))
         }
         Spacer(modifier = Modifier.height(22.dp))
-        Button(
-            onClick = if (taskLaunch) onExit else onWalkAway,
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = ImpulsivePsychological,
-                contentColor = ReflexPrimaryButtonText,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (taskLaunch) "Return protected" else "Walk away (+${ReflexGameConfig.WALK_AWAY_BONUS})")
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "Choosing to stop is the strongest move.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        if (taskLaunch) {
-            OutlinedButton(
-                onClick = onExit,
-                shape = RoundedCornerShape(28.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("View next window")
-            }
-        } else {
-            OutlinedButton(
+        if (result.gameOver) {
+            Text(
+                text = "Only a full round counts. Keep going.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
                 onClick = onPlayAgain,
                 shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = ReflexPrimaryButtonText,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Play again")
+                Text("Play same game")
             }
-            TextButton(onClick = onExit) {
-                Text("Back")
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onPlayAnother,
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Play another")
+            }
+        } else {
+            Button(
+                onClick = if (taskLaunch) onExit else onWalkAway,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImpulsivePsychological,
+                    contentColor = ReflexPrimaryButtonText,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (taskLaunch) "Return protected" else "Walk away (+${ReflexGameConfig.WALK_AWAY_BONUS})")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Choosing to stop is the strongest move.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (taskLaunch) {
+                OutlinedButton(
+                    onClick = onExit,
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("View next window")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onPlayAgain,
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Play again")
+                }
+                TextButton(onClick = onExit) {
+                    Text("Back")
+                }
             }
         }
     }

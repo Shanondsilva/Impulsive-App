@@ -22,6 +22,12 @@ class TaskRewardViewModel(
 ) : AndroidViewModel(application) {
     private val repository = TaskRewardRepository(application)
 
+    init {
+        viewModelScope.launch {
+            repository.removeLegacyDeletedTaskRewards()
+        }
+    }
+
     val storeState: StateFlow<TaskRewardStoreState> = repository.storeState
         .stateIn(
             scope = viewModelScope,
