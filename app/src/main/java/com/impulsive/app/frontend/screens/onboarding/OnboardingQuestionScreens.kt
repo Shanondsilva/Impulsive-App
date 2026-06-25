@@ -30,6 +30,10 @@ import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import com.impulsive.app.backend.session.onboarding.OnboardingState
 import kotlinx.coroutines.delay
 
+private const val OnboardingQuestionInfo =
+    "These quick questions help Impulsive understand your patterns so it can shape a " +
+        "plan that fits you. There are no wrong answers, and you can change them later."
+
 @Composable
 fun OnboardingQuestionScreen(
     questionId: OnboardingQuestionId,
@@ -44,25 +48,37 @@ fun OnboardingQuestionScreen(
         OnboardingQuestionId.Interrupting -> ReduceQuestionScreen(
             selectedOptionIds = state.answers.interrupting,
             onSelectionChanged = { onMultiSelectAnswerChanged(questionId, it) },
-            stepUi = OnboardingFlowStep.Reduction.toStepUi(showSkip = onSkip != null),
+            stepUi = OnboardingFlowStep.Reduction.toStepUi(
+                showSkip = onSkip != null,
+                infoText = OnboardingQuestionInfo,
+            ),
             onBack = onBack, onContinue = onContinue, onSkip = onSkip,
         )
         OnboardingQuestionId.Triggers -> TriggerQuestionScreen(
             selectedOptionIds = state.answers.triggers,
             onSelectionChanged = { onMultiSelectAnswerChanged(questionId, it) },
-            stepUi = OnboardingFlowStep.Triggers.toStepUi(showSkip = onSkip != null),
+            stepUi = OnboardingFlowStep.Triggers.toStepUi(
+                showSkip = onSkip != null,
+                infoText = OnboardingQuestionInfo,
+            ),
             onBack = onBack, onContinue = onContinue, onSkip = onSkip,
         )
         OnboardingQuestionId.Timing -> TimingQuestionScreen(
             selectedOptionIds = state.answers.timing,
             onSelectionChanged = { onMultiSelectAnswerChanged(questionId, it) },
-            stepUi = OnboardingFlowStep.Timing.toStepUi(showSkip = onSkip != null),
+            stepUi = OnboardingFlowStep.Timing.toStepUi(
+                showSkip = onSkip != null,
+                infoText = OnboardingQuestionInfo,
+            ),
             onBack = onBack, onContinue = onContinue, onSkip = onSkip,
         )
         OnboardingQuestionId.WeekOneGoal -> WeekOneQuestionScreen(
             selectedOptionId = state.answers.weekOneGoal,
             onSelectionChanged = { onSingleSelectAnswerChanged(questionId, it) },
-            stepUi = OnboardingFlowStep.WeekOne.toStepUi(showSkip = onSkip != null),
+            stepUi = OnboardingFlowStep.WeekOne.toStepUi(
+                showSkip = onSkip != null,
+                infoText = OnboardingQuestionInfo,
+            ),
             onBack = onBack, onContinue = onContinue, onSkip = onSkip,
         )
     }

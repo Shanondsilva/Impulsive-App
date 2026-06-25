@@ -63,8 +63,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
@@ -426,6 +432,11 @@ private fun NativeArticleView(
                         title = block.title,
                         caption = block.caption,
                     )
+                    is ArticleBlock.Lottie -> InlineArticleLottie(
+                        rawResName = block.rawResName,
+                        title = block.title,
+                        caption = block.caption,
+                    )
                 }
                 if (index != article.blocks.lastIndex) {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -502,7 +513,9 @@ private fun InlineArticleVideo(
     val exoPlayer = remember(mediaUri) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(mediaUri))
-            playWhenReady = false
+            volume = 0f
+            repeatMode = Player.REPEAT_MODE_ONE
+            playWhenReady = true
             prepare()
         }
     }
@@ -537,7 +550,7 @@ private fun InlineArticleVideo(
                 factory = { viewContext ->
                     PlayerView(viewContext).apply {
                         player = exoPlayer
-                        useController = true
+                        useController = false
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     }
                 },
@@ -549,6 +562,80 @@ private fun InlineArticleVideo(
                     .height(190.dp)
                     .clip(RoundedCornerShape(18.dp)),
             )
+
+            if (caption != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InlineArticleLottie(
+    rawResName: String,
+    title: String,
+    caption: String? = null,
+) {
+    val context = LocalContext.current
+    val safeRawResName = remember(rawResName) {
+        rawResName
+            .substringAfterLast("/")
+            .substringAfterLast("\\")
+            .removeSuffix(".json")
+            .trim()
+    }
+    val rawResId = remember(safeRawResName) {
+        context.resources.getIdentifier(safeRawResName, "raw", context.packageName)
+    }
+
+    Surface(
+        color = ImpulsiveSurface,
+        shape = RoundedCornerShape(22.dp),
+        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+        } else {
+            null
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (rawResId == 0) {
+                Text(
+                    text = "Animation unavailable",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            } else {
+                val composition by rememberLottieComposition(
+                    spec = LottieCompositionSpec.RawRes(rawResId),
+                )
+                val progress by animateLottieCompositionAsState(
+                    composition = composition,
+                    iterations = LottieConstants.IterateForever,
+                )
+
+                LottieAnimation(
+                    composition = composition,
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                )
+            }
 
             if (caption != null) {
                 Spacer(modifier = Modifier.height(10.dp))

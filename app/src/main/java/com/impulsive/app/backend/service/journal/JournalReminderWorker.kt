@@ -33,6 +33,7 @@ class JournalReminderWorker(
         }
 
         val noteId = inputData.getLong(KeyNoteId, 0L)
+        val notificationId = (noteId and Int.MAX_VALUE.toLong()).toInt().coerceAtLeast(1)
         val rawTitle = inputData.getString(KeyTitle).orEmpty()
         val rawPreview = inputData.getString(KeyPreview).orEmpty()
         val title = rawTitle.ifBlank { "Journal reminder" }
@@ -44,22 +45,23 @@ class JournalReminderWorker(
         }
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,
-            noteId.toInt().coerceAtLeast(1),
+            notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
         val notification = NotificationCompat.Builder(applicationContext, ChannelId)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(preview)
             .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
-        NotificationManagerCompat.from(applicationContext).notify(noteId.toInt().coerceAtLeast(1), notification)
+        NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
         return Result.success()
     }
 

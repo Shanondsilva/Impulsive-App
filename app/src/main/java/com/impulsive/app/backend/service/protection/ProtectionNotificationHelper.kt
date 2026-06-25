@@ -68,7 +68,7 @@ class ProtectionNotificationHelper(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(context, MonitoringChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notif_monitoring_title))
             .setContentText(context.getString(R.string.notif_monitoring_body))
             .setContentIntent(pendingIntent)
@@ -92,7 +92,7 @@ class ProtectionNotificationHelper(
             .toEpochMilli()
 
         val notification = NotificationCompat.Builder(context, MonitoringChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (hideSensitive) "Impulsive" else "Focus is running")
             .setContentText(
                 if (hideSensitive) {
@@ -123,6 +123,38 @@ class ProtectionNotificationHelper(
         }
     }
 
+    fun showOneMinuteAccessCountdown(
+        sourceLabel: String,
+        remainingSeconds: Int,
+        hideSensitive: Boolean = false,
+    ) {
+        val title = if (hideSensitive) "Impulsive" else "Quick access"
+        val text = if (hideSensitive) {
+            "Locks again in ${remainingSeconds}s"
+        } else {
+            "$sourceLabel locks again in ${remainingSeconds}s"
+        }
+        val notification = NotificationCompat.Builder(context, MonitoringChannelId)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(homePendingIntent(OneMinuteAccessNotificationId))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        runCatching {
+            NotificationManagerCompat.from(context).notify(OneMinuteAccessNotificationId, notification)
+        }
+    }
+
+    fun cancelOneMinuteAccessCountdown() {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(OneMinuteAccessNotificationId)
+        }
+    }
+
     fun cancelBlockFullScreen() {
         runCatching {
             NotificationManagerCompat.from(context).cancel(BlockFullScreenNotificationId)
@@ -145,7 +177,7 @@ class ProtectionNotificationHelper(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (hideSensitive) "Impulsive" else context.getString(R.string.notif_blocked_attempt_title))
             .setContentText(if (hideSensitive) "Open Impulsive to continue." else context.getString(R.string.notif_blocked_attempt_body, sourceLabel))
             .setContentIntent(pendingIntent)
@@ -176,11 +208,10 @@ class ProtectionNotificationHelper(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (hideSensitive) "Impulsive" else context.getString(R.string.notif_block_fullscreen_title, sourceLabel))
             .setContentText(if (hideSensitive) "Open Impulsive to continue." else context.getString(R.string.notif_block_fullscreen_body))
             .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -198,7 +229,7 @@ class ProtectionNotificationHelper(
             .toInstant()
             .toEpochMilli()
         val notification = NotificationCompat.Builder(context, ReleaseWindowChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notif_release_window_open_title))
             .setContentText(context.getString(R.string.notif_release_window_open_body, windowEnd.toImpulsiveCompactTime()))
             .setContentIntent(homePendingIntent(ReleaseWindowPausedNotificationId))
@@ -217,7 +248,7 @@ class ProtectionNotificationHelper(
 
     fun showProtectionResumedNotification() {
         val notification = NotificationCompat.Builder(context, ReleaseWindowChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notif_protection_resumed_title))
             .setContentText(context.getString(R.string.notif_protection_resumed_body))
             .setContentIntent(homePendingIntent(ProtectionResumedNotificationId))
@@ -246,7 +277,7 @@ class ProtectionNotificationHelper(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(context, MonitoringChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notif_vpn_title))
             .setContentText(context.getString(R.string.notif_vpn_body))
             .setContentIntent(pendingIntent)
@@ -268,5 +299,6 @@ class ProtectionNotificationHelper(
         const val BlockFullScreenNotificationId = 4205
         const val VpnNotificationId = 4206
         const val FocusSessionNotificationId = 4207
+        const val OneMinuteAccessNotificationId = 4208
     }
 }

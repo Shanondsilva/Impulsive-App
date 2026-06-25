@@ -160,15 +160,7 @@ fun WelcomePrivacyScreen(
 
         Spacer(modifier = Modifier.height(metrics.inputToAvatarTitleSpacing))
 
-        Text(
-            text = "Choose an avatar",
-            color = SereneText,
-            fontSize = 17.sp,
-            lineHeight = 24.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
+
 
         Spacer(modifier = Modifier.height(metrics.avatarTitleToPickerSpacing))
 
@@ -378,14 +370,7 @@ private fun AvatarPicker(
                     lineHeight = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = "Pick how Impulsive represents you.",
-                    color = Color(0xFF6D6874),
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                )
+
             }
 
             AvatarPickerChevron(

@@ -172,14 +172,28 @@ fun SettingsScreen(
     onOpenSkylineResetTask: () -> Unit = {},
     onOpenRhythmTilesTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
+    onOpenHelp: () -> Unit = {},
     onOpenUninstallProtection: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
+    onOpenProtectionSetupGuide: () -> Unit = {},
     indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
     isActive: Boolean = true,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val homeGuideContext = androidx.compose.ui.platform.LocalContext.current
+    val homeGuideStore = remember {
+        com.impulsive.app.backend.data.local.preferences.HomeGuideStore(homeGuideContext)
+    }
+    var homeGuideReplayRequested by remember { mutableStateOf(false) }
+    LaunchedEffect(homeGuideReplayRequested) {
+        if (homeGuideReplayRequested) {
+            homeGuideStore.reset()
+            homeGuideReplayRequested = false
+            onOpenHome()
+        }
+    }
     val appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val appLockViewModel: AppLockViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -267,7 +281,7 @@ fun SettingsScreen(
             if (protectionSetupState.profileBadgeShouldShow) {
                 ProtectionSetupIncompleteCard(
                     protectionSetupState = protectionSetupState,
-                    onOpenProtectionSetup = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
+                    onOpenProtectionSetup = { appLockGuard.run(enabled = true) { onOpenProtectionSetupGuide() } },
                 )
             }
             PlusGroup(
@@ -280,6 +294,7 @@ fun SettingsScreen(
                 haptics = haptics,
                 hapticsEnabled = appSettingsState.hapticsEnabled,
                 onHapticsChanged = appSettingsViewModel::setHapticsEnabled,
+                onReplayGuide = { homeGuideReplayRequested = true },
             )
             RecoverySetupGroup(
                 answers = onboardingState.answers,
@@ -297,6 +312,7 @@ fun SettingsScreen(
                 onOpenBlockedApps = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
                 onOpenUninstallProtection = onOpenUninstallProtection,
                 onOpenWebsiteProtectionPlus = onOpenWebsiteProtectionPlus,
+                haptics = haptics,
             )
             PrivacyAccountGroup(
                 appLockEnabled = appLockEnabled,
@@ -339,7 +355,10 @@ fun SettingsScreen(
                     }
                 },
             )
-            SupportGroup(haptics = haptics)
+            SupportGroup(
+                haptics = haptics,
+                onOpenHelp = onOpenHelp,
+            )
         }
 
         if (mindModeSheetVisible) {
@@ -816,6 +835,7 @@ private fun AppearanceGroup(
     haptics: ImpulsiveHaptics,
     hapticsEnabled: Boolean,
     onHapticsChanged: (Boolean) -> Unit,
+    onReplayGuide: () -> Unit,
 ) {
     AccordionGroup(
         title = "Appearance",
@@ -845,6 +865,12 @@ private fun AppearanceGroup(
                     onCheckedChange = onHapticsChanged,
                 )
             },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Replay home guide",
+            subtext = "See the quick tour of the home screen again",
+            onClick = onReplayGuide,
         )
     }
 }
@@ -1076,8 +1102,23 @@ private fun ProtectionFocusGroup(
     onOpenBlockedApps: () -> Unit,
     onOpenUninstallProtection: () -> Unit,
     onOpenWebsiteProtectionPlus: () -> Unit,
+    haptics: ImpulsiveHaptics,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val oneMinuteAccessDataSource = remember {
+        com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource(context)
+    }
+    val oneMinuteAccessState by oneMinuteAccessDataSource.state.collectAsStateWithLifecycle(
+        initialValue = com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState(),
+    )
+    var oneMinuteAccessPending by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(oneMinuteAccessPending) {
+        val target = oneMinuteAccessPending
+        if (target != null) {
+            oneMinuteAccessDataSource.setEnabled(target)
+            oneMinuteAccessPending = null
+        }
+    }
     val selectedCount = protectionState.selectedBlockedAppPackageNames.size
     val monitoredAppsValue = if (selectedCount == 0) "Not configured" else "$selectedCount selected"
     val monitoredAppsSubtext = if (selectedCount == 0) {
@@ -1134,6 +1175,22 @@ private fun ProtectionFocusGroup(
                     Uri.parse("package:" + context.packageName),
                 )
                 runCatching { context.startActivity(intent) }
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "One-minute access",
+            subtext = if (oneMinuteAccessState.enabled) {
+                "Lets you open a blocked app for 45 seconds, then it locks again."
+            } else {
+                "Off. Blocked apps stay fully blocked at the pause screen."
+            },
+            trailing = {
+                SettingsSwitch(
+                    checked = oneMinuteAccessState.enabled,
+                    haptics = haptics,
+                    onCheckedChange = { oneMinuteAccessPending = it },
+                )
             },
         )
         SettingsDivider()
@@ -1367,6 +1424,7 @@ private fun PrivacyAccountGroup(
 @Composable
 private fun SupportGroup(
     haptics: ImpulsiveHaptics,
+    onOpenHelp: () -> Unit,
 ) {
     val context = LocalContext.current
     var showAbout by remember { mutableStateOf(false) }
@@ -1383,9 +1441,7 @@ private fun SupportGroup(
             trailingIcon = Icons.AutoMirrored.Filled.HelpOutline,
             onClick = {
                 haptics.light()
-                val helpIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://useimpulsive.com/help"))
-                    .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                runCatching { context.startActivity(helpIntent) }
+                onOpenHelp()
             },
         )
         SettingsDivider()
@@ -2244,7 +2300,7 @@ private fun DeleteAccountPasswordDialog(
     )
 }
 
-private fun sendSupportEmail(context: Context, subject: String, body: String = "") {
+internal fun sendSupportEmail(context: Context, subject: String, body: String = "") {
     val uri = Uri.parse(
         "mailto:Hello@useimpulsive.com" +
             "?subject=" + Uri.encode(subject) +
@@ -2254,7 +2310,7 @@ private fun sendSupportEmail(context: Context, subject: String, body: String = "
     runCatching { context.startActivity(intent) }
 }
 
-private fun appVersionName(context: Context): String =
+internal fun appVersionName(context: Context): String =
     runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName
     }.getOrNull() ?: "1.0"
@@ -2336,7 +2392,7 @@ private val TimingLabels = mapOf(
 
 private val WeekOneLabels = mapOf(
     "notice_triggers" to "Notice my cues",
-    "cut_down_a_little" to "Cut down a little",
     "daily_reset_habit" to "Build one daily reset habit",
     "cut_down_by_half" to "Cut down by half",
+    "cut_down_a_little" to "Cut it down fully",
 )

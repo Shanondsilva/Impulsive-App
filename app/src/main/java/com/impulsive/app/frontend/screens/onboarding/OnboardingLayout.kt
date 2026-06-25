@@ -29,13 +29,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,30 +57,32 @@ internal data class OnboardingStepUi(
     val totalSteps: Int,
     val showBack: Boolean,
     val showSkip: Boolean,
+    val infoText: String? = null,
 )
 
 internal enum class OnboardingFlowStep(
     val stepNumber: Int,
 ) {
     Personalization(stepNumber = 1),
-    Notifications(stepNumber = 2),
-    Reduction(stepNumber = 3),
-    Triggers(stepNumber = 4),
-    Timing(stepNumber = 5),
-    WeekOne(stepNumber = 6),
-    DailyRelapseCount(stepNumber = 7),
-    ProtectionSetup(stepNumber = 8),
-    StartingPoint(stepNumber = 9),
+    Reduction(stepNumber = 2),
+    Triggers(stepNumber = 3),
+    Timing(stepNumber = 4),
+    WeekOne(stepNumber = 5),
+    DailyRelapseCount(stepNumber = 6),
+    ProtectionSetup(stepNumber = 7),
+    StartingPoint(stepNumber = 8),
 }
 
 internal fun OnboardingFlowStep.toStepUi(
     showBack: Boolean = this != OnboardingFlowStep.Personalization,
     showSkip: Boolean = false,
+    infoText: String? = null,
 ): OnboardingStepUi = OnboardingStepUi(
     currentStep = stepNumber,
     totalSteps = OnboardingTotalSteps,
     showBack = showBack,
     showSkip = showSkip,
+    infoText = infoText,
 )
 
 internal object OnboardingLayoutDefaults {
@@ -228,12 +235,16 @@ private fun OnboardingStepHeader(
             }
         }
 
-        Box(
+        Row(
             modifier = Modifier
-                .width(64.dp)
+                .widthIn(min = 64.dp)
                 .height(44.dp),
-            contentAlignment = Alignment.CenterEnd,
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            stepUi.infoText?.let { infoText ->
+                OnboardingInfoMark(text = infoText)
+            }
             if (stepUi.showSkip && onSkip != null) {
                 Text(
                     text = "Skip",
@@ -250,6 +261,48 @@ private fun OnboardingStepHeader(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun OnboardingInfoMark(text: String) {
+    var open by remember { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(OnboardingInactiveDot.copy(alpha = 0.45f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { open = true },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "i",
+            color = OnboardingHeaderText,
+            fontSize = 15.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(onClick = { open = false }) {
+                    Text(text = "Got it")
+                }
+            },
+            text = {
+                Text(
+                    text = text,
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp,
+                )
+            },
+        )
     }
 }
 
@@ -366,7 +419,7 @@ private fun OnboardingQuestionScaffoldShell(
     }
 }
 
-private const val OnboardingTotalSteps = 9
+private const val OnboardingTotalSteps = 8
 private val OnboardingActiveDot = Color(0xFF635880)
 private val OnboardingInactiveDot = Color(0xFFE6E1E5)
 private val OnboardingHeaderText = Color(0xFF635880)

@@ -19,12 +19,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.firebase.auth.FirebaseAuth
-import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.preferences.AppLockPreferencesDataSource
-import com.impulsive.app.backend.data.sync.RecoverySessionCloudSync
-import com.impulsive.app.backend.data.sync.JournalNoteCloudSync
-import com.impulsive.app.backend.data.sync.JournalChecklistCloudSync
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.session.auth.AuthViewModel
@@ -45,6 +40,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         AppLockPreferencesDataSource(applicationContext)
     }
     private val pendingBlockRequest = mutableStateOf<BlockRequest?>(null)
+    private val pendingJournalNoteId = mutableStateOf<Long?>(null)
     private val blockLaunchBypassActive = mutableStateOf(false)
     private val unlockedThisSession = mutableStateOf(false)
     private val showGuestPinResetDialog = mutableStateOf(false)
@@ -55,25 +51,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
         blockLaunchBypassActive.value = pendingBlockRequest.value != null
+        pendingJournalNoteId.value = intent.openJournalNoteIdOrNull()
         if (pendingBlockRequest.value != null) {
             cancelBlockFullScreenNotification()
         }
         refreshEmailVerificationIfReturnIntent(intent)
         com.impulsive.app.backend.service.journal.FeedbackPromptScheduler(this).scheduleDailyNudge()
-
-        lifecycleScope.launch {
-            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@launch
-            val database = AppDatabase.getInstance(applicationContext)
-            runCatching {
-                RecoverySessionCloudSync().sync(database.recoverySessionDao(), uid)
-            }
-            runCatching {
-                JournalNoteCloudSync().sync(database.journalNoteDao(), uid)
-            }
-            runCatching {
-                JournalChecklistCloudSync().sync(database.journalNoteDao(), uid)
-            }
-        }
+        com.impulsive.app.backend.service.journal.FeedbackReadingScheduler(this).scheduleDailyReading()
+        com.impulsive.app.backend.service.sync.CloudSyncWorker.enqueue(applicationContext)
 
         setContent {
             val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -119,6 +104,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         authViewModel = authViewModel,
                         initialBlockRequest = pendingBlockRequest.value,
                         onBlockRequestConsumed = { pendingBlockRequest.value = null },
+                        initialJournalNoteId = pendingJournalNoteId.value,
+                        onJournalNoteConsumed = { pendingJournalNoteId.value = null },
                     )
                 }
                 if (showGuestPinResetDialog.value) {
@@ -151,6 +138,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
+        pendingJournalNoteId.value = intent.openJournalNoteIdOrNull()
         if (pendingBlockRequest.value != null) {
             blockLaunchBypassActive.value = true
             cancelBlockFullScreenNotification()
@@ -174,6 +162,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         authViewModel.forwardActivityResult(requestCode, resultCode, data)
+    }
+
+    private fun Intent?.openJournalNoteIdOrNull(): Long? {
+        val id = this?.getLongExtra(
+            com.impulsive.app.backend.service.journal.JournalReminderWorker.ExtraOpenJournalNoteId,
+            0L,
+        ) ?: 0L
+        return if (id > 0L) id else null
     }
 
     private fun Intent?.toBlockRequestOrNull(): BlockRequest? {

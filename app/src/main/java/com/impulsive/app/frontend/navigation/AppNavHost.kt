@@ -53,13 +53,13 @@ import com.impulsive.app.frontend.screens.journal.JournalListScreen
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.service.protection.ImpulsiveVpnController
+import com.impulsive.app.backend.service.protection.ProtectionServiceController
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.protection.DnsFilterGateViewModel
 import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.service.billing.BillingManager
 import com.impulsive.app.frontend.screens.onboarding.LoginSignupGuestScreen
-import com.impulsive.app.frontend.screens.onboarding.NotificationPermissionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingDailyRelapseCountScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingQuestionScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingStartingPointScreen
@@ -76,7 +76,10 @@ import com.impulsive.app.frontend.screens.protection.UninstallProtectionScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.premium.WebsiteProtectionPlusScreen
 import com.impulsive.app.frontend.screens.protection.DnsFilterGateScreen
+import com.impulsive.app.frontend.screens.settings.HelpFaqScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
+import com.impulsive.app.frontend.screens.settings.appVersionName
+import com.impulsive.app.frontend.screens.settings.sendSupportEmail
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 import com.impulsive.app.backend.session.tasks.ResetReadLaunchMode
@@ -89,7 +92,6 @@ object OnboardingRoutes {
     const val LogoIntro = "logo_intro"
     const val LoginSignupGuest = "login_signup_guest"
     const val WelcomePrivacy = "welcome_privacy"
-    const val NotificationPermission = "notification_permission"
     const val QuestionInterrupting = "question_interrupting"
     const val QuestionTiming = "question_timing"
     const val QuestionTriggers = "question_triggers"
@@ -107,6 +109,7 @@ object AppRoutes {
 
     const val Home = "level_one_reveal"
     const val Settings = "settings"
+    const val HelpFaq = "help_faq"
     const val Score = "score"
     const val Focus = "focus"
     const val FocusRecovery = "focus_recovery"
@@ -123,6 +126,8 @@ object AppRoutes {
     const val ResetReadFallbackTask = "reset_read_fallback_task"
     const val TaskToComplete = "task_to_complete"
     const val WebsiteProtectionPlus = "website_protection_plus"
+    const val ProtectionSetupGuide = "protection_setup_guide"
+    const val ProtectionSetupGuideBlockedApps = "protection_setup_guide_blocked_apps"
     const val DnsFilterGate = "dns_filter_gate"
     const val JournalHub = "journal_hub"
     const val JournalList = "journal_list"
@@ -145,6 +150,8 @@ fun AppNavHost(
     authViewModel: AuthViewModel,
     initialBlockRequest: BlockRequest? = null,
     onBlockRequestConsumed: () -> Unit = {},
+    initialJournalNoteId: Long? = null,
+    onJournalNoteConsumed: () -> Unit = {},
 ) {
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
@@ -210,6 +217,17 @@ fun AppNavHost(
         return
     }
 
+    // Keep the protection monitor running whenever the user has protected apps
+    // configured. Without this the service only ever started on reboot, on a
+    // focus session, or via a manual Settings button, so the block screen,
+    // persistent notification, and one-minute timer never appeared on a normal
+    // app open. Re-runs when the protected list changes. Start is idempotent.
+    LaunchedEffect(protectionSetupState.selectedBlockedAppPackageNames) {
+        if (protectionSetupState.selectedBlockedAppPackageNames.isNotEmpty()) {
+            ProtectionServiceController.start(context)
+        }
+    }
+
     LaunchedEffect(initialBlockRequest, state.isCompleted) {
         val request = initialBlockRequest
         if (request != null && state.isCompleted) {
@@ -228,6 +246,16 @@ fun AppNavHost(
                 }
             }
             onBlockRequestConsumed()
+        }
+    }
+
+    LaunchedEffect(initialJournalNoteId, state.isCompleted) {
+        val noteId = initialJournalNoteId
+        if (noteId != null && noteId > 0L && state.isCompleted) {
+            navController.navigate(AppRoutes.journalNoteEdit(noteId)) {
+                launchSingleTop = true
+            }
+            onJournalNoteConsumed()
         }
     }
 
@@ -250,6 +278,22 @@ fun AppNavHost(
             navController.navigate(OnboardingRoutes.LoginSignupGuest) {
                 launchSingleTop = true
             }
+        }
+    }
+
+    // When the app was launched by a block, start the main graph directly on the
+    // pause screen (or the focus recovery screen) so the dark home background does
+    // not flash before the navigation lands on it. Computed once after loading.
+    val mainStartDestination = remember(state.isCompleted) {
+        val request = initialBlockRequest
+        when {
+            !state.isCompleted -> AppRoutes.Home
+            request == null -> AppRoutes.Home
+            request.isFocusSession -> AppRoutes.FocusRecovery
+            else -> AppRoutes.impulsiveBlock(
+                sourcePackageName = request.sourcePackageName,
+                sourceLabel = request.sourceLabel,
+            )
         }
     }
 
@@ -294,22 +338,7 @@ fun AppNavHost(
                             name = name,
                             avatarId = avatarId,
                         ) {
-                            navController.navigateOnboarding(OnboardingRoutes.NotificationPermission)
-                        }
-                    },
-                )
-            }
-
-            composable(OnboardingRoutes.NotificationPermission) {
-                BackHandler { navigateBackOnboardingSafely() }
-                NotificationPermissionScreen(
-                    onContinue = {
-                        navController.navigateOnboarding(OnboardingRoutes.QuestionInterrupting)
-                    },
-                    onPermissionResult = { granted ->
-                        protectionSetupViewModel.setNotificationPermissionEnabled(granted)
-                        if (!granted) {
-                            protectionSetupViewModel.markSkipped(ProtectionSetupItem.Notifications)
+                            navController.navigateOnboarding(OnboardingRoutes.QuestionInterrupting)
                         }
                     },
                 )
@@ -483,7 +512,7 @@ fun AppNavHost(
 
         navigation(
             route = AppRoutes.Graph,
-            startDestination = AppRoutes.Home,
+            startDestination = mainStartDestination,
         ) {
             composable(AppRoutes.Home) {
                 HomeScreen(
@@ -492,6 +521,9 @@ fun AppNavHost(
                     },
                     onOpenJournal = {
                         navController.navigateMainTop(AppRoutes.JournalList)
+                    },
+                    onCreateJournalNote = { type ->
+                        navController.navigate(AppRoutes.journalNoteNew(type))
                     },
                     onOpenReflexOverrideTask = {
                         navController.navigate(AppRoutes.ReflexGameTask)
@@ -614,6 +646,11 @@ fun AppNavHost(
                     onOpenResetReadTask = {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
+                    onOpenHelp = {
+                        navController.navigate(AppRoutes.HelpFaq) {
+                            launchSingleTop = true
+                        }
+                    },
                     onOpenUninstallProtection = {
                         navController.navigate(AppRoutes.UninstallProtection) {
                             launchSingleTop = true
@@ -621,6 +658,11 @@ fun AppNavHost(
                     },
                     onOpenWebsiteProtectionPlus = {
                         navController.navigate(AppRoutes.WebsiteProtectionPlus) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenProtectionSetupGuide = {
+                        navController.navigate(AppRoutes.ProtectionSetupGuide) {
                             launchSingleTop = true
                         }
                     },
@@ -635,6 +677,85 @@ fun AppNavHost(
                     },
                     indicatorState = bottomNavIndicatorState,
                     isActive = bottomNavCurrentRoute == AppRoutes.Settings,
+                )
+            }
+
+            composable(AppRoutes.ProtectionSetupGuide) {
+                ProtectionSetupOnboardingScreen(
+                    state = protectionSetupState,
+                    onBack = { navController.safePopBackStack() },
+                    onChooseApps = {
+                        navController.navigate(AppRoutes.ProtectionSetupGuideBlockedApps) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenUsageAccessPermission = {
+                        context.startActivity(usageAccessChecker.createUsageAccessSettingsIntent())
+                    },
+                    onOpenInterruptionPermission = {
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}"),
+                        )
+                        context.startActivity(intent)
+                    },
+                    onOpenBackgroundActivityPermission = {
+                        val intent = if (isIgnoringBatteryOptimizations()) {
+                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        } else {
+                            Intent(
+                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:${context.packageName}"),
+                            )
+                        }
+                        runCatching { context.startActivity(intent) }
+                            .onFailure {
+                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                            }
+                    },
+                    onOpenUninstallProtection = {
+                        navController.navigate(AppRoutes.UninstallProtection) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onSkipItem = protectionSetupViewModel::markSkipped,
+                    onContinue = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(AppRoutes.ProtectionSetupGuideBlockedApps) {
+                BlockedAppsSelectionContent(
+                    selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
+                    onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
+                    onDone = { navController.safePopBackStack() },
+                    allowShowMoreApps = true,
+                    seedRecommendedBrowsers = true,
+                )
+            }
+
+            composable(AppRoutes.HelpFaq) {
+                val context = LocalContext.current
+
+                HelpFaqScreen(
+                    onBack = {
+                        navController.safePopBackStack()
+                    },
+                    onContactSupport = {
+                        sendSupportEmail(
+                            context = context,
+                            subject = "Impulsive support",
+                        )
+                    },
+                    onReportBug = {
+                        sendSupportEmail(
+                            context = context,
+                            subject = "Impulsive bug report",
+                            body = "\n\n---\n" +
+                                "App version: ${appVersionName(context)}\n" +
+                                "Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
+                                "Device: ${Build.MANUFACTURER} ${Build.MODEL}",
+                        )
+                    },
                 )
             }
 
@@ -909,6 +1030,19 @@ fun AppNavHost(
                 val recentlyServedGames by servedGamesRepository.served
                     .collectAsStateWithLifecycle(initialValue = emptyList())
                 val blockGuard = rememberAppLockGuardController()
+                val oneMinuteAccessDataSource = remember {
+                    com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource(context)
+                }
+                val oneMinuteAccessState by oneMinuteAccessDataSource.state
+                    .collectAsStateWithLifecycle(
+                        initialValue = com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState(),
+                    )
+                val oneMinuteAccessAvailable = oneMinuteAccessState.enabled &&
+                    !oneMinuteAccessState.isOnCooldown(
+                        sourcePackageName,
+                        System.currentTimeMillis(),
+                        com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource.OneMinuteAccessCooldownMillis,
+                    )
                 BackHandler {
                     val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
                         addCategory(android.content.Intent.CATEGORY_HOME)
@@ -950,6 +1084,22 @@ fun AppNavHost(
                     onReturnHome = {
                         blockGuard.run(appLockEnabled) {
                             navController.navigateBackToHome()
+                        }
+                    },
+                    oneMinuteAccessAvailable = oneMinuteAccessAvailable,
+                    onOpenForOneMinute = {
+                        blockGuard.run(appLockEnabled) {
+                            urgeEventScope.launch {
+                                oneMinuteAccessDataSource.grant(
+                                    sourcePackageName,
+                                    System.currentTimeMillis(),
+                                )
+                                val launchIntent = context.packageManager
+                                    .getLaunchIntentForPackage(sourcePackageName)
+                                if (launchIntent != null) {
+                                    context.startActivity(launchIntent)
+                                }
+                            }
                         }
                     },
                 )

@@ -15,6 +15,8 @@ import com.impulsive.app.MainActivity
 import com.impulsive.app.backend.data.local.device.ForegroundAppReader
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
+import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource
+import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationDataSource
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationState
 import com.impulsive.app.backend.data.repository.OnboardingRepository
@@ -87,6 +89,7 @@ class AppMonitorService : Service() {
     }
     private val appSettingsDataSource by lazy { AppSettingsPreferencesDataSource(applicationContext) }
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
+    private val oneMinuteAccessDataSource by lazy { OneMinuteAccessDataSource(applicationContext) }
 
     // Collected once into the service scope, with no per-tick disk reads.
     private val setupState by lazy {
@@ -109,8 +112,14 @@ class AppMonitorService : Service() {
         windowNotificationDataSource.state
             .stateIn(serviceScope, SharingStarted.Eagerly, ProtectionWindowNotificationState())
     }
+    private val oneMinuteAccessState by lazy {
+        oneMinuteAccessDataSource.state
+            .stateIn(serviceScope, SharingStarted.Eagerly, OneMinuteAccessState())
+    }
 
     private var monitorJob: kotlinx.coroutines.Job? = null
+    private var oneMinuteCountdownJob: kotlinx.coroutines.Job? = null
+    private var oneMinuteCountdownPackage: String? = null
     private var lastHandledPackageName: String? = null
     private var lastHandledAtMillis: Long = 0L
     // In-memory guards so window outcome recording does not write to DataStore
@@ -167,6 +176,7 @@ class AppMonitorService : Service() {
 
     override fun onDestroy() {
         notificationHelper.cancelFocusSessionNotification()
+        notificationHelper.cancelOneMinuteAccessCountdown()
         unregisterReceiver(screenReceiver)
         serviceScope.cancel()
         super.onDestroy()
@@ -300,6 +310,15 @@ class AppMonitorService : Service() {
                 lastUsedWindowKey = pausedStart.toString()
                 windowOutcomeRepository.markWindowUsed(pausedStart)
             }
+            return
+        }
+        val activeAllow = oneMinuteAccessState.value
+        if (activeAllow.isAllowActive(foregroundPackage, System.currentTimeMillis())) {
+            ensureOneMinuteCountdown(
+                packageName = foregroundPackage,
+                sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage),
+                untilEpochMillis = activeAllow.activeAllowUntilEpochMillis,
+            )
             return
         }
         val sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage)
@@ -498,8 +517,41 @@ class AppMonitorService : Service() {
 
     private fun stopSelfSafely() {
         notificationHelper.cancelFocusSessionNotification()
+        cancelOneMinuteAccessCountdown()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun ensureOneMinuteCountdown(
+        packageName: String,
+        sourceLabel: String,
+        untilEpochMillis: Long,
+    ) {
+        if (oneMinuteCountdownJob?.isActive == true && oneMinuteCountdownPackage == packageName) return
+        cancelOneMinuteAccessCountdown()
+        oneMinuteCountdownPackage = packageName
+        oneMinuteCountdownJob = serviceScope.launch {
+            while (isActive) {
+                val remainingSeconds = ((untilEpochMillis - System.currentTimeMillis()) / 1000L)
+                    .coerceAtLeast(0L)
+                    .toInt()
+                if (remainingSeconds <= 0) break
+                notificationHelper.showOneMinuteAccessCountdown(
+                    sourceLabel = sourceLabel,
+                    remainingSeconds = remainingSeconds,
+                    hideSensitive = hideSensitiveNotifications.value,
+                )
+                delay(1000L)
+            }
+            cancelOneMinuteAccessCountdown()
+        }
+    }
+
+    private fun cancelOneMinuteAccessCountdown() {
+        oneMinuteCountdownJob?.cancel()
+        oneMinuteCountdownJob = null
+        oneMinuteCountdownPackage = null
+        notificationHelper.cancelOneMinuteAccessCountdown()
     }
 
     companion object {

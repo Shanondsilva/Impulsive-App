@@ -124,41 +124,43 @@ object RhythmTilesCatalog {
         n(9), n(9), n(7), n(5), n(4), n(2), n(0, 2f), rest(0.5f),
     )
 
-    private val graceTheme = phrase(
-        n(7, 1.5f), n(0, 0.5f), n(4, 2f), n(0, 1.5f), n(4, 0.5f), n(2, 2f),
-        n(0, 1.5f), n(9, 0.5f), n(7, 3f), rest(1f),
+    private val fifthTheme = phrase(
+        rest(0.5f), n(7, 0.5f), n(7, 0.5f), n(7, 0.5f), n(3, 2f), rest(0.5f),
+        n(5, 0.5f), n(5, 0.5f), n(5, 0.5f), n(2, 2f), rest(0.5f),
     )
 
-    private val graceResponse = phrase(
-        n(7, 1.5f), n(0, 0.5f), n(4, 2f), n(0, 1.5f), n(4, 0.5f), n(2, 2f),
-        n(4, 1.5f), n(7, 0.5f), n(9, 3f), rest(1f),
+    private val fifthResponse = phrase(
+        n(7, 0.5f), n(7, 0.5f), n(7, 0.5f), n(3, 1f),
+        n(5, 0.5f), n(5, 0.5f), n(5, 0.5f), n(2, 1f),
+        n(3, 0.5f), n(5, 0.5f), n(7, 0.5f), n(8, 1f),
+        n(7, 0.5f), n(5, 0.5f), n(3, 1.5f), rest(0.5f),
     )
 
-    private val graceBridge = phrase(
-        n(9, 1.5f), n(4, 0.5f), n(7, 2f), n(7, 1.5f), n(4, 0.5f), n(0, 2f),
-        n(0, 1.5f), n(9, 0.5f), n(7, 3f), rest(1f),
+    private val fifthBridge = phrase(
+        n(7, 0.5f), n(7, 0.5f), n(7, 0.5f), n(3, 1f),
+        n(8, 0.5f), n(8, 0.5f), n(8, 0.5f), n(5, 1f),
+        n(10, 0.5f), n(10, 0.5f), n(10, 0.5f), n(7, 1.5f), rest(0.5f),
     )
 
-    private val auldTheme = phrase(
-        n(0), n(5, 1.5f), n(4, 0.5f), n(5), n(9), n(7, 1.5f), n(5, 0.5f), n(7),
-        n(9), n(5, 1.5f), n(5, 0.5f), n(9), n(12), n(14, 2f), rest(0.5f),
+    private val saintsTheme = phrase(
+        n(0), n(4), n(5), n(7, 2f), rest(0.5f),
+        n(0), n(4), n(5), n(7, 2f), rest(0.5f),
     )
 
-    private val auldResponse = phrase(
-        n(12), n(9, 1.5f), n(9, 0.5f), n(5), n(7), n(5, 1.5f), n(7, 0.5f), n(9),
-        n(5), n(2, 1.5f), n(2, 0.5f), n(0), n(5, 3f), rest(1f),
+    private val saintsResponse = phrase(
+        n(0), n(4), n(5), n(7), n(4), n(0), n(4), n(2, 2f), rest(0.5f),
     )
 
-    private val auldBridge = phrase(
-        n(5), n(7), n(9), n(12), n(14), n(12), n(9, 2f), rest(0.5f),
-        n(9), n(12), n(14), n(16), n(14), n(12), n(9, 2f), rest(0.5f),
+    private val saintsBridge = phrase(
+        n(4), n(4), n(2), n(0), n(0), n(4), n(7), n(7),
+        n(7), n(5), n(4), n(5), n(7), n(4), n(0), n(2), n(0, 2f), rest(0.5f),
     )
 
     val songs: List<RhythmSong> = listOf(
         song(
             id = "TWINKLE_TWINKLE",
             title = "Twinkle Twinkle",
-            bpm = 96,
+            bpm = 120,
             theme = twinkleTheme,
             response = twinkleResponse,
             bridge = twinkleBridge,
@@ -167,7 +169,7 @@ object RhythmTilesCatalog {
         song(
             id = "ODE_TO_JOY",
             title = "Ode to Joy",
-            bpm = 108,
+            bpm = 124,
             theme = odeTheme,
             response = odeResponse,
             bridge = odeBridge,
@@ -176,7 +178,7 @@ object RhythmTilesCatalog {
         song(
             id = "FUR_ELISE",
             title = "Fur Elise",
-            bpm = 104,
+            bpm = 124,
             theme = furTheme,
             response = furResponse,
             bridge = furBridge,
@@ -185,7 +187,7 @@ object RhythmTilesCatalog {
         song(
             id = "MARY_LAMB",
             title = "Mary Lamb",
-            bpm = 104,
+            bpm = 122,
             theme = maryTheme,
             response = maryResponse,
             bridge = maryBridge,
@@ -194,7 +196,7 @@ object RhythmTilesCatalog {
         song(
             id = "LONDON_BRIDGE",
             title = "London Bridge",
-            bpm = 108,
+            bpm = 124,
             theme = bridgeTheme,
             response = bridgeResponse,
             bridge = bridgeMiddle,
@@ -203,29 +205,29 @@ object RhythmTilesCatalog {
         song(
             id = "JINGLE_BELLS",
             title = "Jingle Bells",
-            bpm = 110,
+            bpm = 128,
             theme = jingleTheme,
             response = jingleResponse,
             bridge = jingleBridge,
             ending = phrase(n(4), n(7), n(0), n(2), n(4, 4f), rest(2f)),
         ),
         song(
-            id = "AMAZING_GRACE",
-            title = "Amazing Grace",
-            bpm = 88,
-            theme = graceTheme,
-            response = graceResponse,
-            bridge = graceBridge,
-            ending = phrase(n(9, 1.5f), n(7, 0.5f), n(4, 2f), n(0, 4f), rest(2f)),
+            id = "BEETHOVEN_FIFTH",
+            title = "Beethoven 5th",
+            bpm = 132,
+            theme = fifthTheme,
+            response = fifthResponse,
+            bridge = fifthBridge,
+            ending = phrase(n(7, 0.5f), n(7, 0.5f), n(7, 0.5f), n(3, 1f), n(5, 0.5f), n(5, 0.5f), n(5, 0.5f), n(2, 1f), n(0, 4f), rest(2f)),
         ),
         song(
-            id = "AULD_LANG_SYNE",
-            title = "Auld Lang Syne",
-            bpm = 96,
-            theme = auldTheme,
-            response = auldResponse,
-            bridge = auldBridge,
-            ending = phrase(n(9), n(7), n(5), n(2), n(0), n(5, 4f), rest(2f)),
+            id = "WHEN_THE_SAINTS",
+            title = "When the Saints",
+            bpm = 128,
+            theme = saintsTheme,
+            response = saintsResponse,
+            bridge = saintsBridge,
+            ending = phrase(n(0), n(4), n(5), n(7), n(4), n(0), n(2), n(0, 4f), rest(2f)),
         ),
     )
 

@@ -61,6 +61,20 @@ fun AppLockGateScreen(
     var showPin by remember { mutableStateOf(!biometricAvailable) }
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var lockedUntilMillis by remember { mutableStateOf(0L) }
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        lockedUntilMillis = dataSource.currentAttemptState().lockedUntilEpochMillis
+    }
+    LaunchedEffect(lockedUntilMillis) {
+        while (System.currentTimeMillis() < lockedUntilMillis) {
+            nowMillis = System.currentTimeMillis()
+            kotlinx.coroutines.delay(500L)
+        }
+        nowMillis = System.currentTimeMillis()
+    }
+    val locked = nowMillis < lockedUntilMillis
+    val lockoutSecondsLeft = ((lockedUntilMillis - nowMillis + 999L) / 1000L).coerceAtLeast(0L)
 
     LaunchedEffect(biometricAvailable) {
         if (biometricAvailable) {
@@ -68,7 +82,12 @@ fun AppLockGateScreen(
                 activity = activity,
                 title = "Unlock Impulsive",
                 subtitle = "Confirm it is you to continue.",
-                onSuccess = onUnlocked,
+                onSuccess = {
+                    scope.launch {
+                        dataSource.resetAttempts()
+                        onUnlocked()
+                    }
+                },
                 onUsePin = {
                     error = null
                     showPin = true
@@ -99,6 +118,14 @@ fun AppLockGateScreen(
         if (showPin) {
             PinDots(pin.length)
             Spacer(Modifier.height(20.dp))
+            if (locked) {
+                Text(
+                    text = "Too many attempts. Try again in ${lockoutSecondsLeft}s.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(14.dp))
+            }
             error?.let {
                 Text(
                     text = it,
@@ -109,17 +136,24 @@ fun AppLockGateScreen(
             }
             PinPad(
                 onDigit = { digit ->
-                    if (pin.length < 4) {
+                    if (!locked && pin.length < 4) {
                         val next = pin + digit
                         pin = next
                         error = null
                         if (next.length == 4) {
                             scope.launch {
                                 if (dataSource.verifyPin(next)) {
+                                    dataSource.resetAttempts()
                                     onUnlocked()
                                 } else {
                                     pin = ""
-                                    error = "Incorrect PIN"
+                                    val state = dataSource.recordFailedAttempt(System.currentTimeMillis())
+                                    lockedUntilMillis = state.lockedUntilEpochMillis
+                                    error = if (state.lockedUntilEpochMillis > System.currentTimeMillis()) {
+                                        "Too many attempts. Try again shortly."
+                                    } else {
+                                        "Incorrect PIN"
+                                    }
                                 }
                             }
                         }

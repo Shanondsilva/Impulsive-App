@@ -243,7 +243,6 @@ fun JournalListScreen(
         NotesCreateFab(
             expanded = createMenuExpanded,
             enabled = state.canCreateMore,
-            feedbackAvailable = !state.feedbackDoneToday,
             onToggle = { createMenuExpanded = !createMenuExpanded },
             onCreateText = {
                 createMenuExpanded = false
@@ -256,10 +255,6 @@ fun JournalListScreen(
             onCreateDraw = {
                 createMenuExpanded = false
                 onCreateNote(JournalNoteType.Sketch)
-            },
-            onCreateFeedback = {
-                createMenuExpanded = false
-                onCreateNote(JournalNoteType.Feedback)
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -598,12 +593,10 @@ private fun NotesCountRow(count: Int, max: Int) {
 private fun NotesCreateFab(
     expanded: Boolean,
     enabled: Boolean,
-    feedbackAvailable: Boolean,
     onToggle: () -> Unit,
     onCreateText: () -> Unit,
     onCreateList: () -> Unit,
     onCreateDraw: () -> Unit,
-    onCreateFeedback: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val rotation by animateFloatAsState(
@@ -621,12 +614,6 @@ private fun NotesCreateFab(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (expanded) {
-            NotesCreateOption(
-                label = if (feedbackAvailable) "Feedback" else "Feedback done",
-                icon = { Icon(Icons.Outlined.Feedback, contentDescription = null) },
-                enabled = enabled && feedbackAvailable,
-                onClick = onCreateFeedback,
-            )
             NotesCreateOption(
                 label = "Draw",
                 icon = { Icon(Icons.Outlined.Brush, contentDescription = null) },

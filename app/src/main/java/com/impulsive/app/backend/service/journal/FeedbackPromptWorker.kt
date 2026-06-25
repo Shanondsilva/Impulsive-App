@@ -15,6 +15,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.impulsive.app.MainActivity
 import com.impulsive.app.R
+import com.impulsive.app.backend.data.repository.FeedbackResponseRepository
 import com.impulsive.app.backend.data.repository.JournalRepository
 import com.impulsive.app.backend.domain.model.journal.FeedbackPrompt
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
@@ -35,12 +36,46 @@ class FeedbackPromptWorker(
     override suspend fun doWork(): Result {
         try {
             createChannel()
-            if (notificationsAllowed() && !feedbackDoneToday()) {
-                postNudge()
+
+            val nowMillis = System.currentTimeMillis()
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now(zone)
+            val responseRepository =
+                FeedbackResponseRepository(applicationContext)
+
+            responseRepository.deleteExpired(nowMillis)
+
+            if (!feedbackDoneOn(today, zone)) {
+                val questionIndex =
+                    FeedbackPrompt.indexForDate(today)
+                val question =
+                    FeedbackPrompt.questionAt(questionIndex)
+
+                val responseId = responseRepository.createPending(
+                    promptDateEpochDay = today.toEpochDay(),
+                    questionIndex = questionIndex,
+                    questionText = question.question,
+                    positiveAnswerText =
+                        question.positiveAnswer,
+                    honestAnswerText =
+                        question.honestAnswer,
+                    createdAtMillis = nowMillis,
+                )
+
+                if (notificationsAllowed()) {
+                    postNudge(
+                        responseId = responseId,
+                        questionIndex = questionIndex,
+                        question = question,
+                    )
+                }
             }
         } finally {
-            FeedbackPromptScheduler(applicationContext).scheduleDailyNudge()
+            FeedbackPromptScheduler(
+                applicationContext,
+            ).scheduleDailyNudge()
         }
+
         return Result.success()
     }
 
@@ -52,19 +87,29 @@ class FeedbackPromptWorker(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private suspend fun feedbackDoneToday(): Boolean {
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now(zone)
-        return JournalRepository(applicationContext).observeNotes().first().any { note ->
-            note.noteType == JournalNoteType.Feedback.storageValue &&
-                Instant.ofEpochMilli(note.createdAtMillis).atZone(zone).toLocalDate() == today
-        }
+    private suspend fun feedbackDoneOn(
+        date: LocalDate,
+        zone: ZoneId,
+    ): Boolean {
+        return JournalRepository(applicationContext)
+            .observeNotes()
+            .first()
+            .any { note ->
+                note.noteType ==
+                    JournalNoteType.Feedback.storageValue &&
+                    Instant.ofEpochMilli(
+                        note.createdAtMillis,
+                    ).atZone(zone).toLocalDate() == date
+            }
     }
 
-    private fun postNudge() {
-        val questionIndex = FeedbackPrompt.indexForDate()
-        val question = FeedbackPrompt.questionAt(questionIndex)
-        val notificationId = FeedbackAnswerReceiver.FeedbackNotificationId
+    private fun postNudge(
+        responseId: Long,
+        questionIndex: Int,
+        question: FeedbackPrompt.DailyQuestion,
+    ) {
+        val notificationId =
+            FeedbackAnswerReceiver.FeedbackNotificationId
 
         val openIntent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -77,26 +122,47 @@ class FeedbackPromptWorker(
         )
 
         val notification = NotificationCompat.Builder(applicationContext, ChannelId)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(question.question)
             .setContentText("Tap an answer below.")
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setContentIntent(openPending)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .addAction(0, question.positiveAnswer, answerPendingIntent(questionIndex, 0, notificationId))
-            .addAction(0, question.honestAnswer, answerPendingIntent(questionIndex, 1, notificationId))
+            .addAction(
+                0,
+                question.positiveAnswer,
+                answerPendingIntent(
+                    responseId = responseId,
+                    questionIndex = questionIndex,
+                    answerIndex = 0,
+                    notificationId = notificationId,
+                ),
+            )
+            .addAction(
+                0,
+                question.honestAnswer,
+                answerPendingIntent(
+                    responseId = responseId,
+                    questionIndex = questionIndex,
+                    answerIndex = 1,
+                    notificationId = notificationId,
+                ),
+            )
             .build()
 
         NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
     }
 
     private fun answerPendingIntent(
+        responseId: Long,
         questionIndex: Int,
         answerIndex: Int,
         notificationId: Int,
     ): PendingIntent {
         val intent = Intent(applicationContext, FeedbackAnswerReceiver::class.java).apply {
             action = FeedbackAnswerReceiver.Action
+            putExtra(FeedbackAnswerReceiver.ExtraResponseId, responseId)
             putExtra(FeedbackAnswerReceiver.ExtraQuestionIndex, questionIndex)
             putExtra(FeedbackAnswerReceiver.ExtraAnswerIndex, answerIndex)
             putExtra(FeedbackAnswerReceiver.ExtraNotificationId, notificationId)

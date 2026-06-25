@@ -381,7 +381,8 @@ private fun LoginContent(
                         },
                         onSubmit = {
                             when {
-                                emailText.isBlank() || !emailText.contains("@") -> {
+                                emailText.isBlank() ||
+                                    !android.util.Patterns.EMAIL_ADDRESS.matcher(emailText.trim()).matches() -> {
                                     validationMessage = "Enter a valid email address."
                                 }
                                 passwordText.length < 6 -> {

@@ -84,6 +84,7 @@ firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "fir
 firebase-auth = { module = "com.google.firebase:firebase-auth" }
 firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
 firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
+firebase-functions = { module = "com.google.firebase:firebase-functions" }
 
 # Billing
 billing-ktx = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }

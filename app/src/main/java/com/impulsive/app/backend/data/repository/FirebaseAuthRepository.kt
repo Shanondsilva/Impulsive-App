@@ -31,6 +31,7 @@ import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.impulsive.app.R
+import com.impulsive.app.backend.data.sync.UserCloudDataEraser
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.auth.AuthUser
 import kotlinx.coroutines.channels.awaitClose
@@ -338,6 +339,7 @@ class FirebaseAuthRepository(
     override suspend fun deleteAccount(): AccountDeletionResult {
         val user = firebaseAuth.currentUser ?: return AccountDeletionResult.Success
         return try {
+            UserCloudDataEraser().eraseAll(user.uid)
             user.delete().await()
             LoginManager.getInstance().logOut()
             AccountDeletionResult.Success
@@ -372,6 +374,7 @@ class FirebaseAuthRepository(
                 // Anonymous users have no reauthentication credential, so attempt a
                 // direct delete and surface any failure.
                 return try {
+                    UserCloudDataEraser().eraseAll(user.uid)
                     user.delete().await()
                     AccountDeletionResult.Success
                 } catch (e: Exception) {
@@ -391,6 +394,7 @@ class FirebaseAuthRepository(
             )
             is ProviderCredentialResult.Success -> try {
                 user.reauthenticate(credentialResult.credential).await()
+                UserCloudDataEraser().eraseAll(user.uid)
                 user.delete().await()
                 LoginManager.getInstance().logOut()
                 AccountDeletionResult.Success

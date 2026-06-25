@@ -63,6 +63,7 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
     private var noteIndex = 0
     private var lastLane = -1
     private var speedMultiplier = 1f
+    private var urgeSpeedFactor = 1f
     private var tileIdCounter = 0L
     private var tiles = emptyList<RhythmTile>()
     private var activeSessionId: Long = newScoreSessionId()
@@ -136,6 +137,7 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
         noteIndex = 0
         lastLane = -1
         speedMultiplier = RhythmTilesConfig.START_SPEED_MULTIPLIER
+        urgeSpeedFactor = rhythmUrgeSpeedFactor(urgeBeforeRating)
         tiles = emptyList()
         activeSessionId = newScoreSessionId()
         sessionStartedAt = LocalDateTime.now()
@@ -245,7 +247,7 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
 
         lastLane = lane
 
-        val fallMs = (RhythmTilesConfig.BASE_FALL_MS / speedMultiplier).toLong()
+        val fallMs = (RhythmTilesConfig.BASE_FALL_MS / (speedMultiplier * urgeSpeedFactor)).toLong()
         tiles = tiles + RhythmTile(
             id = ++tileIdCounter,
             lane = lane,
@@ -381,6 +383,11 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
                 tiles = emptyList(),
             )
         }
+    }
+
+    private fun rhythmUrgeSpeedFactor(urge: Int?): Float {
+        val rating = (urge ?: 5).coerceIn(0, 10)
+        return 1f + (rating / 10f) * 0.35f
     }
 
     fun setUrgeBefore(rating: Int) {

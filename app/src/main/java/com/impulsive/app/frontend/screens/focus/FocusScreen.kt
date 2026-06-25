@@ -119,7 +119,7 @@ fun FocusScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        ImpulsiveAmbientBackground(lightweight = true)
+        ImpulsiveAmbientBackground()
         BoxWithConstraints(
             modifier = Modifier.fillMaxSize(),
         ) {

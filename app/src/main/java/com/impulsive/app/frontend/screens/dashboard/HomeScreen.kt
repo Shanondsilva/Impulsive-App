@@ -64,6 +64,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.formattedPlannedWindows
@@ -113,7 +115,6 @@ private const val DAY_COUNT = 1
 private val HomeLavenderGlow = Color(0xFFD0C3F1)
 private val HomeGreenGlow = Color(0xFFD0C3F1)
 private val HomeYellowGlow = Color(0xFFFEF1AB)
-
 private data class HomeReadablePalette(
     val cardSurface: Color,
     val innerCardSurface: Color,
@@ -158,6 +159,7 @@ fun HomeScreen(
     protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onOpenRecoveryGames: () -> Unit = {},
     onOpenJournal: () -> Unit = {},
+    onCreateJournalNote: (JournalNoteType) -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
@@ -227,6 +229,24 @@ fun HomeScreen(
             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
             PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
             PsychologyTaskType.ResetRead -> onOpenResetReadTask()
+        }
+    }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val homeGuideStore = remember {
+        com.impulsive.app.backend.data.local.preferences.HomeGuideStore(context)
+    }
+    val homeGuideSeen by homeGuideStore.seen.collectAsStateWithLifecycle(initialValue = true)
+    var homeGuideStep by remember { mutableStateOf(0) }
+    var homeGuideFinished by remember { mutableStateOf(false) }
+    LaunchedEffect(homeGuideSeen, homeGuideFinished) {
+        if (!homeGuideSeen && !homeGuideFinished && homeGuideStep == 0) {
+            homeGuideStep = 1
+        }
+    }
+    LaunchedEffect(homeGuideFinished) {
+        if (homeGuideFinished) {
+            homeGuideStore.markSeen()
         }
     }
 
@@ -430,6 +450,25 @@ fun HomeScreen(
             indicatorState = indicatorState,
             isActive = isActive,
         )
+
+        if (homeGuideStep in 1..3) {
+            HomeGuideOverlay(
+                step = homeGuideStep,
+                totalSteps = 3,
+                onNext = {
+                    if (homeGuideStep < 3) {
+                        homeGuideStep++
+                    } else {
+                        homeGuideStep = 0
+                        homeGuideFinished = true
+                    }
+                },
+                onSkip = {
+                    homeGuideStep = 0
+                    homeGuideFinished = true
+                },
+            )
+        }
     }
 }
 
@@ -1052,8 +1091,10 @@ private fun DashboardCards(
                     "Reflex Override",
                     "Block Cascade",
                     "SkyStack",
+                    "Rhythm Tiles",
                 ),
                 animatedSubtitles = listOf(
+                    "2 wins +50",
                     "2 wins +50",
                     "2 wins +50",
                     "2 wins +50",
@@ -1072,29 +1113,12 @@ private fun DashboardCards(
                 },
             )
 
-            SmallActionCard(
+            DiagonalNotesCard(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { onOpenJournal() },
-                label = "NOTES",
-                title = "Private\nNotes",
-                subtext = "Notes, lists and reminders",
-                cta = "Open notes >",
-                iconColor = ImpulsiveSpiritual.copy(alpha = 0.78f),
-                glowColor = HomeYellowGlow,
+                    .fillMaxHeight(),
+                onOpenJournal = onOpenJournal,
                 palette = palette,
-                icon = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-                        contentDescription = null,
-                        tint = palette.primaryText.copy(alpha = 0.82f),
-                        modifier = Modifier.size(21.dp),
-                    )
-                },
             )
         }
 
@@ -1114,13 +1138,117 @@ private fun DashboardCards(
             palette = palette,
             icon = {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.Article,
+                    imageVector = Icons.AutoMirrored.Outlined.MenuBook,
                     contentDescription = null,
                     tint = palette.primaryText.copy(alpha = 0.82f),
                     modifier = Modifier.size(21.dp),
                 )
             },
         )
+    }
+}
+
+@Composable
+private fun DiagonalNotesCard(
+    modifier: Modifier,
+    onOpenJournal: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val surfaceColor =
+        if (palette.cardSurface == Color.Unspecified) {
+            MaterialTheme.colorScheme.surface
+        } else {
+            palette.cardSurface
+        }
+
+    val isDark =
+        palette.cardSurface != Color.Unspecified
+
+    val cardShape = RoundedCornerShape(24.dp)
+
+    val noteIconColor =
+        ImpulsiveSpiritual.copy(
+            alpha = if (isDark) 0.30f else 0.78f,
+        )
+
+    Surface(
+        color = surfaceColor,
+        shape = cardShape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeYellowGlow,
+            fallbackColor = palette.subtleBorder,
+        ),
+        modifier = modifier
+            .heightIn(min = 138.dp)
+            .shadow(
+                elevation = 6.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = HomeYellowGlow,
+                elevation = 16.dp,
+                ambientAlpha = 0.14f,
+                spotAlpha = 0.18f,
+            ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(cardShape)
+                .clickable(
+                    interactionSource = remember {
+                        MutableInteractionSource()
+                    },
+                    indication = null,
+                    role = Role.Button,
+                    onClick = onOpenJournal,
+                )
+                .padding(
+                    horizontal = 14.dp,
+                    vertical = 10.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(
+                        color = noteIconColor,
+                        shape = RoundedCornerShape(11.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector =
+                        Icons.AutoMirrored.Outlined.Article,
+                    contentDescription = null,
+                    tint = palette.primaryText.copy(
+                        alpha = 0.82f,
+                    ),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Text(
+                text = "Personal Notes",
+                color = palette.primaryText,
+                style =
+                    MaterialTheme.typography.titleSmall.copy(
+                        fontSize = 12.sp,
+                        lineHeight = 14.sp,
+                    ),
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+        }
     }
 }
 

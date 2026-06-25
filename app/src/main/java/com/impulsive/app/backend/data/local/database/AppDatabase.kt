@@ -7,9 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.impulsive.app.backend.data.local.dao.BlockedDomainDao
+import com.impulsive.app.backend.data.local.dao.FeedbackResponseDao
 import com.impulsive.app.backend.data.local.dao.JournalNoteDao
 import com.impulsive.app.backend.data.local.dao.RecoverySessionDao
 import com.impulsive.app.backend.data.local.entity.BlockedDomainEntity
+import com.impulsive.app.backend.data.local.entity.FeedbackResponseEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
@@ -20,14 +22,16 @@ import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
         JournalNoteEntity::class,
         JournalChecklistItemEntity::class,
         BlockedDomainEntity::class,
+        FeedbackResponseEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recoverySessionDao(): RecoverySessionDao
     abstract fun journalNoteDao(): JournalNoteDao
     abstract fun blockedDomainDao(): BlockedDomainDao
+    abstract fun feedbackResponseDao(): FeedbackResponseDao
 
     companion object {
         private const val DatabaseName = "impulsive.db"
@@ -97,6 +101,52 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val Migration4To5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS feedback_responses (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        promptDateEpochDay INTEGER NOT NULL,
+                        questionIndex INTEGER NOT NULL,
+                        questionText TEXT NOT NULL,
+                        positiveAnswerText TEXT NOT NULL,
+                        honestAnswerText TEXT NOT NULL,
+                        selectedAnswerIndex INTEGER,
+                        createdAtMillis INTEGER NOT NULL,
+                        answeredAtMillis INTEGER,
+                        expiresAtMillis INTEGER NOT NULL,
+                        updatedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    index_feedback_responses_promptDateEpochDay
+                    ON feedback_responses(promptDateEpochDay)
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    index_feedback_responses_expiresAtMillis
+                    ON feedback_responses(expiresAtMillis)
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    index_feedback_responses_answeredAtMillis
+                    ON feedback_responses(answeredAtMillis)
+                    """.trimIndent(),
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -107,7 +157,12 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DatabaseName,
                 )
-                    .addMigrations(Migration1To2, Migration2To3, Migration3To4)
+                    .addMigrations(
+                        Migration1To2,
+                        Migration2To3,
+                        Migration3To4,
+                        Migration4To5,
+                    )
                     .build()
                     .also { database ->
                         instance = database

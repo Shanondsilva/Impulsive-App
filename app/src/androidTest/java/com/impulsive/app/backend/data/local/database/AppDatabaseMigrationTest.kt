@@ -116,5 +116,56 @@ class AppDatabaseMigrationTest {
         }
     }
 
+    @Test
+    @Throws(IOException::class)
+    fun migrate4To5CreatesFeedbackResponsesAndPreservesData() {
+        helper.createDatabase(testDbName, 4).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO blocked_domain (
+                    domain,
+                    category,
+                    isDefault,
+                    addedByUser,
+                    createdAtMillis
+                )
+                VALUES (
+                    'example.com',
+                    'test',
+                    0,
+                    1,
+                    1234
+                )
+                """.trimIndent(),
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            testDbName,
+            5,
+            true,
+            AppDatabase.Migration4To5,
+        ).use { db ->
+            db.query(
+                "SELECT COUNT(*) FROM feedback_responses",
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(0, cursor.getInt(0))
+            }
+
+            db.query(
+                """
+                SELECT domain, createdAtMillis
+                FROM blocked_domain
+                WHERE domain = 'example.com'
+                """.trimIndent(),
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("example.com", cursor.getString(0))
+                assertEquals(1234L, cursor.getLong(1))
+            }
+        }
+    }
+
     private fun assertTrue(value: Boolean) = assertEquals(true, value)
 }

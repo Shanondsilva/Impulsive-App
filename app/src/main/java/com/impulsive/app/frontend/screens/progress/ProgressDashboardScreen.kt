@@ -78,6 +78,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.impulsive.app.backend.data.repository.ResetReadRepository
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
+import com.impulsive.app.backend.domain.model.journal.FeedbackInsightSummary
+import com.impulsive.app.backend.domain.model.journal.buildFeedbackInsightSummary
 import com.impulsive.app.backend.domain.model.score.ScoreDashboardState
 import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScorePersonalBest
@@ -213,6 +215,14 @@ fun ProgressDashboardScreen(
     val resetReadProgressStats = remember(resetReadSessions) {
         buildResetReadProgressStats(resetReadSessions)
     }
+    val feedbackInsightStore = remember {
+        com.impulsive.app.backend.data.local.preferences.FeedbackInsightStore(context)
+    }
+    val feedbackInsights by feedbackInsightStore.insights
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val feedbackInsightSummary = remember(feedbackInsights) {
+        buildFeedbackInsightSummary(feedbackInsights)
+    }
     val storeManager = remember { com.impulsive.app.backend.data.repository.GameStoreManager(context) }
     val dailyEarned by storeManager.dailyEarned.collectAsStateWithLifecycle(initialValue = emptyMap())
     val lifetimePoints by storeManager.lifetimePoints.collectAsStateWithLifecycle(initialValue = 0)
@@ -318,6 +328,11 @@ fun ProgressDashboardScreen(
             )
 
             Spacer(modifier = Modifier.height(26.dp))
+
+            feedbackInsightSummary?.let { summary ->
+                FeedbackInsightCard(summary = summary, colors = colors)
+                Spacer(modifier = Modifier.height(26.dp))
+            }
 
             taperProposal?.let { proposal ->
                 TaperProposalCard(
@@ -1363,6 +1378,57 @@ private fun TaperProposalCard(
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun FeedbackInsightCard(
+    summary: FeedbackInsightSummary,
+    colors: ScoreScreenColors,
+) {
+    val isDark = colors.background.luminance() < 0.5f
+    val timeSuffix = summary.typicalTime?.let {
+        ", and your check-ins were usually around $it"
+    } ?: ""
+    val message =
+        "${summary.goodDays} of your last ${summary.windowDays} days felt good$timeSuffix."
+
+    Surface(
+        color = colors.elevatedSurface,
+        shape = RoundedCornerShape(28.dp),
+        border = if (isDark) {
+            BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.34f))
+        } else {
+            null
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ScoreIconBadge(
+                    icon = Icons.Filled.AutoAwesome,
+                    accentColor = ImpulsivePsychological,
+                    colors = colors,
+                    size = 36.dp,
+                    iconSize = 19.dp,
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Your week of feedback",
+                    color = colors.text,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                text = message,
+                color = colors.muted,
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 }

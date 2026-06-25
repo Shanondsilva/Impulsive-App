@@ -27,3 +27,6 @@ captures/
 .cxx/
 .kotlin/
 app/google-services.json
+.agents/
+*.bak
+skills-lock.json

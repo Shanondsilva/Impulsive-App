@@ -17,6 +17,9 @@ class JournalRepository(context: Context) {
 
     fun observeNote(noteId: Long): Flow<JournalNoteEntity?> = dao.observeNote(noteId)
 
+    fun observeLatestNoteBySource(source: String): Flow<JournalNoteEntity?> =
+        dao.observeLatestNoteBySource(source)
+
     fun observeRecentNotes(limit: Int = 10): Flow<List<JournalNoteEntity>> = dao.observeRecentNotes(limit)
 
     fun observeNoteCount(source: String = "normal_journal"): Flow<Int> = dao.observeNoteCount(source)

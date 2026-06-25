@@ -83,6 +83,9 @@ fun DemoNavHost(
                 onOpenJournal = {
                     navController.navigate(DemoRoutes.JournalList)
                 },
+                onCreateJournalNote = { type ->
+                    navController.navigate(DemoRoutes.journalNoteNew(type))
+                },
                 onOpenReflexOverrideTask = {
                     navController.navigate(DemoRoutes.ReflexGameTask)
                 },

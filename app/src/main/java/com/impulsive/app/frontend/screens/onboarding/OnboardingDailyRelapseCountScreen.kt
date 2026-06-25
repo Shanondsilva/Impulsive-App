@@ -51,7 +51,10 @@ fun OnboardingDailyRelapseCountScreen(
 
     OnboardingScreenShell(
         backgroundColors = listOf(Color(0xFFFFFEFC), Color(0xFFFBF8FE), Color(0xFFF5F2FB)),
-        stepUi = OnboardingFlowStep.DailyRelapseCount.toStepUi(),
+        stepUi = OnboardingFlowStep.DailyRelapseCount.toStepUi(
+            infoText = "This sets how many difficult moments you want support with each " +
+                "day. It shapes your daily plan, and you can change it later.",
+        ),
         onBack = onBack,
         onSkip = null,
         bottomBar = { ContinueButton(enabled = true, label = "Continue", onClick = { onContinue(selectedCount) }) },

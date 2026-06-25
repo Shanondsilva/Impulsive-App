@@ -3,15 +3,21 @@ package com.impulsive.app.backend.session.tasks
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.impulsive.app.backend.data.local.entity.FeedbackResponseEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
+import com.impulsive.app.backend.data.repository.FeedbackResponseRepository
 import com.impulsive.app.backend.data.repository.JournalRepository
 import com.impulsive.app.backend.data.repository.MoveDirection
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
+import com.impulsive.app.backend.service.journal.FeedbackAnswerReceiver
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -22,10 +28,42 @@ import java.time.ZoneId
 
 private val ReminderZone: ZoneId = ZoneId.systemDefault()
 
+private const val FeedbackNotificationSource = "feedback_notification"
+
+private const val FeedbackNotificationRetentionMillis =
+    7L * 24L * 60L * 60L * 1000L
+
 data class ChecklistDraftItem(
     val localId: Long,
     val text: String,
     val isChecked: Boolean = false,
+)
+
+data class SavedNotificationFeedbackUiState(
+    val noteId: Long,
+    val question: String,
+    val selectedAnswer: String,
+    val savedAtMillis: Long,
+    val expiresAtMillis: Long,
+)
+
+data class FeedbackQueueItemUiState(
+    val responseId: Long,
+    val question: String,
+    val positiveAnswer: String,
+    val honestAnswer: String,
+    val selectedAnswerIndex: Int?,
+    val selectedAnswer: String?,
+    val createdAtMillis: Long,
+    val answeredAtMillis: Long?,
+    val expiresAtMillis: Long,
+)
+
+data class FeedbackQueueUiState(
+    val pending: List<FeedbackQueueItemUiState> = emptyList(),
+    val answered: List<FeedbackQueueItemUiState> = emptyList(),
+    val pendingCount: Int = 0,
+    val badgeText: String? = null,
 )
 
 data class JournalListUiState(
@@ -34,6 +72,9 @@ data class JournalListUiState(
     val noteCount: Int = 0,
     val maxNotes: Int = JournalViewModel.MaxNormalJournalSaves,
     val feedbackDoneToday: Boolean = false,
+    val savedNotificationFeedback: SavedNotificationFeedbackUiState? = null,
+    val feedbackQueue: FeedbackQueueUiState =
+        FeedbackQueueUiState(),
 ) {
     val canCreateMore: Boolean get() = noteCount < maxNotes
 }
@@ -59,7 +100,10 @@ data class JournalEditorUiState(
 
 class JournalViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = JournalRepository(application)
-    private val taskRewardRepository = TaskRewardRepository(application)
+    private val taskRewardRepository =
+        TaskRewardRepository(application)
+    private val feedbackResponseRepository =
+        FeedbackResponseRepository(application)
 
     companion object {
         const val MaxNormalJournalSaves = 50
@@ -75,6 +119,10 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
 
     private var editorLoadJob: Job? = null
     private var checklistLoadJob: Job? = null
+    private val feedbackQueueNowMillis =
+        MutableStateFlow(System.currentTimeMillis())
+
+    private var feedbackQueueExpiryJob: Job? = null
     private var activeEditorNoteId: Long? = null
     private var nextLocalChecklistId = -1L
 
@@ -89,6 +137,97 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
                             .toLocalDate() == today
                 }
                 _listState.update { it.copy(notes = notes, feedbackDoneToday = feedbackDoneToday) }
+            }
+        }
+        viewModelScope.launch {
+            repository
+                .observeLatestNoteBySource(FeedbackNotificationSource)
+                .collectLatest { note ->
+                    val feedback = note?.toSavedNotificationFeedbackUiState()
+                    val remainingMillis =
+                        feedback?.expiresAtMillis?.minus(System.currentTimeMillis()) ?: 0L
+
+                    if (feedback == null || remainingMillis <= 0L) {
+                        _listState.update {
+                            it.copy(savedNotificationFeedback = null)
+                        }
+                        return@collectLatest
+                    }
+
+                    _listState.update {
+                        it.copy(savedNotificationFeedback = feedback)
+                    }
+
+                    delay(remainingMillis)
+
+                    _listState.update { current ->
+                        if (
+                            current.savedNotificationFeedback?.noteId ==
+                            feedback.noteId
+                        ) {
+                            current.copy(savedNotificationFeedback = null)
+                        } else {
+                            current
+                        }
+                    }
+                }
+        }
+        viewModelScope.launch {
+            val startupNowMillis =
+                System.currentTimeMillis()
+
+            feedbackResponseRepository.deleteExpired(
+                startupNowMillis,
+            )
+
+            feedbackQueueNowMillis.value =
+                startupNowMillis
+
+            feedbackQueueNowMillis.collectLatest {
+                    queryNowMillis ->
+
+                combine(
+                    feedbackResponseRepository.observePending(
+                        queryNowMillis,
+                    ),
+                    feedbackResponseRepository.observeAnswered(
+                        queryNowMillis,
+                    ),
+                ) { pending, answered ->
+                    pending to answered
+                }.collect { (pending, answered) ->
+                    val pendingUi =
+                        pending.map {
+                            it.toFeedbackQueueItemUiState()
+                        }
+
+                    val answeredUi =
+                        answered.map {
+                            it.toFeedbackQueueItemUiState()
+                        }
+
+                    val pendingCount = pendingUi.size
+
+                    _listState.update { current ->
+                        current.copy(
+                            feedbackQueue =
+                                FeedbackQueueUiState(
+                                    pending = pendingUi,
+                                    answered = answeredUi,
+                                    pendingCount =
+                                        pendingCount,
+                                    badgeText =
+                                        pendingBadgeText(
+                                            pendingCount,
+                                        ),
+                                ),
+                        )
+                    }
+
+                    scheduleFeedbackQueueExpiryRefresh(
+                        responses = pending + answered,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -382,6 +521,47 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         saveCurrent(onSaved)
     }
 
+    fun answerFeedbackResponse(
+        responseId: Long,
+        answerIndex: Int,
+        onComplete: () -> Unit = {},
+    ) {
+        if (
+            responseId <= 0L ||
+            answerIndex !in 0..1
+        ) {
+            onComplete()
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val answeredAtMillis =
+                    System.currentTimeMillis()
+
+                val markedAnswered =
+                    feedbackResponseRepository.markAnswered(
+                        responseId = responseId,
+                        answerIndex = answerIndex,
+                        answeredAtMillis =
+                            answeredAtMillis,
+                    )
+
+                if (!markedAnswered) {
+                    return@launch
+                }
+
+                taskRewardRepository
+                    .awardFeedbackAnswerPointsIfNewDay(
+                        FeedbackAnswerReceiver
+                            .FeedbackAnswerPoints,
+                    )
+            } finally {
+                onComplete()
+            }
+        }
+    }
+
     fun deleteCurrent(onDeleted: () -> Unit) {
         val noteId = _editorState.value.noteId
         if (noteId == 0L) {
@@ -455,9 +635,110 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { repository.moveNote(noteId, MoveDirection.Down) }
     }
 
+    private fun scheduleFeedbackQueueExpiryRefresh(
+        responses: List<FeedbackResponseEntity>,
+    ) {
+        feedbackQueueExpiryJob?.cancel()
+        feedbackQueueExpiryJob = null
+
+        val nearestExpiryMillis =
+            responses.minOfOrNull {
+                it.expiresAtMillis
+            } ?: return
+
+        feedbackQueueExpiryJob =
+            viewModelScope.launch {
+                while (true) {
+                    val remainingMillis =
+                        nearestExpiryMillis -
+                            System.currentTimeMillis()
+
+                    if (remainingMillis <= 0L) {
+                        break
+                    }
+
+                    delay(remainingMillis)
+                }
+
+                feedbackQueueExpiryJob = null
+
+                val refreshNowMillis =
+                    System.currentTimeMillis()
+
+                feedbackQueueNowMillis.value =
+                    refreshNowMillis
+
+                feedbackResponseRepository.deleteExpired(
+                    refreshNowMillis,
+                )
+            }
+    }
+
     private fun newBlankChecklistItem(): ChecklistDraftItem {
         return ChecklistDraftItem(localId = nextLocalChecklistId--, text = "")
     }
+}
+
+private fun FeedbackResponseEntity
+    .toFeedbackQueueItemUiState():
+    FeedbackQueueItemUiState {
+
+    val selectedAnswer = when (
+        selectedAnswerIndex
+    ) {
+        0 -> positiveAnswerText
+        1 -> honestAnswerText
+        else -> null
+    }
+
+    return FeedbackQueueItemUiState(
+        responseId = id,
+        question = questionText,
+        positiveAnswer = positiveAnswerText,
+        honestAnswer = honestAnswerText,
+        selectedAnswerIndex =
+            selectedAnswerIndex,
+        selectedAnswer = selectedAnswer,
+        createdAtMillis = createdAtMillis,
+        answeredAtMillis = answeredAtMillis,
+        expiresAtMillis = expiresAtMillis,
+    )
+}
+
+private fun pendingBadgeText(
+    pendingCount: Int,
+): String? {
+    return when {
+        pendingCount <= 0 -> null
+        pendingCount <= 9 ->
+            pendingCount.toString()
+        else -> "9+"
+    }
+}
+
+private fun JournalNoteEntity.toSavedNotificationFeedbackUiState():
+    SavedNotificationFeedbackUiState? {
+    if (source != FeedbackNotificationSource) return null
+
+    val lines = body.lines()
+    val question = lines.firstOrNull()?.trim().orEmpty()
+    val selectedAnswer = lines
+        .drop(1)
+        .joinToString("\n")
+        .trim()
+
+    if (question.isBlank() || selectedAnswer.isBlank()) {
+        return null
+    }
+
+    return SavedNotificationFeedbackUiState(
+        noteId = id,
+        question = question,
+        selectedAnswer = selectedAnswer,
+        savedAtMillis = createdAtMillis,
+        expiresAtMillis =
+            createdAtMillis + FeedbackNotificationRetentionMillis,
+    )
 }
 
 private fun JournalNoteEntity.toEditorState(checklistItems: List<ChecklistDraftItem>): JournalEditorUiState {

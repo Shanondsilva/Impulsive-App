@@ -76,6 +76,7 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
     private var accumulatedForegroundMs = 0L
     private var resultRecorded = false
     private var perfectPointsBanked = false
+    private var urgeSpeedFactor = 1f
     private var activeSessionId: Long = newScoreSessionId()
     private var sessionStartedAt: LocalDateTime = LocalDateTime.now()
     private var urgeBeforeRating: Int? = null
@@ -91,6 +92,7 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
         accumulatedForegroundMs = 0L
         lastFrameMs = null
         resumed = true
+        urgeSpeedFactor = stackUrgeSpeedFactor(urgeBeforeRating)
         val base = newStackBaseBlock()
         val firstIndex = 1
         val axisIsX = stackAxisIsX(firstIndex)
@@ -139,7 +141,7 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
         val speed = stackSpeedFor(
             floorsBuilt = current.floorsBuilt,
             perfectCount = current.perfectCount,
-        )
+        ) * urgeSpeedFactor
         val step = current.activeDir * speed * (delta / 1_000f)
         var pos = if (current.activeAxisIsX) current.activeX else current.activeZ
         var dir = current.activeDir
@@ -249,6 +251,11 @@ class SkylineResetViewModel(application: Application) : AndroidViewModel(applica
             val awarded = gameStoreManager.tryAwardWeekly(key = "skyline_perfect", points = points)
             _uiState.update { it.copy(controlPointsBanked = if (awarded) points else 0) }
         }
+    }
+
+    private fun stackUrgeSpeedFactor(urge: Int?): Float {
+        val rating = (urge ?: 5).coerceIn(0, 10)
+        return 1f + (rating / 10f) * 0.30f
     }
 
     fun setUrgeBefore(rating: Int) {

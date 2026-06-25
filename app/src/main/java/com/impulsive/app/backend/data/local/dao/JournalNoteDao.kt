@@ -33,6 +33,16 @@ interface JournalNoteDao {
         """
         SELECT * FROM journal_notes
         WHERE source = :source
+        ORDER BY createdAtMillis DESC
+        LIMIT 1
+        """,
+    )
+    fun observeLatestNoteBySource(source: String): Flow<JournalNoteEntity?>
+
+    @Query(
+        """
+        SELECT * FROM journal_notes
+        WHERE source = :source
         ORDER BY
             isPinned DESC,
             CASE WHEN sortOrder IS NULL THEN 1 ELSE 0 END ASC,

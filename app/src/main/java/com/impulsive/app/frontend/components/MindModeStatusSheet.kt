@@ -108,7 +108,7 @@ fun MindModeStatusSheet(
             .fillMaxSize()
             .background(screenBrush),
     ) {
-        ImpulsiveAmbientBackground(lightweight = true)
+        ImpulsiveAmbientBackground()
         Column(
             modifier = Modifier
                 .fillMaxSize()

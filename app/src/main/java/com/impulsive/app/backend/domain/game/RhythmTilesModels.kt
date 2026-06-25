@@ -4,9 +4,9 @@ object RhythmTilesConfig {
     const val ROUND_SECONDS = 90
     const val LANES = 4
     const val MAX_MISSES = 3
-    const val BASE_FALL_MS = 2600L
-    const val START_SPEED_MULTIPLIER = 1.0f
-    const val END_SPEED_MULTIPLIER = 1.45f
+    const val BASE_FALL_MS = 2000L
+    const val START_SPEED_MULTIPLIER = 1.1f
+    const val END_SPEED_MULTIPLIER = 1.65f
     const val HIT_POINTS = 10
     const val EMPTY_TAP_PENALTY = 25
     const val FINISH_BONUS = 500

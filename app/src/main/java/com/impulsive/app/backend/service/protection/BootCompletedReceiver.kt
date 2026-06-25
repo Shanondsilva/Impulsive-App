@@ -27,6 +27,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 }
                 com.impulsive.app.backend.service.journal.FeedbackPromptScheduler(appContext)
                     .scheduleDailyNudge()
+                com.impulsive.app.backend.service.journal.FeedbackReadingScheduler(appContext)
+                    .scheduleDailyReading()
             } finally {
                 pendingResult.finish()
             }

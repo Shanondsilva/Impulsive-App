@@ -5,9 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission
@@ -31,7 +29,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="Impulsive"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:theme="@style/Theme.Impulsive">
+        android:theme="@style/Theme.Impulsive"
+        android:usesCleartextTraffic="false">
         <activity
             android:name="com.impulsive.app.MainActivity"
             android:launchMode="singleTop"

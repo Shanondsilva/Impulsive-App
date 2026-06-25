@@ -22,7 +22,10 @@ fun OnboardingStartingPointScreen(
 
     OnboardingScreenShell(
         backgroundColors = listOf(Color(0xFFFFFEFC), Color(0xFFFBF8FE), Color(0xFFF5F2FB)),
-        stepUi = OnboardingFlowStep.StartingPoint.toStepUi(),
+        stepUi = OnboardingFlowStep.StartingPoint.toStepUi(
+            infoText = "A quick summary of what you chose to focus on and your gentle " +
+                "first step for the week.",
+        ),
         onBack = onBack,
         onSkip = null,
         bottomBar = { ContinueButton(enabled = true, label = "Start week one", onClick = onContinue) },

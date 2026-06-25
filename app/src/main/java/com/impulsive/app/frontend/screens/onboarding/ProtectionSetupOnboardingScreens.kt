@@ -61,7 +61,12 @@ fun ProtectionSetupOnboardingScreen(
             Color(0xFFFCF8FD),
             Color(0xFFF6F2FA),
         ),
-        stepUi = OnboardingFlowStep.ProtectionSetup.toStepUi(),
+        stepUi = OnboardingFlowStep.ProtectionSetup.toStepUi(
+            infoText = "Here you choose which apps to protect and turn on the Android " +
+                "permissions that let Impulsive show your pause screen when you open them. " +
+                "Notifications are part of this, so it can reach you at the right moment. " +
+                "These permissions are what make the protection work.",
+        ),
         onBack = onBack,
         bottomBar = {
             Column(
@@ -89,7 +94,10 @@ fun ProtectionSetupOnboardingScreen(
     ) { compactHeight ->
         Spacer(modifier = Modifier.height(if (compactHeight) 20.dp else 34.dp))
 
-        ProtectionIntroMark()
+        OnboardingLogoVisual(
+            reducedMotion = rememberReducedMotion(),
+            scale = OnboardingLogoScale.Compact,
+        )
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -106,7 +114,7 @@ fun ProtectionSetupOnboardingScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Impulsive works best when it can create a pause before a difficult habit moment continues. Start with the basics now. Anything skipped stays visible later.",
+            text = "Start with the basics. Anything you skip stays visible to finish later.",
             color = ProtectionMutedText,
             fontSize = 15.sp,
             lineHeight = 22.sp,

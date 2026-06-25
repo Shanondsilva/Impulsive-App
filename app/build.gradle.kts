@@ -20,8 +20,8 @@ android {
         applicationId = "com.impulsive.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = (project.findProperty("impulsiveVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("impulsiveVersionName") as String?) ?: "1.0"
     }
 
     signingConfigs {
@@ -108,6 +108,7 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.functions)
     implementation(libs.firebase.crashlytics)
 
     implementation(libs.androidx.core.splashscreen)

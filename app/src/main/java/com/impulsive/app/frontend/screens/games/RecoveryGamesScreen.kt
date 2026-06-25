@@ -240,7 +240,7 @@ fun RecoveryGamesScreen(
             title = "Rhythm Tiles",
             description = "Tap falling tiles and play the melody yourself.",
             infoDescription = "A melody game where every tap plays the next note of a song. Catch the tiles before they slip away, keep the tune going, and let your focus settle into the rhythm.",
-            duration = "60 sec",
+            duration = "90 sec",
             chip = "Melody focus",
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.42f),
