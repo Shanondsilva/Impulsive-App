@@ -30,7 +30,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -51,6 +53,12 @@ fun WebsiteProtectionPlusScreen(
     isPlus: Boolean,
     priceLabel: String?,
     onPurchase: () -> Unit,
+    isWebsiteProtectionEnabled: Boolean,
+    isWebsiteProtectionAlwaysOn: Boolean,
+    isReleaseWindowActive: Boolean,
+    releaseWindowEndsAt: String?,
+    onTurnWebsiteProtectionOff: () -> Unit,
+    onAlwaysOnChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val background = MaterialTheme.colorScheme.background
@@ -95,46 +103,145 @@ fun WebsiteProtectionPlusScreen(
                 )
             }
 
-            PlusHeroCard(
-                accent = accent,
-                surface = surface,
-                text = text,
-                muted = muted,
-                isPlus = isPlus,
-                priceLabel = priceLabel,
-                onPurchase = onPurchase,
-            )
-
-            PlusIncludedCard(
-                accent = accent,
-                surface = surface,
-                text = text,
-                muted = muted,
-            )
-
-            PlusDisclosureCard(
-                title = "Important",
-                body = "Uses Android VPN permission for local DNS-based filtering. This is not a private browsing VPN and does not hide your IP address.",
-                icon = Icons.Filled.Info,
-                accent = accent,
-                surface = surface,
-                text = text,
-                muted = muted,
-            )
-
-            PlusDisclosureCard(
-                title = "Privacy first",
-                body = "Website filtering should stay on device unless a future cloud feature is clearly added and consented to.",
-                icon = Icons.Filled.PrivacyTip,
-                accent = accent,
-                surface = surface,
-                text = text,
-                muted = muted,
-            )
-
             if (isPlus) {
+                WebsiteProtectionManagementCard(
+                    accent = accent,
+                    surface = surface,
+                    text = text,
+                    muted = muted,
+                    enabled = isWebsiteProtectionEnabled,
+                    alwaysOn = isWebsiteProtectionAlwaysOn,
+                    releaseWindowActive = isReleaseWindowActive,
+                    releaseWindowEndsAt = releaseWindowEndsAt,
+                    onTurnOn = onOpenDnsFilterCheck,
+                    onTurnOff = onTurnWebsiteProtectionOff,
+                    onAlwaysOnChanged = onAlwaysOnChanged,
+                )
+
+                WebsiteProtectionExplanationCard(
+                    accent = accent,
+                    surface = surface,
+                    text = text,
+                    muted = muted,
+                )
+            } else {
+                PlusHeroCard(
+                    accent = accent,
+                    surface = surface,
+                    text = text,
+                    muted = muted,
+                    isPlus = isPlus,
+                    priceLabel = priceLabel,
+                    onPurchase = onPurchase,
+                )
+
+                PlusIncludedCard(
+                    accent = accent,
+                    surface = surface,
+                    text = text,
+                    muted = muted,
+                )
+
+                PlusDisclosureCard(
+                    title = "Important",
+                    body = "Uses Android VPN permission for local DNS-based filtering. This is not a private browsing VPN and does not hide your IP address.",
+                    icon = Icons.Filled.Info,
+                    accent = accent,
+                    surface = surface,
+                    text = text,
+                    muted = muted,
+                )
+
+                PlusDisclosureCard(
+                    title = "Privacy first",
+                    body = "Website filtering should stay on device unless a future cloud feature is clearly added and consented to.",
+                    icon = Icons.Filled.PrivacyTip,
+                    accent = accent,
+                    surface = surface,
+                    text = text,
+                    muted = muted,
+                )
+            }
+            Text(
+                text = "Impulsive Core stays free. Plus adds stronger website protection.",
+                color = muted,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun WebsiteProtectionManagementCard(
+    accent: Color,
+    surface: Color,
+    text: Color,
+    muted: Color,
+    enabled: Boolean,
+    alwaysOn: Boolean,
+    releaseWindowActive: Boolean,
+    releaseWindowEndsAt: String?,
+    onTurnOn: () -> Unit,
+    onTurnOff: () -> Unit,
+    onAlwaysOnChanged: (Boolean) -> Unit,
+) {
+    val pausedByReleaseWindow = enabled && releaseWindowActive && !alwaysOn
+    val statusText = when {
+        !enabled -> "Off"
+        alwaysOn -> "Always on"
+        pausedByReleaseWindow && releaseWindowEndsAt != null -> "Paused until $releaseWindowEndsAt"
+        pausedByReleaseWindow -> "Paused during release window"
+        else -> "Active"
+    }
+
+    Surface(
+        color = surface,
+        shape = RoundedCornerShape(28.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = "Website Protection",
+                color = text,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text = statusText,
+                color = if (enabled) accent else muted,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text = if (enabled) {
+                    "Impulsive will manage website blocking around your protection rhythm."
+                } else {
+                    "Turn this on to block adult and risky website domains."
+                },
+                color = muted,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            if (enabled) {
+                OutlinedButton(
+                    onClick = onTurnOff,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Text("Turn off Website Protection")
+                }
+            } else {
                 Button(
-                    onClick = onOpenDnsFilterCheck,
+                    onClick = onTurnOn,
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accent,
@@ -144,15 +251,83 @@ fun WebsiteProtectionPlusScreen(
                         .fillMaxWidth()
                         .height(48.dp),
                 ) {
-                    Text("Check phone settings")
+                    Text("Turn on Website Protection")
                 }
             }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Keep Website Protection always on",
+                        color = text,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "When off, it pauses during release windows and turns back on after.",
+                        color = muted,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                Switch(
+                    checked = alwaysOn,
+                    onCheckedChange = onAlwaysOnChanged,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebsiteProtectionExplanationCard(
+    accent: Color,
+    surface: Color,
+    text: Color,
+    muted: Color,
+) {
+    Surface(
+        color = surface,
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.18f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text(
-                text = "Impulsive Core stays free. Plus adds stronger website protection.",
+                text = "How it works",
+                color = text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text = "Website Protection blocks adult and risky website domains using Android VPN permission for local DNS-based filtering.",
                 color = muted,
                 style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Text(
+                text = "It is not a private browsing VPN, does not hide your IP address, and does not blur adult images inside social feeds or other apps.",
+                color = muted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Text(
+                text = "By default, it follows your Impulsive release windows: it pauses during the release window and turns back on when protected time resumes.",
+                color = muted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Text(
+                text = "When always-on is on, it stays active even during release windows.",
+                color = muted,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
     }

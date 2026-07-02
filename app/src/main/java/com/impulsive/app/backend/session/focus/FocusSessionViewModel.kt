@@ -8,7 +8,6 @@ import com.impulsive.app.backend.data.repository.FocusSetupRepository
 import com.impulsive.app.backend.data.repository.ScoreRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.domain.model.focus.FocusSessionState
-import com.impulsive.app.backend.domain.model.focus.focusCompletionLevelPoints
 import com.impulsive.app.backend.domain.model.focus.focusCompletionScore
 import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
@@ -21,6 +20,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 class FocusSessionViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FocusSessionRepository(application)
@@ -41,6 +41,13 @@ class FocusSessionViewModel(application: Application) : AndroidViewModel(applica
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = null,
     )
+
+    val lastFocusTimeAward: StateFlow<Pair<String, Int>?> =
+        taskRewardRepository.lastFocusTimeAward.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null,
+        )
 
     /** One second ticker so countdown text recomposes while a screen observes it. */
     val now: StateFlow<LocalDateTime> = flow {
@@ -80,8 +87,10 @@ class FocusSessionViewModel(application: Application) : AndroidViewModel(applica
     fun completeElapsedSessionIfNeeded(now: LocalDateTime = LocalDateTime.now()) {
         viewModelScope.launch {
             val completed = repository.completeIfElapsed(now) ?: return@launch
-            taskRewardRepository.awardLevelPoints(
-                focusCompletionLevelPoints(completed.durationMinutes),
+            val completedAt = completed.endedAt ?: now
+            taskRewardRepository.awardFocusTimePointsIfEligible(
+                focusSessionId = completed.sessionId,
+                completedAtMillis = completedAt.toEpochMillisInUserZone(),
             )
             scoreRepository.recordSession(
                 ScoreSessionRecord(
@@ -100,4 +109,9 @@ class FocusSessionViewModel(application: Application) : AndroidViewModel(applica
     fun setFocusBlockedPackages(packageNames: Set<String>) {
         viewModelScope.launch { focusSetupRepository.setBlockedPackages(packageNames) }
     }
+
+    private fun LocalDateTime.toEpochMillisInUserZone(): Long =
+        atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
 }

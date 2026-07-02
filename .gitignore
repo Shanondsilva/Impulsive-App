@@ -30,3 +30,6 @@ app/google-services.json
 .agents/
 *.bak
 skills-lock.json
+
+# Local source/archive exports
+*.zip

@@ -78,8 +78,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.impulsive.app.backend.data.repository.ResetReadRepository
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
-import com.impulsive.app.backend.domain.model.journal.FeedbackInsightSummary
-import com.impulsive.app.backend.domain.model.journal.buildFeedbackInsightSummary
 import com.impulsive.app.backend.domain.model.score.ScoreDashboardState
 import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScorePersonalBest
@@ -215,18 +213,10 @@ fun ProgressDashboardScreen(
     val resetReadProgressStats = remember(resetReadSessions) {
         buildResetReadProgressStats(resetReadSessions)
     }
-    val feedbackInsightStore = remember {
-        com.impulsive.app.backend.data.local.preferences.FeedbackInsightStore(context)
-    }
-    val feedbackInsights by feedbackInsightStore.insights
-        .collectAsStateWithLifecycle(initialValue = emptyList())
-    val feedbackInsightSummary = remember(feedbackInsights) {
-        buildFeedbackInsightSummary(feedbackInsights)
-    }
     val storeManager = remember { com.impulsive.app.backend.data.repository.GameStoreManager(context) }
     val dailyEarned by storeManager.dailyEarned.collectAsStateWithLifecycle(initialValue = emptyMap())
     val lifetimePoints by storeManager.lifetimePoints.collectAsStateWithLifecycle(initialValue = 0)
-    var showPointsInfo by remember { mutableStateOf(false) }
+    var showScoreInfo by remember { mutableStateOf(false) }
     var mindModeSheetVisible by remember { mutableStateOf(false) }
     var modeSelectionSheetVisible by remember { mutableStateOf(false) }
     var bodyModeSheetVisible by remember { mutableStateOf(false) }
@@ -264,28 +254,20 @@ fun ProgressDashboardScreen(
                 .padding(horizontal = 20.dp)
                 .padding(top = 18.dp, bottom = 132.dp),
         ) {
-            ScoreHeader(colors = colors)
+            ScoreHeader(
+                colors = colors,
+                onInfoClick = { showScoreInfo = true },
+            )
 
             Spacer(modifier = Modifier.height(28.dp))
 
             Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Total control points",
-                        color = colors.muted,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = "About control points",
-                        tint = colors.muted,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clickable { showPointsInfo = true },
-                    )
-                }
+                Text(
+                    text = "Total control points",
+                    color = colors.muted,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = lifetimePoints.formatNumber(),
@@ -329,11 +311,6 @@ fun ProgressDashboardScreen(
 
             Spacer(modifier = Modifier.height(26.dp))
 
-            feedbackInsightSummary?.let { summary ->
-                FeedbackInsightCard(summary = summary, colors = colors)
-                Spacer(modifier = Modifier.height(26.dp))
-            }
-
             taperProposal?.let { proposal ->
                 TaperProposalCard(
                     proposal = proposal,
@@ -351,27 +328,10 @@ fun ProgressDashboardScreen(
             )
         }
 
-        if (showPointsInfo) {
-            AlertDialog(
-                onDismissRequest = { showPointsInfo = false },
-                confirmButton = {
-                    TextButton(
-                        onClick = { showPointsInfo = false },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = ImpulsivePsychological,
-                        ),
-                    ) {
-                        Text("Got it")
-                    }
-                },
-                title = { Text("Control points") },
-                text = {
-                    Text(
-                        "You earn control points every time you play a pivot game and by returning to plan " +
-                            "after difficult habit moments. Spend them in Pivot Games to rent or unlock more games. " +
-                            "This number is your lifetime total earned."
-                    )
-                },
+        if (showScoreInfo) {
+            ScoreInfoDialog(
+                colors = colors,
+                onDismiss = { showScoreInfo = false },
             )
         }
 
@@ -544,10 +504,13 @@ private fun rememberScoreColors(): ScoreScreenColors {
 }
 
 @Composable
-private fun ScoreHeader(colors: ScoreScreenColors) {
-    Column(
+private fun ScoreHeader(
+    colors: ScoreScreenColors,
+    onInfoClick: () -> Unit,
+) {
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = "Score",
@@ -555,12 +518,136 @@ private fun ScoreHeader(colors: ScoreScreenColors) {
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onInfoClick,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = "About Score",
+                tint = colors.text.copy(alpha = 0.76f),
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScoreInfoDialog(
+    colors: ScoreScreenColors,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = ImpulsivePsychological,
+                ),
+            ) {
+                Text("Got it")
+            }
+        },
+        title = {
+            Text(
+                text = "About Score",
+                color = colors.text,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "Your control progress, built from Notice, Pivot and Understand actions.",
+                    color = colors.text.copy(alpha = 0.82f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
+                )
+
+                ScoreInfoItem(
+                    title = "Total control points",
+                    body = "Your lifetime control points from valid recovery actions, pivot games, Focus progress, and other completed supports.",
+                    colors = colors,
+                )
+
+                ScoreInfoItem(
+                    title = "Score card",
+                    body = "Shows your current level progress and how your points are building across the selected time range.",
+                    colors = colors,
+                )
+
+                ScoreInfoItem(
+                    title = "Range filter",
+                    body = "Switches the score view between the available time ranges so the chart and cards match the period you are checking.",
+                    colors = colors,
+                )
+
+                ScoreInfoItem(
+                    title = "Personal Best",
+                    body = "Highlights your strongest pivot-game record and compares it with your recent session so progress feels self-vs-self.",
+                    colors = colors,
+                )
+
+                ScoreInfoItem(
+                    title = "Reset Reading",
+                    body = "Tracks valid reading resets, safe reading time, helpful ratings, and abandoned reading attempts.",
+                    colors = colors,
+                )
+
+                ScoreInfoItem(
+                    title = "Safe Exit",
+                    body = "Shows how often you chose the safer exit after a difficult moment and your best safe-exit streak.",
+                    colors = colors,
+                )
+
+                ScoreInfoItem(
+                    title = "Planned Moments",
+                    body = "Compares used and skipped planned moments so the app can show whether the release plan is becoming easier to follow.",
+                    colors = colors,
+                )
+
+                ScoreInfoItem(
+                    title = "Difficult Moment Trend",
+                    body = "Shows whether difficult moments are rising or reducing compared with your baseline pattern.",
+                    colors = colors,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun ScoreInfoItem(
+    title: String,
+    body: String,
+    colors: ScoreScreenColors,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(
-            text = "Your control progress, built from Notice, Pivot and Understand actions.",
-            color = colors.text.copy(alpha = 0.82f),
-            style = MaterialTheme.typography.bodyLarge,
-            lineHeight = MaterialTheme.typography.bodyLarge.lineHeight,
-            modifier = Modifier.fillMaxWidth(0.88f),
+            text = title,
+            color = colors.text,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = body,
+            color = colors.text.copy(alpha = 0.74f),
+            style = MaterialTheme.typography.bodySmall,
+            lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
         )
     }
 }
@@ -1378,57 +1465,6 @@ private fun TaperProposalCard(
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun FeedbackInsightCard(
-    summary: FeedbackInsightSummary,
-    colors: ScoreScreenColors,
-) {
-    val isDark = colors.background.luminance() < 0.5f
-    val timeSuffix = summary.typicalTime?.let {
-        ", and your check-ins were usually around $it"
-    } ?: ""
-    val message =
-        "${summary.goodDays} of your last ${summary.windowDays} days felt good$timeSuffix."
-
-    Surface(
-        color = colors.elevatedSurface,
-        shape = RoundedCornerShape(28.dp),
-        border = if (isDark) {
-            BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.34f))
-        } else {
-            null
-        },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ScoreIconBadge(
-                    icon = Icons.Filled.AutoAwesome,
-                    accentColor = ImpulsivePsychological,
-                    colors = colors,
-                    size = 36.dp,
-                    iconSize = 19.dp,
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Your week of feedback",
-                    color = colors.text,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            Text(
-                text = message,
-                color = colors.muted,
-                style = MaterialTheme.typography.bodyMedium,
-            )
         }
     }
 }

@@ -15,6 +15,7 @@ class TaskRewardRepository(
     private val dataSource = TaskRewardDataSource(context)
 
     val storeState: Flow<TaskRewardStoreState> = dataSource.storeState
+    val lastFocusTimeAward: Flow<Pair<String, Int>?> = dataSource.lastFocusTimeAward
 
     suspend fun completeTask(
         taskType: PsychologyTaskType,
@@ -39,6 +40,14 @@ class TaskRewardRepository(
     suspend fun awardLevelPoints(points: Int) {
         dataSource.awardLevelPoints(points)
     }
+
+    suspend fun awardFocusTimePointsIfEligible(
+        focusSessionId: String,
+        completedAtMillis: Long,
+    ): Int = dataSource.awardFocusTimePointsIfEligible(
+        focusSessionId = focusSessionId,
+        completedAtMillis = completedAtMillis,
+    )
 
     suspend fun awardNoteCreationPointsIfNewDay(points: Int): Boolean =
         dataSource.awardNoteCreationPointsIfNewDay(points)

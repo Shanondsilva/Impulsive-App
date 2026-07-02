@@ -57,6 +57,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -91,8 +92,9 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.sqlite)
+    implementation(libs.sqlcipher.android)
     implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.sceneview)
     ksp(libs.androidx.room.compiler)
 
     implementation(platform(libs.compose.bom))
@@ -110,6 +112,8 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
     implementation(libs.firebase.crashlytics)
+    releaseImplementation(libs.firebase.appcheck.playintegrity)
+    debugImplementation(libs.firebase.appcheck.debug)
 
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.credentials)

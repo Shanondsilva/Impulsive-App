@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.NightsStay
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,9 +62,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.formattedPlannedWindows
@@ -73,12 +72,14 @@ import com.impulsive.app.backend.domain.model.release.formattedTimeUntilNextWind
 import com.impulsive.app.backend.domain.model.release.ReleasePlanDefaults
 import com.impulsive.app.backend.domain.model.release.formattedTodaysWindow
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
+import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardState
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardStatus
 import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
@@ -157,9 +158,9 @@ fun HomeScreen(
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    premiumViewModel: PremiumViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onOpenRecoveryGames: () -> Unit = {},
     onOpenJournal: () -> Unit = {},
-    onCreateJournalNote: (JournalNoteType) -> Unit = {},
     onOpenReflexOverrideTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
@@ -176,6 +177,9 @@ fun HomeScreen(
 ) {
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
+    val websiteProtectionPlusUnlocked by remember(premiumViewModel) {
+        premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
+    }.collectAsStateWithLifecycle()
     val displayName = state.answers.name.takeIf { it.isNotBlank() } ?: "friend"
     val avatar = AvatarStyle.fromId(state.answers.avatarId)
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -219,8 +223,13 @@ fun HomeScreen(
         protectionSetupState.isLoaded &&
             protectionSetupState.usageAccessEnabled &&
             protectionSetupState.blockedAppsSelected &&
-            !protectionSetupState.websiteProtectionEnabled &&
-            !websiteProtectionCardDismissedThisSession
+            (
+                websiteProtectionPlusUnlocked ||
+                    (
+                        !protectionSetupState.websiteProtectionEnabled &&
+                            !websiteProtectionCardDismissedThisSession
+                    )
+            )
     val bottomNavReservedSpace = 104.dp
     val startRecommendedMindTask = {
         when (recommendedMindTaskType) {
@@ -325,11 +334,20 @@ fun HomeScreen(
             if (shouldShowWebsiteProtectionHomeCard) {
                 Spacer(modifier = Modifier.height(14.dp))
 
-                WebsiteProtectionHomeCard(
-                    onClick = onOpenWebsiteProtectionPlus,
-                    onDismiss = { websiteProtectionCardDismissedThisSession = true },
-                    palette = palette,
-                )
+                if (websiteProtectionPlusUnlocked) {
+                    WebsiteProtectionStatusHomeCard(
+                        enabled = protectionSetupState.websiteProtectionEnabled,
+                        alwaysOn = protectionSetupState.websiteProtectionAlwaysOn,
+                        onClick = onOpenWebsiteProtectionPlus,
+                        palette = palette,
+                    )
+                } else {
+                    WebsiteProtectionHomeCard(
+                        onClick = onOpenWebsiteProtectionPlus,
+                        onDismiss = { websiteProtectionCardDismissedThisSession = true },
+                        palette = palette,
+                    )
+                }
             }
         }
 
@@ -595,7 +613,6 @@ private fun LevelCard(
         Column(modifier = Modifier.padding(22.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -603,12 +620,6 @@ private fun LevelCard(
                     color = levelCardContent.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                )
-                Icon(
-                    imageVector = Icons.Outlined.NightsStay,
-                    contentDescription = null,
-                    tint = levelCardContent.copy(alpha = 0.86f),
-                    modifier = Modifier.size(22.dp),
                 )
             }
 
@@ -1154,102 +1165,73 @@ private fun DiagonalNotesCard(
     onOpenJournal: () -> Unit,
     palette: HomeReadablePalette,
 ) {
-    val surfaceColor =
-        if (palette.cardSurface == Color.Unspecified) {
-            MaterialTheme.colorScheme.surface
-        } else {
-            palette.cardSurface
-        }
-
     val isDark =
         palette.cardSurface != Color.Unspecified
 
-    val cardShape = RoundedCornerShape(24.dp)
-
     val noteIconColor =
         ImpulsiveSpiritual.copy(
-            alpha = if (isDark) 0.30f else 0.78f,
+            alpha =
+                if (isDark) {
+                    0.30f
+                } else {
+                    0.78f
+                },
         )
 
-    Surface(
-        color = surfaceColor,
-        shape = cardShape,
-        border = impulsiveGlowBorderStroke(
-            enabled = isDark,
-            glowColor = HomeYellowGlow,
-            fallbackColor = palette.subtleBorder,
-        ),
+    SmallActionCard(
         modifier = modifier
-            .heightIn(min = 138.dp)
-            .shadow(
-                elevation = 6.dp,
-                shape = cardShape,
-                clip = false,
-                ambientColor = palette.softShadow,
-                spotColor = palette.softShadow,
-            )
-            .impulsiveGlowShadow(
-                enabled = isDark,
-                shape = cardShape,
-                glowColor = HomeYellowGlow,
-                elevation = 16.dp,
-                ambientAlpha = 0.14f,
-                spotAlpha = 0.18f,
-            ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(cardShape)
-                .clickable(
-                    interactionSource = remember {
+            .clickable(
+                interactionSource =
+                    remember {
                         MutableInteractionSource()
                     },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onOpenJournal,
-                )
-                .padding(
-                    horizontal = 14.dp,
-                    vertical = 10.dp,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .background(
-                        color = noteIconColor,
-                        shape = RoundedCornerShape(11.dp),
-                    ),
-                contentAlignment = Alignment.Center,
+                indication = null,
             ) {
-                Icon(
-                    imageVector =
-                        Icons.AutoMirrored.Outlined.Article,
-                    contentDescription = null,
-                    tint = palette.primaryText.copy(
-                        alpha = 0.82f,
-                    ),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Text(
-                text = "Personal Notes",
-                color = palette.primaryText,
-                style =
-                    MaterialTheme.typography.titleSmall.copy(
-                        fontSize = 12.sp,
-                        lineHeight = 14.sp,
-                    ),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
+                onOpenJournal()
+            },
+        label = "NOTES",
+        title = "Notes",
+        animatedTitles = listOf(
+            "Notes",
+            "List",
+            "Draw",
+            "Reminder",
+            "Saved Notifications",
+        ),
+        subtext =
+            "Text, lists, drawings, reminders and saved notifications",
+        animatedSubtitles = listOf(
+            "Write thoughts",
+            "Build checklists",
+            "Sketch freely",
+            "Set reminders",
+            "Review saved answers",
+        ),
+        cta = "Open notes >",
+        iconColor = noteIconColor,
+        glowColor = HomeYellowGlow,
+        palette = palette,
+        icon = {
+            Icon(
+                imageVector =
+                    Icons.AutoMirrored
+                        .Outlined
+                        .Article,
+                contentDescription = null,
+                tint =
+                    palette.primaryText
+                        .copy(alpha = 0.82f),
+                modifier =
+                    Modifier.size(20.dp),
             )
         }
-    }
+
+
+
+
+
+        ,
+    )
 }
 
 @Composable
@@ -1378,6 +1360,120 @@ private fun WebsiteProtectionHomeCard(
 }
 
 @Composable
+private fun WebsiteProtectionStatusHomeCard(
+    enabled: Boolean,
+    alwaysOn: Boolean,
+    onClick: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val surfaceColor = if (palette.cardSurface == Color.Unspecified) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        palette.cardSurface
+    }
+    val isDark = palette.cardSurface != Color.Unspecified
+    val cardShape = RoundedCornerShape(24.dp)
+
+    Surface(
+        color = surfaceColor,
+        shape = cardShape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeLavenderGlow,
+            fallbackColor = palette.subtleBorder,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .shadow(
+                elevation = 6.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = HomeLavenderGlow,
+                elevation = 14.dp,
+                ambientAlpha = 0.12f,
+                spotAlpha = 0.16f,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        color = ImpulsivePsychological.copy(alpha = if (isDark) 0.24f else 0.34f),
+                        shape = RoundedCornerShape(17.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Security,
+                    contentDescription = null,
+                    tint = palette.primaryText.copy(alpha = 0.84f),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Website Protection",
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(3.dp))
+
+                Text(
+                    text = when {
+                        !enabled -> "Off"
+                        alwaysOn -> "Always on"
+                        else -> "On during protected time"
+                    },
+                    color = if (enabled) palette.actionText else palette.mutedText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(5.dp))
+
+                Text(
+                    text = "Manage adult and risky website blocking.",
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                    lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Text(
+                text = "Manage",
+                color = palette.actionText,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SmallActionCard(
     modifier: Modifier,
     label: String,
@@ -1467,18 +1563,43 @@ private fun SmallActionCard(
                 )
             } else {
                 androidx.compose.animation.AnimatedContent(
-                    targetState = animatedTitles[showcaseIndex % animatedTitles.size],
+                    targetState =
+                        animatedTitles[
+                            showcaseIndex %
+                                animatedTitles.size
+                        ],
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    contentAlignment =
+                        Alignment.TopStart,
                     transitionSpec = {
-                        androidx.compose.animation.fadeIn(animationSpec = tween(600)) togetherWith
-                            androidx.compose.animation.fadeOut(animationSpec = tween(600))
+                        androidx.compose.animation
+                            .fadeIn(
+                                animationSpec =
+                                    tween(600),
+                            ) togetherWith
+                            androidx.compose.animation
+                                .fadeOut(
+                                    animationSpec =
+                                        tween(600),
+                                )
                     },
-                    label = "gameTitle",
+                    label = "homeCardTitle",
                 ) { line ->
                     Text(
                         text = line,
                         color = palette.primaryText,
-                        style = MaterialTheme.typography.titleMedium,
+                        style =
+                            MaterialTheme
+                                .typography
+                                .titleMedium,
                         fontWeight = FontWeight.Bold,
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 2,
+                        overflow =
+                            TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1493,17 +1614,41 @@ private fun SmallActionCard(
                 )
             } else {
                 androidx.compose.animation.AnimatedContent(
-                    targetState = animatedSubtitles[showcaseIndex % animatedSubtitles.size],
+                    targetState =
+                        animatedSubtitles[
+                            showcaseIndex %
+                                animatedSubtitles.size
+                        ],
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    contentAlignment =
+                        Alignment.TopStart,
                     transitionSpec = {
-                        androidx.compose.animation.fadeIn(animationSpec = tween(600)) togetherWith
-                            androidx.compose.animation.fadeOut(animationSpec = tween(600))
+                        androidx.compose.animation
+                            .fadeIn(
+                                animationSpec =
+                                    tween(600),
+                            ) togetherWith
+                            androidx.compose.animation
+                                .fadeOut(
+                                    animationSpec =
+                                        tween(600),
+                                )
                     },
-                    label = "gameShowcase",
+                    label = "homeCardSubtitle",
                 ) { line ->
                     Text(
                         text = line,
                         color = palette.mutedText,
-                        style = MaterialTheme.typography.bodySmall,
+                        style =
+                            MaterialTheme
+                                .typography
+                                .bodySmall,
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        maxLines = 1,
+                        overflow =
+                            TextOverflow.Ellipsis,
                     )
                 }
             }

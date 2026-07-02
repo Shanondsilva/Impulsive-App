@@ -25,6 +25,10 @@ class ProtectionSetupRepository(
         dataSource.setWebsiteProtectionEnabled(enabled)
     }
 
+    suspend fun setWebsiteProtectionAlwaysOn(enabled: Boolean) {
+        dataSource.setWebsiteProtectionAlwaysOn(enabled)
+    }
+
     suspend fun setInterruptionPermissionEnabled(enabled: Boolean) {
         dataSource.setInterruptionPermissionEnabled(enabled)
     }

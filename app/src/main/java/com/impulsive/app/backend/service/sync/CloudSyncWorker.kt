@@ -15,6 +15,7 @@ import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.sync.JournalChecklistCloudSync
 import com.impulsive.app.backend.data.sync.JournalNoteCloudSync
 import com.impulsive.app.backend.data.sync.RecoverySessionCloudSync
+import com.impulsive.app.backend.data.sync.SyncTombstoneCloudSync
 import java.util.concurrent.TimeUnit
 
 /**
@@ -32,10 +33,12 @@ class CloudSyncWorker(
         }
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return Result.success()
         val database = AppDatabase.getInstance(applicationContext)
+        val tombstoneDao = database.syncTombstoneDao()
         return try {
-            RecoverySessionCloudSync().sync(database.recoverySessionDao(), uid)
-            JournalNoteCloudSync().sync(database.journalNoteDao(), uid)
-            JournalChecklistCloudSync().sync(database.journalNoteDao(), uid)
+            SyncTombstoneCloudSync().sync(tombstoneDao, uid)
+            RecoverySessionCloudSync().sync(database.recoverySessionDao(), tombstoneDao, uid)
+            JournalNoteCloudSync().sync(database.journalNoteDao(), tombstoneDao, uid)
+            JournalChecklistCloudSync().sync(database.journalNoteDao(), tombstoneDao, uid)
             Result.success()
         } catch (error: Exception) {
             if (runAttemptCount < MaxAttempts) Result.retry() else Result.failure()

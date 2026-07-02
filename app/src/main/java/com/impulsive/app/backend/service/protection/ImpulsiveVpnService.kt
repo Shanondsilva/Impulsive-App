@@ -213,34 +213,27 @@ class ImpulsiveVpnService : VpnService() {
 
     /**
      * Launches the shared block screen for a blocked web domain using the same
-     * path AppMonitorService uses for blocked apps: a direct activity launch when
-     * the overlay permission allows it, otherwise the full-screen-intent
-     * notification fallback. The matched entry is passed as both the source label
-     * and source package so the existing block screen shows the domain.
+     * path AppMonitorService uses for blocked apps: a direct activity launch
+     * when the Display over other apps permission is granted, with the full
+     * screen intent notification as the fallback. The matched entry is passed
+     * as both the source label and source package so the existing block screen
+     * shows the domain.
      */
     private fun launchWebBlockScreen(blockedEntry: String) {
-        val blockIntent = MainActivity.createBlockIntent(
-            context = this,
-            sourcePackageName = blockedEntry,
-            sourceLabel = blockedEntry,
-        )
-        // This launch happens about seven seconds after the lookup, from the
-        // background, with no foreground app transition to grant a launch window.
-        // A direct startActivity in that state is silently denied by the OS with no
-        // exception, so its success cannot be trusted and the old code never fell
-        // back. Post the full-screen-intent notification as the guaranteed surface
-        // first, then also attempt the direct overlay launch for an immediate
-        // takeover when the OS allows it. MainActivity cancels the notification once
-        // the block screen is shown, so a takeover leaves no orphan notification.
+        if (Settings.canDrawOverlays(applicationContext)) {
+            val blockIntent = MainActivity.createBlockIntent(
+                context = applicationContext,
+                sourcePackageName = blockedEntry,
+                sourceLabel = blockedEntry,
+            )
+            val launched = runCatching { applicationContext.startActivity(blockIntent) }.isSuccess
+            if (launched) return
+        }
         notificationHelper.showBlockFullScreen(
             sourcePackageName = blockedEntry,
             sourceLabel = blockedEntry,
             hideSensitive = hideSensitiveNotifications.value,
         )
-        if (Settings.canDrawOverlays(this)) {
-            runCatching { startActivity(blockIntent) }
-                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
-        }
     }
 
     private fun startAsForegroundService() {
@@ -250,7 +243,7 @@ class ImpulsiveVpnService : VpnService() {
                 this,
                 ProtectionNotificationHelper.VpnNotificationId,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
             )
         } else {
             ServiceCompat.startForeground(

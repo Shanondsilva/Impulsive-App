@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
+import com.impulsive.app.backend.service.protection.ImpulsiveVpnController
+import com.impulsive.app.backend.service.protection.ProtectionServiceController
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -27,11 +29,44 @@ class ProtectionSetupViewModel(
     }
 
     fun setSelectedBlockedAppPackageNames(packageNames: Set<String>) {
-        viewModelScope.launch { repository.setSelectedBlockedAppPackageNames(packageNames) }
+        viewModelScope.launch {
+            val wasEnabled = state.value.selectedBlockedAppPackageNames.isNotEmpty()
+            val willBeEnabled = packageNames.isNotEmpty()
+
+            repository.setSelectedBlockedAppPackageNames(packageNames)
+
+            if (!willBeEnabled) {
+                ProtectionServiceController.stop(getApplication())
+                return@launch
+            }
+
+            ProtectionServiceController.start(
+                context = getApplication(),
+                showTemporaryNotification = !wasEnabled,
+            )
+        }
     }
 
     fun setWebsiteProtectionEnabled(enabled: Boolean) {
-        viewModelScope.launch { repository.setWebsiteProtectionEnabled(enabled) }
+        viewModelScope.launch {
+            repository.setWebsiteProtectionEnabled(enabled)
+
+            if (enabled) {
+                ProtectionServiceController.start(getApplication())
+            } else {
+                ImpulsiveVpnController.stop(getApplication())
+            }
+        }
+    }
+
+    fun setWebsiteProtectionAlwaysOn(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setWebsiteProtectionAlwaysOn(enabled)
+
+            if (state.value.websiteProtectionEnabled) {
+                ProtectionServiceController.start(getApplication())
+            }
+        }
     }
 
     fun setInterruptionPermissionEnabled(enabled: Boolean) {

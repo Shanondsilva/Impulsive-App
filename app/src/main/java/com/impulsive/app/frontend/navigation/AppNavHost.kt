@@ -11,18 +11,24 @@ import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -50,15 +56,22 @@ import com.impulsive.app.frontend.screens.intro.IntroScreen
 import com.impulsive.app.frontend.screens.journal.JournalEditorScreen
 import com.impulsive.app.frontend.screens.journal.JournalHubScreen
 import com.impulsive.app.frontend.screens.journal.JournalListScreen
+import com.impulsive.app.frontend.screens.journal.SavedNotificationsScreen
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
+import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluator
+import com.impulsive.app.backend.domain.model.protection.toImpulsiveCompactTime
+import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
+import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.service.protection.ImpulsiveVpnController
+import com.impulsive.app.backend.service.protection.ProtectionNotificationHelper
 import com.impulsive.app.backend.service.protection.ProtectionServiceController
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.protection.DnsFilterGateViewModel
 import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.service.billing.BillingManager
+import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.frontend.screens.onboarding.LoginSignupGuestScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingDailyRelapseCountScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingQuestionScreen
@@ -84,6 +97,8 @@ import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 import com.impulsive.app.backend.session.tasks.ResetReadLaunchMode
 import com.impulsive.app.security.antibypass.UninstallProtectionManager
+import java.time.LocalDateTime
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 object OnboardingRoutes {
@@ -131,6 +146,8 @@ object AppRoutes {
     const val DnsFilterGate = "dns_filter_gate"
     const val JournalHub = "journal_hub"
     const val JournalList = "journal_list"
+    const val SavedNotifications =
+        "journal_saved_notifications"
     const val JournalNoteNew = "journal_note_new/{type}"
     const val JournalNoteEdit = "journal_note_edit/{noteId}"
     const val UninstallProtection = "main_uninstall_protection"
@@ -158,6 +175,7 @@ fun AppNavHost(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val usageAccessChecker = remember(context) { UsageAccessPermissionChecker(context) }
+    val protectionNotificationHelper = remember(context) { ProtectionNotificationHelper(context) }
     val uninstallProtectionManager = remember(context) { UninstallProtectionManager(context) }
     var pendingDailyRelapseCount by remember { mutableStateOf<Int?>(null) }
     val bottomNavIndicatorState = rememberBottomNavIndicatorState()
@@ -169,7 +187,17 @@ fun AppNavHost(
     }
 
     fun syncInterruptionPermission() {
-        protectionSetupViewModel.setInterruptionPermissionEnabled(Settings.canDrawOverlays(context))
+        protectionSetupViewModel.setInterruptionPermissionEnabled(
+            Settings.canDrawOverlays(context),
+        )
+    }
+
+    fun openInterruptionPermissionSettings() {
+        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        runCatching { context.startActivity(intent) }
+            .onFailure { syncInterruptionPermission() }
     }
 
     fun isIgnoringBatteryOptimizations(): Boolean {
@@ -182,10 +210,47 @@ fun AppNavHost(
     }
 
     fun syncNotificationPermission() {
-        val isAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
+        // areNotificationsEnabled covers both the Android 13 runtime permission
+        // and the per app notification toggle in system settings, so the setup
+        // card reflects the real delivery state on every supported version.
+        val isAllowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
         protectionSetupViewModel.setNotificationPermissionEnabled(isAllowed)
+    }
+
+    fun openAppNotificationSettings() {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        }
+        runCatching { context.startActivity(intent) }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        syncNotificationPermission()
+        if (!granted) {
+            // When the system suppresses the dialog after a permanent denial,
+            // the result arrives instantly as not granted with no rationale.
+            // Opening the notification settings page is the only remaining way
+            // for the user to turn notifications on.
+            val activity = context as? Activity
+            val canAskAgain = activity != null &&
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                )
+            if (!canAskAgain) {
+                openAppNotificationSettings()
+            }
+        }
+    }
+
+    fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            openAppNotificationSettings()
+        }
     }
 
     fun syncUninstallProtection() {
@@ -200,7 +265,13 @@ fun AppNavHost(
         syncUninstallProtection()
     }
 
-    DisposableEffect(context, lifecycleOwner, usageAccessChecker, uninstallProtectionManager) {
+    DisposableEffect(
+        context,
+        lifecycleOwner,
+        usageAccessChecker,
+        protectionNotificationHelper,
+        uninstallProtectionManager,
+    ) {
         syncProtectionSetupFromDevice()
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -300,6 +371,10 @@ fun AppNavHost(
     NavHost(
         navController = navController,
         startDestination = if (state.isCompleted) AppRoutes.Graph else OnboardingRoutes.Graph,
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+        popEnterTransition = { EnterTransition.None },
+        popExitTransition = { ExitTransition.None },
     ) {
         navigation(
             route = OnboardingRoutes.Graph,
@@ -428,27 +503,13 @@ fun AppNavHost(
                     onOpenUsageAccessPermission = {
                         context.startActivity(usageAccessChecker.createUsageAccessSettingsIntent())
                     },
-                    onOpenInterruptionPermission = {
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}"),
-                        )
-                        context.startActivity(intent)
-                    },
+                    onOpenInterruptionPermission = ::openInterruptionPermissionSettings,
                     onOpenBackgroundActivityPermission = {
-                        val intent = if (isIgnoringBatteryOptimizations()) {
-                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                        } else {
-                            Intent(
-                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                Uri.parse("package:${context.packageName}"),
-                            )
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                         }
-                        runCatching { context.startActivity(intent) }
-                            .onFailure {
-                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                            }
                     },
+                    onOpenNotificationPermission = ::requestNotificationPermission,
                     onOpenUninstallProtection = {
                         navController.navigate(OnboardingRoutes.UninstallProtection) {
                             launchSingleTop = true
@@ -516,45 +577,42 @@ fun AppNavHost(
         ) {
             composable(AppRoutes.Home) {
                 HomeScreen(
-                    onOpenRecoveryGames = {
+                    onOpenRecoveryGames = dropUnlessResumed {
                         navController.navigateMainTop(AppRoutes.RecoveryGames)
                     },
-                    onOpenJournal = {
+                    onOpenJournal = dropUnlessResumed {
                         navController.navigateMainTop(AppRoutes.JournalList)
                     },
-                    onCreateJournalNote = { type ->
-                        navController.navigate(AppRoutes.journalNoteNew(type))
-                    },
-                    onOpenReflexOverrideTask = {
+                    onOpenReflexOverrideTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ReflexGameTask)
                     },
-                    onOpenBlockCascadeTask = {
+                    onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
                     },
-                    onOpenSkylineResetTask = {
+                    onOpenSkylineResetTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.SkylineResetTask)
                     },
-                    onOpenRhythmTilesTask = {
+                    onOpenRhythmTilesTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.RhythmTilesTask)
                     },
-                    onOpenResetReadTask = {
+                    onOpenResetReadTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
-                    onOpenTasks = {
+                    onOpenTasks = dropUnlessResumed {
                         navController.navigate(AppRoutes.TaskToComplete)
                     },
-                    onOpenScore = {
+                    onOpenScore = dropUnlessResumed {
                         navController.navigateMainTop(AppRoutes.Score)
                     },
-                    onOpenSettings = {
+                    onOpenSettings = dropUnlessResumed {
                         navController.navigateMainTop(AppRoutes.Settings)
                     },
-                    onOpenWebsiteProtectionPlus = {
+                    onOpenWebsiteProtectionPlus = dropUnlessResumed {
                         navController.navigate(AppRoutes.WebsiteProtectionPlus) {
                             launchSingleTop = true
                         }
                     },
-                    onOpenFocus = {
+                    onOpenFocus = dropUnlessResumed {
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
                     indicatorState = bottomNavIndicatorState,
@@ -603,19 +661,19 @@ fun AppNavHost(
                     onOpenFocus = {
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
-                    onOpenReflexOverrideTask = {
+                    onOpenReflexOverrideTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ReflexGameTask)
                     },
-                    onOpenBlockCascadeTask = {
+                    onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
                     },
-                    onOpenSkylineResetTask = {
+                    onOpenSkylineResetTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.SkylineResetTask)
                     },
-                    onOpenRhythmTilesTask = {
+                    onOpenRhythmTilesTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.RhythmTilesTask)
                     },
-                    onOpenResetReadTask = {
+                    onOpenResetReadTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
                     indicatorState = bottomNavIndicatorState,
@@ -631,19 +689,19 @@ fun AppNavHost(
                     onOpenFocus = {
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
-                    onOpenReflexOverrideTask = {
+                    onOpenReflexOverrideTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ReflexGameTask)
                     },
-                    onOpenBlockCascadeTask = {
+                    onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
                     },
-                    onOpenSkylineResetTask = {
+                    onOpenSkylineResetTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.SkylineResetTask)
                     },
-                    onOpenRhythmTilesTask = {
+                    onOpenRhythmTilesTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.RhythmTilesTask)
                     },
-                    onOpenResetReadTask = {
+                    onOpenResetReadTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
                     onOpenHelp = {
@@ -692,27 +750,13 @@ fun AppNavHost(
                     onOpenUsageAccessPermission = {
                         context.startActivity(usageAccessChecker.createUsageAccessSettingsIntent())
                     },
-                    onOpenInterruptionPermission = {
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}"),
-                        )
-                        context.startActivity(intent)
-                    },
+                    onOpenInterruptionPermission = ::openInterruptionPermissionSettings,
                     onOpenBackgroundActivityPermission = {
-                        val intent = if (isIgnoringBatteryOptimizations()) {
-                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                        } else {
-                            Intent(
-                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                Uri.parse("package:${context.packageName}"),
-                            )
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                         }
-                        runCatching { context.startActivity(intent) }
-                            .onFailure {
-                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                            }
                     },
+                    onOpenNotificationPermission = ::requestNotificationPermission,
                     onOpenUninstallProtection = {
                         navController.navigate(AppRoutes.UninstallProtection) {
                             launchSingleTop = true
@@ -761,9 +805,28 @@ fun AppNavHost(
 
             composable(AppRoutes.WebsiteProtectionPlus) {
                 val premiumViewModel: PremiumViewModel = viewModel()
+                val taskRewardViewModel: TaskRewardViewModel = viewModel()
                 val isPlus by remember(premiumViewModel) {
                     premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
                 }.collectAsStateWithLifecycle()
+                val taskStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+                val now by produceState(initialValue = LocalDateTime.now().withSecond(0).withNano(0)) {
+                    while (true) {
+                        value = LocalDateTime.now().withSecond(0).withNano(0)
+                        delay(30_000L)
+                    }
+                }
+                val releasePlan = calculateReleasePlan(
+                    selectedDailyUrgeCount = state.answers.dailyRelapseUrgeCount,
+                    now = now,
+                    activeDayStart = minuteOfDayToLocalTime(state.answers.activeDayStartMinute),
+                    activeDayEnd = minuteOfDayToLocalTime(state.answers.activeDayEndMinute),
+                )
+                val windowSnapshot = ProtectionWindowEvaluator.evaluate(
+                    now = now,
+                    releasePlan = releasePlan,
+                    adjustedNextReleaseWindow = taskStoreState.adjustedNextReleaseWindow,
+                )
                 val context = LocalContext.current
                 val billingManager = remember { BillingManager(context) }
                 val priceLabel by billingManager.formattedPrice.collectAsStateWithLifecycle()
@@ -783,6 +846,15 @@ fun AppNavHost(
                     onPurchase = {
                         (context as? Activity)?.let { billingManager.launchPurchase(it) }
                     },
+                    isWebsiteProtectionEnabled = protectionSetupState.websiteProtectionEnabled,
+                    isWebsiteProtectionAlwaysOn = protectionSetupState.websiteProtectionAlwaysOn,
+                    isReleaseWindowActive = windowSnapshot.isProtectionPaused,
+                    releaseWindowEndsAt = windowSnapshot.pausedWindowEnd?.toImpulsiveCompactTime(),
+                    onTurnWebsiteProtectionOff = {
+                        ImpulsiveVpnController.stop(context)
+                        protectionSetupViewModel.setWebsiteProtectionEnabled(false)
+                    },
+                    onAlwaysOnChanged = protectionSetupViewModel::setWebsiteProtectionAlwaysOn,
                 )
             }
 
@@ -795,6 +867,7 @@ fun AppNavHost(
                 ) { result ->
                     if (result.resultCode == Activity.RESULT_OK) {
                         ImpulsiveVpnController.start(context)
+                        protectionSetupViewModel.setWebsiteProtectionEnabled(true)
                         navController.safePopBackStack()
                     }
                 }
@@ -810,11 +883,13 @@ fun AppNavHost(
                             vpnConsentLauncher.launch(consent)
                         } else {
                             ImpulsiveVpnController.start(context)
+                            protectionSetupViewModel.setWebsiteProtectionEnabled(true)
                             navController.safePopBackStack()
                         }
                     },
                     onTurnOff = {
                         ImpulsiveVpnController.stop(context)
+                        protectionSetupViewModel.setWebsiteProtectionEnabled(false)
                         navController.safePopBackStack()
                     },
                     onBack = { navController.safePopBackStack() },
@@ -836,10 +911,10 @@ fun AppNavHost(
             composable(AppRoutes.RecoveryGames) {
                 RecoveryGamesScreen(
                     onBack = { navController.safePopBackStack() },
-                    onOpenReflexOverride = { navController.navigate(AppRoutes.ReflexGame) },
-                    onOpenBlockCascade = { navController.navigate(AppRoutes.BlockCascadeGame) },
-                    onOpenSkylineReset = { navController.navigate(AppRoutes.SkylineResetGame) },
-                    onOpenRhythmTiles = { navController.navigate(AppRoutes.RhythmTilesGame) },
+                    onOpenReflexOverride = dropUnlessResumed { navController.navigate(AppRoutes.ReflexGame) },
+                    onOpenBlockCascade = dropUnlessResumed { navController.navigate(AppRoutes.BlockCascadeGame) },
+                    onOpenSkylineReset = dropUnlessResumed { navController.navigate(AppRoutes.SkylineResetGame) },
+                    onOpenRhythmTiles = dropUnlessResumed { navController.navigate(AppRoutes.RhythmTilesGame) },
                 )
             }
 
@@ -967,6 +1042,24 @@ fun AppNavHost(
                     onBack = { navController.safePopBackStack() },
                     onCreateNote = { type -> navController.navigate(AppRoutes.journalNoteNew(type)) },
                     onOpenNote = { noteId -> navController.navigate(AppRoutes.journalNoteEdit(noteId)) },
+                    onOpenSavedNotifications = {
+                        navController.navigate(
+                            AppRoutes.SavedNotifications,
+                        ) {
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+
+            composable(
+                AppRoutes.SavedNotifications,
+            ) {
+                SavedNotificationsScreen(
+                    onBack = {
+                        navController
+                            .safePopBackStack()
+                    },
                 )
             }
 
@@ -1113,19 +1206,19 @@ fun AppNavHost(
             composable(AppRoutes.TaskToComplete) {
                 TaskToCompleteScreen(
                     onBack = { navController.safePopBackStack() },
-                    onOpenReflexOverrideTask = {
+                    onOpenReflexOverrideTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ReflexGameTask)
                     },
-                    onOpenBlockCascadeTask = {
+                    onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
                     },
-                    onOpenSkylineResetTask = {
+                    onOpenSkylineResetTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.SkylineResetTask)
                     },
-                    onOpenRhythmTilesTask = {
+                    onOpenRhythmTilesTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.RhythmTilesTask)
                     },
-                    onOpenResetReadTask = {
+                    onOpenResetReadTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.ResetReadTask)
                     },
                 )

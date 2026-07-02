@@ -6,14 +6,37 @@
     <title>Email verified | Impulsive</title>
     <style>
       :root {
-        color-scheme: light;
-        --bg: #fffefc;
-        --text: #211b2c;
-        --muted: #655d72;
-        --accent: #7d5fc4;
-        --accent-strong: #6448a8;
-        --panel: #ffffff;
-        --ring: #eadff8;
+        color-scheme: dark;
+        --bg: #100b18;
+        --text: #f7f0ff;
+        --muted: #c9bdd8;
+        --accent: #d0c3f1;
+        --accent-strong: #eee8ff;
+        --accent-text: #21153b;
+        --panel: #191123;
+        --ring: rgba(208, 195, 241, 0.24);
+        --glow: rgba(208, 195, 241, 0.18);
+        --hero: rgba(126, 94, 196, 0.3);
+        --shadow: rgba(0, 0, 0, 0.38);
+        --focus: #d0c3f1;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg: #fffefc;
+          --text: #211b2c;
+          --muted: #655d72;
+          --accent: #7d5fc4;
+          --accent-strong: #6448a8;
+          --accent-text: #ffffff;
+          --panel: #ffffff;
+          --ring: #eadff8;
+          --glow: rgba(100, 72, 168, 0.12);
+          --hero: #f6efff;
+          --shadow: rgba(76, 55, 118, 0.12);
+          --focus: #d9c9f2;
+        }
       }
 
       * {
@@ -27,7 +50,7 @@
         place-items: center;
         padding: 24px;
         background:
-          radial-gradient(circle at top, #f6efff 0, transparent 34rem),
+          radial-gradient(circle at top, var(--hero) 0, transparent 34rem),
           var(--bg);
         color: var(--text);
         font-family:
@@ -41,7 +64,7 @@
         border: 1px solid var(--ring);
         border-radius: 24px;
         background: var(--panel);
-        box-shadow: 0 24px 70px rgba(76, 55, 118, 0.12);
+        box-shadow: 0 24px 70px var(--shadow);
         text-align: center;
       }
 
@@ -70,15 +93,15 @@
         border-radius: 999px;
         padding: 14px 18px;
         background: var(--accent);
-        color: #ffffff;
+        color: var(--accent-text);
         font: inherit;
         font-weight: 700;
         cursor: pointer;
-        box-shadow: 0 14px 28px rgba(100, 72, 168, 0.22);
+        box-shadow: 0 14px 28px var(--glow);
       }
 
       button:focus-visible {
-        outline: 3px solid #d9c9f2;
+        outline: 3px solid var(--focus);
         outline-offset: 3px;
       }
 
@@ -101,20 +124,18 @@
       }
     </style>
     <script>
-      function openImpulsive() {
-        window.location.href = "impulsive://auth/verified";
-      }
+      const verifiedUrl = "https://useimpulsive.com/auth/verified";
 
-      window.addEventListener("DOMContentLoaded", function () {
-        setTimeout(openImpulsive, 400);
-      });
+      function openImpulsive() {
+        window.location.href = verifiedUrl;
+      }
     </script>
   </head>
   <body>
     <main>
       <h1>Email verified</h1>
-      <p>Your email has been verified. We are opening Impulsive now.</p>
-      <p class="helper">If the app does not open automatically, tap the button below.</p>
+      <p>Your email has been verified. Open Impulsive to continue.</p>
+      <p class="helper">If the app is installed, use the button below to open the verified App Link.</p>
       <button onclick="openImpulsive()">Open Impulsive</button>
       <a href="/">Back to Impulsive website</a>
     </main>

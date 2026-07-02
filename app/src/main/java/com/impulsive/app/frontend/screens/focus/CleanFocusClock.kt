@@ -50,6 +50,7 @@ import com.airbnb.lottie.compose.rememberLottieComposition
 import com.impulsive.app.R
 import com.impulsive.app.backend.domain.model.focus.MaxFocusMinutes
 import com.impulsive.app.backend.domain.model.focus.MinFocusMinutes
+import com.impulsive.app.frontend.utils.rememberImpulsiveHaptics
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.PI
@@ -183,7 +184,9 @@ private fun FocusActiveAnimationTimer(
         Text(
             text = remainingText,
             color = text,
-            style = MaterialTheme.typography.headlineLarge,
+            style = MaterialTheme.typography.headlineLarge.copy(
+                fontFeatureSettings = "tnum",
+            ),
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
         )
@@ -234,6 +237,8 @@ fun CleanFocusLiveClockFace(
     val safeDuration = selectedDurationMinutes.coerceIn(MinFocusMinutes, MaxFocusMinutes)
     val durationDragged = onDurationDragged
     val latestDurationDragged by rememberUpdatedState(durationDragged)
+    val haptics = rememberImpulsiveHaptics()
+    val latestHaptics by rememberUpdatedState(haptics)
     var isDragging by remember { mutableStateOf(false) }
     var visualTopDegrees by remember { mutableStateOf(durationToTopDegrees(safeDuration)) }
     val countdownTopDegrees = activeRemainingSeconds?.let { remainingSecondsToTopDegrees(it) }
@@ -282,6 +287,7 @@ fun CleanFocusLiveClockFace(
                                     visualTopDegrees = ringMinuteToTopDegrees(currentRingMinute)
 
                                     if (currentDuration != lastReported) {
+                                        latestHaptics.light()
                                         dragCallback(currentDuration)
                                         lastReported = currentDuration
                                     }
@@ -293,6 +299,7 @@ fun CleanFocusLiveClockFace(
                                 visualTopDegrees = durationToTopDegrees(finalSnapped)
                                 isDragging = false
                                 if (finalSnapped != lastReported) {
+                                    latestHaptics.light()
                                     dragCallback(finalSnapped)
                                 }
                             }

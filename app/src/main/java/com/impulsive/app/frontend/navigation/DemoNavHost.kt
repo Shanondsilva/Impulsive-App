@@ -17,6 +17,7 @@ import com.impulsive.app.frontend.screens.intro.IntroScreen
 import com.impulsive.app.frontend.screens.journal.JournalEditorScreen
 import com.impulsive.app.frontend.screens.journal.JournalHubScreen
 import com.impulsive.app.frontend.screens.journal.JournalListScreen
+import com.impulsive.app.frontend.screens.journal.SavedNotificationsScreen
 import com.impulsive.app.frontend.screens.onboarding.WelcomePrivacyScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
@@ -38,6 +39,8 @@ object DemoRoutes {
     const val ResetReadTask = "reset_read_task"
     const val JournalHub = "journal_hub"
     const val JournalList = "journal_list"
+    const val SavedNotifications =
+        "journal_saved_notifications"
     const val JournalNoteNew = "journal_note_new/{type}"
     const val JournalNoteEdit = "journal_note_edit/{noteId}"
 
@@ -82,9 +85,6 @@ fun DemoNavHost(
                 },
                 onOpenJournal = {
                     navController.navigate(DemoRoutes.JournalList)
-                },
-                onCreateJournalNote = { type ->
-                    navController.navigate(DemoRoutes.journalNoteNew(type))
                 },
                 onOpenReflexOverrideTask = {
                     navController.navigate(DemoRoutes.ReflexGameTask)
@@ -136,6 +136,23 @@ fun DemoNavHost(
                 onBack = { navController.popBackStack() },
                 onCreateNote = { type -> navController.navigate(DemoRoutes.journalNoteNew(type)) },
                 onOpenNote = { noteId -> navController.navigate(DemoRoutes.journalNoteEdit(noteId)) },
+                onOpenSavedNotifications = {
+                    navController.navigate(
+                        DemoRoutes.SavedNotifications,
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
+
+        composable(
+            DemoRoutes.SavedNotifications,
+        ) {
+            SavedNotificationsScreen(
+                onBack = {
+                    navController.popBackStack()
+                },
             )
         }
 

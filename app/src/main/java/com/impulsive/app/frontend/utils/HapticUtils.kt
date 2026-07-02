@@ -7,15 +7,26 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
 
 @Composable
-fun rememberImpulsiveHaptics(enabled: Boolean): ImpulsiveHaptics {
+fun rememberImpulsiveHaptics(enabled: Boolean? = null): ImpulsiveHaptics {
     val context = LocalContext.current.applicationContext
-    return remember(enabled, context) {
+    val settingsDataSource = remember(context) {
+        AppSettingsPreferencesDataSource(context)
+    }
+    val settingsHapticsEnabled by settingsDataSource.hapticsEnabled
+        .collectAsStateWithLifecycle(initialValue = true)
+
+    val effectiveEnabled = enabled ?: settingsHapticsEnabled
+
+    return remember(effectiveEnabled, context) {
         ImpulsiveHaptics(
-            enabled = enabled,
+            enabled = effectiveEnabled,
             vibrator = resolveVibrator(context),
         )
     }

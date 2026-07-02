@@ -16,17 +16,16 @@ import androidx.work.WorkerParameters
 import com.impulsive.app.MainActivity
 import com.impulsive.app.R
 import com.impulsive.app.backend.data.repository.FeedbackResponseRepository
-import com.impulsive.app.backend.data.repository.JournalRepository
 import com.impulsive.app.backend.domain.model.journal.FeedbackPrompt
-import com.impulsive.app.backend.domain.model.journal.JournalNoteType
-import kotlinx.coroutines.flow.first
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * Posts the end-of-day feedback question with two tap answers, but only when no
- * feedback note exists for today. Reschedules the next evening either way.
+ * Posts the daily feedback question with two tap answers and then schedules
+ * the next daily feedback notification.
+ *
+ * Manual feedback journal rows no longer exist and therefore never suppress this
+ * notification.
  */
 class FeedbackPromptWorker(
     appContext: Context,
@@ -45,30 +44,51 @@ class FeedbackPromptWorker(
 
             responseRepository.deleteExpired(nowMillis)
 
-            if (!feedbackDoneOn(today, zone)) {
-                val questionIndex =
-                    FeedbackPrompt.indexForDate(today)
-                val question =
-                    FeedbackPrompt.questionAt(questionIndex)
+            val questionIndex =
+                FeedbackPrompt.indexForDate(
+                    today,
+                )
 
-                val responseId = responseRepository.createPending(
-                    promptDateEpochDay = today.toEpochDay(),
-                    questionIndex = questionIndex,
-                    questionText = question.question,
+            val question =
+                FeedbackPrompt.questionAt(
+                    questionIndex,
+                )
+
+            val responseId =
+                responseRepository.createPending(
+                    promptDateEpochDay =
+                        today.toEpochDay(),
+                    questionIndex =
+                        questionIndex,
+                    questionText =
+                        question.question,
                     positiveAnswerText =
                         question.positiveAnswer,
                     honestAnswerText =
                         question.honestAnswer,
-                    createdAtMillis = nowMillis,
+                    createdAtMillis =
+                        nowMillis,
                 )
 
-                if (notificationsAllowed()) {
-                    postNudge(
-                        responseId = responseId,
-                        questionIndex = questionIndex,
-                        question = question,
-                    )
-                }
+            val pendingResponse =
+                responseRepository.getById(
+                    responseId = responseId,
+                )
+
+            if (
+                pendingResponse != null &&
+                pendingResponse.answeredAtMillis == null &&
+                pendingResponse.expiresAtMillis >
+                    nowMillis &&
+                notificationsAllowed()
+            ) {
+                postNudge(
+                    responseId = responseId,
+                    questionIndex = questionIndex,
+                    question = question,
+                    expiresAtMillis =
+                        pendingResponse.expiresAtMillis,
+                )
             }
         } finally {
             FeedbackPromptScheduler(
@@ -87,26 +107,11 @@ class FeedbackPromptWorker(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private suspend fun feedbackDoneOn(
-        date: LocalDate,
-        zone: ZoneId,
-    ): Boolean {
-        return JournalRepository(applicationContext)
-            .observeNotes()
-            .first()
-            .any { note ->
-                note.noteType ==
-                    JournalNoteType.Feedback.storageValue &&
-                    Instant.ofEpochMilli(
-                        note.createdAtMillis,
-                    ).atZone(zone).toLocalDate() == date
-            }
-    }
-
     private fun postNudge(
         responseId: Long,
         questionIndex: Int,
         question: FeedbackPrompt.DailyQuestion,
+        expiresAtMillis: Long,
     ) {
         val notificationId =
             FeedbackAnswerReceiver.FeedbackNotificationId
@@ -128,6 +133,12 @@ class FeedbackPromptWorker(
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setContentIntent(openPending)
             .setAutoCancel(true)
+            .setTimeoutAfter(
+                (
+                    expiresAtMillis -
+                        System.currentTimeMillis()
+                ).coerceAtLeast(0L),
+            )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .addAction(
                 0,

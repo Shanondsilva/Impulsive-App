@@ -26,8 +26,10 @@ import com.impulsive.app.backend.domain.model.tasks.recommendPsychologyTask
 import com.impulsive.app.backend.domain.model.tasks.rewardStatusFor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 private val Context.taskRewardDataStore by preferencesDataStore(name = "task_rewards")
 
@@ -72,6 +74,11 @@ class TaskRewardDataSource(
             currentTriggerSource = preferences[CurrentTriggerSourceKey].toEnumOrNull<TriggerSource>(),
             userEnergyState = preferences[UserEnergyStateKey].toEnumOrNull<EnergyState>(),
         )
+    }
+
+    val lastFocusTimeAward: Flow<Pair<String, Int>?> = dataStore.data.map { preferences ->
+        val sessionId = preferences[LastFocusTimeAwardedSessionIdKey] ?: return@map null
+        sessionId to (preferences[LastFocusTimeAwardedPointsKey] ?: 0)
     }
 
     suspend fun completeTask(
@@ -302,9 +309,65 @@ class TaskRewardDataSource(
         }
     }
 
+    suspend fun awardFocusTimePointsIfEligible(
+        focusSessionId: String,
+        completedAtMillis: Long,
+    ): Int {
+        if (focusSessionId.isBlank()) return 0
+        val completedDate = completedAtMillis.toLocalDateInUserZone().toString()
+        var awardedPoints = 0
+
+        dataStore.edit { preferences ->
+            val awardedSessionIds = preferences[FocusTimeAwardedSessionIdsKey].toStringList()
+            if (focusSessionId in awardedSessionIds) {
+                preferences[LastFocusTimeAwardedSessionIdKey] = focusSessionId
+                preferences[LastFocusTimeAwardedPointsKey] = 0
+                return@edit
+            }
+
+            val storedDate = preferences[FocusTimePointsAwardedDateKey]
+            val normalPointsAwardedToday = if (storedDate == completedDate) {
+                preferences[FocusTimeNormalPointsAwardedTodayKey] ?: 0
+            } else {
+                0
+            }
+            val remainingNormalPointsToday =
+                (FocusTimeDailyNormalCap - normalPointsAwardedToday).coerceAtLeast(0)
+            val firstBonusAlreadyAwarded = preferences[FocusTimeFirstBonusAwardedKey] == 1
+            val normalPoints = minOf(FocusTimeNormalPoints, remainingNormalPointsToday)
+            val bonusPoints = if (firstBonusAlreadyAwarded) 0 else FocusTimeFirstBonusPoints
+            awardedPoints = normalPoints + bonusPoints
+
+            preferences[FocusTimeAwardedSessionIdsKey] =
+                (awardedSessionIds + focusSessionId)
+                    .takeLast(FocusTimeMaxAwardedSessionIds)
+                    .joinToString(StoredListSeparator)
+            preferences[FocusTimePointsAwardedDateKey] = completedDate
+            preferences[FocusTimeNormalPointsAwardedTodayKey] = normalPointsAwardedToday + normalPoints
+            if (!firstBonusAlreadyAwarded) {
+                preferences[FocusTimeFirstBonusAwardedKey] = 1
+            }
+            preferences[LastFocusTimeAwardedSessionIdKey] = focusSessionId
+            preferences[LastFocusTimeAwardedPointsKey] = awardedPoints
+
+            if (awardedPoints > 0) {
+                val levelProgress = addLevelPoints(
+                    currentLevel = preferences[CurrentLevelKey] ?: InitialLevel,
+                    currentLevelPoints = preferences[CurrentLevelPointsKey] ?: InitialLevelPoints,
+                    pointsToAdd = awardedPoints,
+                )
+                preferences[CurrentLevelKey] = levelProgress.currentLevel
+                preferences[CurrentLevelPointsKey] = levelProgress.currentLevelPoints
+            }
+        }
+
+        return awardedPoints
+    }
+
     /**
-     * Awards Level Points for a feedback note, but only once per calendar day, so the
-     * reward cannot be farmed. Returns true if it awarded, false if already given today.
+     * Awards Level Points for a daily journal reward, but only once per calendar day,
+     * so the reward cannot be farmed. Returns true if it awarded, false if already
+     * given today.
      */
     suspend fun awardNoteCreationPointsIfNewDay(points: Int): Boolean {
         if (points <= 0) return false
@@ -397,11 +460,27 @@ class TaskRewardDataSource(
         return split(StoredListSeparator).mapNotNull { it.toTaskTypeOrNull() }
     }
 
+    private fun String?.toStringList(): List<String> {
+        if (isNullOrBlank()) return emptyList()
+        return split(StoredListSeparator)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+    }
+
+    private fun Long.toLocalDateInUserZone(): LocalDate =
+        Instant.ofEpochMilli(this)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+
     private inline fun <reified T : Enum<T>> String?.toEnumOrNull(): T? =
         this?.let { value -> enumValues<T>().firstOrNull { it.name == value } }
 
     private companion object {
         const val StoredListSeparator = "\u001F"
+        const val FocusTimeDailyNormalCap = 3
+        const val FocusTimeNormalPoints = 3
+        const val FocusTimeFirstBonusPoints = 12
+        const val FocusTimeMaxAwardedSessionIds = 200
         val LegacyDeletedTaskIds = setOf(
             "trigger_decoder",
             "thought_capture",
@@ -433,5 +512,13 @@ class TaskRewardDataSource(
         val LastWasFirstTimeRewardKey = intPreferencesKey("last_was_first_time_reward")
         val LastWasSameDayRepeatKey = intPreferencesKey("last_was_same_day_repeat")
         val LastAppliedWaitReductionKey = intPreferencesKey("last_applied_wait_reduction")
+        val FocusTimeFirstBonusAwardedKey = intPreferencesKey("focus_time_first_bonus_awarded")
+        val FocusTimePointsAwardedDateKey = stringPreferencesKey("focus_time_points_awarded_date")
+        val FocusTimeNormalPointsAwardedTodayKey =
+            intPreferencesKey("focus_time_normal_points_awarded_today")
+        val FocusTimeAwardedSessionIdsKey = stringPreferencesKey("focus_time_awarded_session_ids")
+        val LastFocusTimeAwardedSessionIdKey =
+            stringPreferencesKey("last_focus_time_awarded_session_id")
+        val LastFocusTimeAwardedPointsKey = intPreferencesKey("last_focus_time_awarded_points")
     }
 }

@@ -48,6 +48,7 @@ fun ProtectionSetupOnboardingScreen(
     onOpenUsageAccessPermission: () -> Unit,
     onOpenInterruptionPermission: () -> Unit,
     onOpenBackgroundActivityPermission: () -> Unit,
+    onOpenNotificationPermission: () -> Unit,
     onOpenUninstallProtection: () -> Unit,
     onSkipItem: (ProtectionSetupItem) -> Unit,
     onContinue: () -> Unit,
@@ -175,8 +176,8 @@ fun ProtectionSetupOnboardingScreen(
                 body = "Notifications tell you when a planned window opens and when protection turns back on.",
                 completed = state.isComplete(ProtectionSetupItem.Notifications),
                 skipped = ProtectionSetupItem.Notifications in state.skippedSetupItems,
-                actionLabel = null,
-                onAction = null,
+                actionLabel = "Allow",
+                onAction = onOpenNotificationPermission,
                 onSkip = { onSkipItem(ProtectionSetupItem.Notifications) },
             )
             ProtectionSetupCard(
@@ -346,7 +347,7 @@ private fun ProtectionPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     val shadowAlpha by animateFloatAsState(
         targetValue = if (enabled) 0.10f else 0.045f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -396,7 +397,7 @@ private fun ProtectionSmallButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     androidx.compose.material3.OutlinedButton(
         onClick = {
             haptics.light()

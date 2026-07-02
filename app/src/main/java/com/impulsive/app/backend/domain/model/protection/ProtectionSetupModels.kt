@@ -59,6 +59,7 @@ data class ProtectionSetupState(
     val usageAccessEnabled: Boolean = false,
     val selectedBlockedAppPackageNames: Set<String> = emptySet(),
     val websiteProtectionEnabled: Boolean = false,
+    val websiteProtectionAlwaysOn: Boolean = false,
     val interruptionPermissionEnabled: Boolean = false,
     val backgroundActivityEnabled: Boolean = false,
     val uninstallProtectionEnabled: Boolean = false,

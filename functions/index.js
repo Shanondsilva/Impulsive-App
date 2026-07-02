@@ -16,6 +16,8 @@ const SERVICE_ACCOUNT =
 const TOKEN_HASH_ALGORITHM = "sha256";
 const MAX_PRODUCT_ID_LENGTH = 128;
 const MAX_PURCHASE_TOKEN_LENGTH = 4096;
+const DELETE_BATCH_SIZE = 450;
+const ERASE_USER_DATA_TIMEOUT_SECONDS = 120;
 
 const ENTITLED_STATES = new Set([
   "SUBSCRIPTION_STATE_ACTIVE",
@@ -41,6 +43,7 @@ exports.verifyPlusSubscription = onCall(
     {
       region: REGION,
       serviceAccount: SERVICE_ACCOUNT,
+      enforceAppCheck: true,
       maxInstances: 10,
       timeoutSeconds: 60,
       memory: "256MiB",
@@ -99,6 +102,59 @@ exports.verifyPlusSubscription = onCall(
         subscriptionState: entitlement.subscriptionState,
         expiryTimeMillis: entitlement.expiryTimeMillis,
       };
+    },
+);
+
+/**
+ * Deletes all known Firestore data owned by the signed-in user.
+ */
+exports.eraseUserData = onCall(
+    {
+      region: REGION,
+      serviceAccount: SERVICE_ACCOUNT,
+      enforceAppCheck: true,
+      maxInstances: 5,
+      timeoutSeconds: ERASE_USER_DATA_TIMEOUT_SECONDS,
+      memory: "256MiB",
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be signed in to erase user data.",
+        );
+      }
+
+      try {
+        const deleted = await eraseFirestoreDataForUser(uid);
+
+        logger.info("User Firestore data erased.", {
+          uid,
+          checklistItems: deleted.checklistItems,
+          journalNotes: deleted.journalNotes,
+          recoverySessions: deleted.recoverySessions,
+          syncTombstones: deleted.syncTombstones,
+          playPurchaseTokens: deleted.playPurchaseTokens,
+          userDocument: deleted.userDocument,
+        });
+
+        return {
+          success: true,
+          deleted,
+        };
+      } catch (error) {
+        logger.error("Could not erase user Firestore data.", {
+          uid,
+          message: error && error.message,
+        });
+
+        throw new HttpsError(
+            "internal",
+            "User data could not be erased.",
+        );
+      }
     },
 );
 
@@ -462,4 +518,119 @@ function getErrorStatus(error) {
       (error && error.response && error.response.status) ||
       0,
   );
+}
+
+/**
+ * Deletes all known Firestore records owned by one Firebase Auth user.
+ *
+ * @param {string} uid Firebase Authentication user ID.
+ * @return {Promise<object>} Deleted document counts.
+ */
+async function eraseFirestoreDataForUser(uid) {
+  const userRef = db.collection("users").doc(uid);
+  const userSnapshot = await userRef.get();
+  const deleted = {
+    checklistItems: 0,
+    journalNotes: 0,
+    recoverySessions: 0,
+    syncTombstones: 0,
+    playPurchaseTokens: 0,
+    userDocument: userSnapshot.exists ? 1 : 0,
+  };
+
+  const journalDeleteCounts = await deleteJournalNotes(userRef);
+  deleted.checklistItems = journalDeleteCounts.checklistItems;
+  deleted.journalNotes = journalDeleteCounts.journalNotes;
+
+  deleted.recoverySessions = await deleteQueryPageByPage(
+      userRef.collection("recoverySessions"),
+  );
+
+  deleted.syncTombstones = await deleteQueryPageByPage(
+      userRef.collection("syncTombstones"),
+  );
+
+  deleted.playPurchaseTokens = await deleteQueryPageByPage(
+      db.collection("playPurchaseTokens").where("uid", "==", uid),
+  );
+
+  await userRef.delete();
+
+  return deleted;
+}
+
+/**
+ * Deletes journal notes and their known checklist item subcollections.
+ *
+ * @param {FirebaseFirestore.DocumentReference} userRef User document ref.
+ * @return {Promise<{checklistItems: number, journalNotes: number}>}
+ */
+async function deleteJournalNotes(userRef) {
+  const deleted = {
+    checklistItems: 0,
+    journalNotes: 0,
+  };
+
+  let snapshot = await userRef
+      .collection("journalNotes")
+      .limit(DELETE_BATCH_SIZE)
+      .get();
+
+  while (!snapshot.empty) {
+    for (const note of snapshot.docs) {
+      deleted.checklistItems += await deleteQueryPageByPage(
+          note.ref.collection("checklistItems"),
+      );
+    }
+
+    deleted.journalNotes += await deleteSnapshotDocuments(snapshot);
+
+    snapshot = await userRef
+        .collection("journalNotes")
+        .limit(DELETE_BATCH_SIZE)
+        .get();
+  }
+
+  return deleted;
+}
+
+/**
+ * Deletes all documents returned by a Firestore query in safe pages.
+ *
+ * @param {FirebaseFirestore.Query} query Query or collection reference.
+ * @return {Promise<number>} Number of deleted documents.
+ */
+async function deleteQueryPageByPage(query) {
+  let deleted = 0;
+  let snapshot = await query
+      .limit(DELETE_BATCH_SIZE)
+      .get();
+
+  while (!snapshot.empty) {
+    deleted += await deleteSnapshotDocuments(snapshot);
+
+    snapshot = await query
+        .limit(DELETE_BATCH_SIZE)
+        .get();
+  }
+
+  return deleted;
+}
+
+/**
+ * Deletes all documents in one query snapshot using a write batch.
+ *
+ * @param {FirebaseFirestore.QuerySnapshot} snapshot Query snapshot.
+ * @return {Promise<number>} Number of deleted documents.
+ */
+async function deleteSnapshotDocuments(snapshot) {
+  const batch = db.batch();
+
+  snapshot.docs.forEach((documentSnapshot) => {
+    batch.delete(documentSnapshot.ref);
+  });
+
+  await batch.commit();
+
+  return snapshot.size;
 }

@@ -33,7 +33,7 @@ object FeedbackPrompt {
     fun questionAt(index: Int): DailyQuestion =
         questions[index.coerceIn(0, questions.size - 1)]
 
-    /** Builds the body text saved into the feedback note from a tapped answer. */
+    /** Builds legacy answer body text from a tapped answer. */
     fun answerNoteBody(questionIndex: Int, answerIndex: Int): String {
         val q = questionAt(questionIndex)
         val answer = if (answerIndex == 0) q.positiveAnswer else q.honestAnswer

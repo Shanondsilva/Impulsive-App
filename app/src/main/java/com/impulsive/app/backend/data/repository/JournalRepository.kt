@@ -54,7 +54,35 @@ class JournalRepository(context: Context) {
 
     suspend fun deleteNote(noteId: Long) {
         reminderScheduler.cancel(noteId)
-        dao.deleteById(noteId)
+        dao.deleteNoteWithTombstone(
+            noteId = noteId,
+            deletedAtMillis = System.currentTimeMillis(),
+        )
+    }
+
+    suspend fun deleteNotes(noteIds: List<Long>) {
+        val distinctIds = noteIds.distinct()
+        if (distinctIds.isEmpty()) return
+
+        distinctIds.forEach { noteId ->
+            reminderScheduler.cancel(noteId)
+        }
+
+        dao.deleteNotesWithTombstones(
+            noteIds = distinctIds,
+            deletedAtMillis = System.currentTimeMillis(),
+        )
+    }
+
+    suspend fun purgeObsoleteFeedbackNotes(): Int {
+        val obsoleteNotes =
+            dao.getObsoleteFeedbackNotes()
+
+        obsoleteNotes.forEach { note ->
+            reminderScheduler.cancel(note.id)
+        }
+
+        return dao.deleteObsoleteFeedbackNotes()
     }
 
     suspend fun setPinned(noteId: Long, pinned: Boolean) {

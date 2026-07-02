@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import java.time.LocalDate
+import java.time.Instant
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
@@ -18,18 +18,23 @@ class FeedbackPromptScheduler(context: Context) {
     private val workManager = WorkManager.getInstance(context.applicationContext)
 
     fun scheduleDailyNudge() {
-        val zone = ZoneId.systemDefault()
-        val now = LocalDateTime.now(zone)
-        var next = LocalDateTime.of(LocalDate.now(zone), LocalTime.of(NudgeHour, 0))
-        if (!next.isAfter(now)) {
-            next = next.plusDays(1)
-        }
-        val delayMillis = next.atZone(zone).toInstant().toEpochMilli() -
-            now.atZone(zone).toInstant().toEpochMilli()
+        val nowMillis =
+            System.currentTimeMillis()
 
-        val request = OneTimeWorkRequestBuilder<FeedbackPromptWorker>()
-            .setInitialDelay(delayMillis.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
-            .build()
+        val delayMillis =
+            nextScheduledAtMillis(
+                nowMillis = nowMillis,
+            ) - nowMillis
+
+        val request =
+            OneTimeWorkRequestBuilder<
+                FeedbackPromptWorker
+            >()
+                .setInitialDelay(
+                    delayMillis.coerceAtLeast(0L),
+                    TimeUnit.MILLISECONDS,
+                )
+                .build()
 
         workManager.enqueueUniqueWork(
             WorkName,
@@ -39,7 +44,38 @@ class FeedbackPromptScheduler(context: Context) {
     }
 
     companion object {
-        const val WorkName = "feedback_prompt_daily"
+        const val WorkName =
+            "feedback_prompt_daily"
+
         const val NudgeHour = 21
+
+        fun nextScheduledAtMillis(
+            nowMillis: Long =
+                System.currentTimeMillis(),
+            zone: ZoneId =
+                ZoneId.systemDefault(),
+        ): Long {
+            val now =
+                Instant
+                    .ofEpochMilli(nowMillis)
+                    .atZone(zone)
+
+            var next =
+                LocalDateTime.of(
+                    now.toLocalDate(),
+                    LocalTime.of(
+                        NudgeHour,
+                        0,
+                    ),
+                ).atZone(zone)
+
+            if (!next.isAfter(now)) {
+                next = next.plusDays(1)
+            }
+
+            return next
+                .toInstant()
+                .toEpochMilli()
+        }
     }
 }

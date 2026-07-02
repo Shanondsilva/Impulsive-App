@@ -10,7 +10,9 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.ServiceCompat
+import androidx.core.app.NotificationManagerCompat
 import com.impulsive.app.MainActivity
 import com.impulsive.app.backend.data.local.device.ForegroundAppReader
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
@@ -20,6 +22,7 @@ import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationDataSource
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationState
 import com.impulsive.app.backend.data.repository.OnboardingRepository
+import com.impulsive.app.backend.data.repository.PremiumRepository
 import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
 import com.impulsive.app.backend.data.repository.ScoreRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
@@ -29,8 +32,8 @@ import com.impulsive.app.backend.data.repository.FocusSessionRepository
 import com.impulsive.app.backend.data.repository.FocusSetupRepository
 import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
 import com.impulsive.app.backend.domain.model.focus.isElapsed
-import com.impulsive.app.backend.domain.model.focus.focusCompletionLevelPoints
 import com.impulsive.app.backend.domain.model.focus.focusCompletionScore
+import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
@@ -51,14 +54,18 @@ import com.impulsive.app.backend.domain.model.tasks.TaskCompletionRecord
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardStoreState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 class AppMonitorService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -66,6 +73,7 @@ class AppMonitorService : Service() {
     private val foregroundAppReader by lazy { ForegroundAppReader(applicationContext) }
     private val notificationHelper by lazy { ProtectionNotificationHelper(applicationContext) }
     private val protectionSetupRepository by lazy { ProtectionSetupRepository(applicationContext) }
+    private val premiumRepository by lazy { PremiumRepository(applicationContext) }
     private val onboardingRepository by lazy { OnboardingRepository(applicationContext) }
     private val taskRewardRepository by lazy { TaskRewardRepository(applicationContext) }
     private val scoreRepository by lazy { ScoreRepository(applicationContext) }
@@ -96,6 +104,10 @@ class AppMonitorService : Service() {
         protectionSetupRepository.state
             .stateIn(serviceScope, SharingStarted.Eagerly, ProtectionSetupState())
     }
+    private val websiteProtectionPlusUnlocked by lazy {
+        premiumRepository.hasFeature(PremiumFeature.VpnWebsiteBlocker)
+            .stateIn(serviceScope, SharingStarted.Eagerly, false)
+    }
     private val onboardingAnswers by lazy {
         onboardingRepository.answers
             .stateIn(serviceScope, SharingStarted.Eagerly, OnboardingAnswers())
@@ -117,8 +129,11 @@ class AppMonitorService : Service() {
             .stateIn(serviceScope, SharingStarted.Eagerly, OneMinuteAccessState())
     }
 
-    private var monitorJob: kotlinx.coroutines.Job? = null
-    private var oneMinuteCountdownJob: kotlinx.coroutines.Job? = null
+    private var monitorJob: Job? = null
+    private var oneMinuteCountdownJob: Job? = null
+    private var foregroundNotificationJob: Job? = null
+    private var temporaryNotificationJob: Job? = null
+    private var temporaryProtectionNotificationDismissed: Boolean = false
     private var oneMinuteCountdownPackage: String? = null
     private var lastHandledPackageName: String? = null
     private var lastHandledAtMillis: Long = 0L
@@ -131,17 +146,12 @@ class AppMonitorService : Service() {
 
     // Tracks screen-on state so we can slow the poll cadence when the screen is off.
     private var isScreenOn = true
-    private var isFocusSessionNotificationShowing = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_ON -> wakeMonitorForScreenOn()
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
-                    updateFocusSessionNotificationVisibility(
-                        now = LocalDateTime.now(),
-                        foregroundPackage = null,
-                    )
                 }
             }
         }
@@ -151,7 +161,7 @@ class AppMonitorService : Service() {
         super.onCreate()
         notificationHelper.ensureChannels()
         hideSensitiveNotifications.value
-        startAsForegroundService()
+        startForegroundNotificationObserver()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         isScreenOn = powerManager.isInteractive
         val filter = IntentFilter().apply {
@@ -163,11 +173,45 @@ class AppMonitorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ActionCancelProtectionNotification -> {
+                val shouldStopAfterCancel = monitorJob?.isActive != true
+                val keepForegroundMonitor = hasActiveProtectionReason()
+                if (keepForegroundMonitor) {
+                    promoteToForegroundMonitor()
+                } else {
+                    removeProtectionNotificationOnly()
+                }
+                temporaryProtectionNotificationDismissed = false
+                if (shouldStopAfterCancel && !keepForegroundMonitor) stopSelf()
+                return if (keepForegroundMonitor) START_STICKY else START_NOT_STICKY
+            }
+            ActionProtectionNotificationDismissed -> {
+                val shouldStopAfterDismiss = monitorJob?.isActive != true
+                temporaryProtectionNotificationDismissed = true
+                val keepForegroundMonitor = hasActiveProtectionReason()
+                if (keepForegroundMonitor) {
+                    promoteToForegroundMonitor()
+                } else {
+                    removeProtectionNotificationOnly()
+                }
+                if (shouldStopAfterDismiss && !keepForegroundMonitor) stopSelf()
+                return if (keepForegroundMonitor) START_STICKY else START_NOT_STICKY
+            }
             ActionStop -> {
                 stopSelfSafely()
                 return START_NOT_STICKY
             }
-            ActionStart, null -> startMonitoringIfNeeded()
+            ActionStart, null -> {
+                promoteToForegroundMonitor()
+                startMonitoringIfNeeded()
+                val showTemporaryNotification = intent?.getBooleanExtra(
+                    ExtraShowTemporaryProtectionNotification,
+                    false,
+                ) == true
+                if (showTemporaryNotification) {
+                    temporaryProtectionNotificationDismissed = false
+                }
+            }
         }
         return START_STICKY
     }
@@ -175,15 +219,18 @@ class AppMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        notificationHelper.cancelFocusSessionNotification()
         notificationHelper.cancelOneMinuteAccessCountdown()
         unregisterReceiver(screenReceiver)
         serviceScope.cancel()
         super.onDestroy()
     }
 
-    private fun startAsForegroundService() {
-        val notification = notificationHelper.createMonitoringNotification()
+    private fun promoteToForegroundMonitor() {
+        val notification = notificationHelper.createMonitoringNotification(
+            session = focusSession.value,
+            now = LocalDateTime.now(),
+            hideSensitive = hideSensitiveNotifications.value,
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceCompat.startForeground(
                 this,
@@ -198,6 +245,28 @@ class AppMonitorService : Service() {
                 notification,
                 0,
             )
+        }
+    }
+
+    private fun startForegroundNotificationObserver() {
+        if (foregroundNotificationJob?.isActive == true) return
+
+        foregroundNotificationJob = serviceScope.launch {
+            combine(
+                focusSession,
+                hideSensitiveNotifications,
+            ) { session, hideSensitive ->
+                session to hideSensitive
+            }.collectLatest { (session, hideSensitive) ->
+                if (session?.phase != FocusSessionPhase.Running && session?.phase != FocusSessionPhase.Paused) {
+                    return@collectLatest
+                }
+                notificationHelper.postMonitoringNotification(
+                    session = session,
+                    now = LocalDateTime.now(),
+                    hideSensitive = hideSensitive,
+                )
+            }
         }
     }
 
@@ -224,56 +293,27 @@ class AppMonitorService : Service() {
         startMonitoringIfNeeded()
     }
 
-    private fun updateFocusSessionNotificationVisibility(
-        now: LocalDateTime,
-        foregroundPackage: String?,
-    ) {
-        val liveFocusSession = focusSession.value
-        if (liveFocusSession?.phase != FocusSessionPhase.Running) {
-            if (isFocusSessionNotificationShowing) {
-                notificationHelper.cancelFocusSessionNotification()
-                isFocusSessionNotificationShowing = false
-            }
+    private suspend fun evaluateForegroundApp() {
+        val now = LocalDateTime.now()
+        val windowSnapshot = currentProtectionWindowSnapshot()
+
+        syncWebsiteProtectionTunnel(windowSnapshot)
+
+        if (!hasActiveProtectionReason()) {
+            Log.i(Tag, "Stopping AppMonitorService because no protection reason is active")
+            stopSelfSafely()
             return
         }
 
-        val shouldShowFocusNotification = !isScreenOn ||
-            (foregroundPackage != null && foregroundPackage != applicationContext.packageName)
-
-        if (shouldShowFocusNotification) {
-            notificationHelper.showFocusSessionNotification(
-                session = liveFocusSession,
-                now = now,
-                hideSensitive = hideSensitiveNotifications.value,
-            )
-            isFocusSessionNotificationShowing = true
-        } else if (isFocusSessionNotificationShowing) {
-            notificationHelper.cancelFocusSessionNotification()
-            isFocusSessionNotificationShowing = false
-        }
-    }
-
-    private suspend fun evaluateForegroundApp() {
-        val now = LocalDateTime.now()
-
         if (!usageAccessChecker.hasUsageAccess()) {
-            updateFocusSessionNotificationVisibility(
-                now = now,
-                foregroundPackage = null,
-            )
             return
         }
 
         val protectedPackages = setupState.value.selectedBlockedAppPackageNames
-        val windowSnapshot = currentProtectionWindowSnapshot()
         handleWindowNotifications(windowSnapshot)
         sweepSkippedWindows(windowSnapshot.now)
         checkFocusSessionCompletion(windowSnapshot.now)
         val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage()
-        updateFocusSessionNotificationVisibility(
-            now = windowSnapshot.now,
-            foregroundPackage = foregroundPackage,
-        )
 
         if (foregroundPackage == null) return
         if (foregroundPackage == applicationContext.packageName) return
@@ -338,8 +378,10 @@ class AppMonitorService : Service() {
         if (session.phase != FocusSessionPhase.Running) return
         if (!session.isElapsed(now)) return
         val completed = focusSessionRepository.completeIfElapsed(now) ?: return
-        taskRewardRepository.awardLevelPoints(
-            focusCompletionLevelPoints(completed.durationMinutes),
+        val completedAt = completed.endedAt ?: now
+        taskRewardRepository.awardFocusTimePointsIfEligible(
+            focusSessionId = completed.sessionId,
+            completedAtMillis = completedAt.toEpochMillisInUserZone(),
         )
         scoreRepository.recordSession(
             ScoreSessionRecord(
@@ -375,32 +417,11 @@ class AppMonitorService : Service() {
         serviceScope.launch {
             focusSessionRepository.recordInterruption()
         }
-        val blockIntent = MainActivity.createBlockIntent(
-            context = this,
+        launchBlockSurface(
             sourcePackageName = sourcePackageName,
             sourceLabel = sourceLabel,
             isFocusSession = true,
         )
-        // Try the direct activity launch first. It succeeds only when the
-        // overlay permission is active and the OS allows the background launch.
-        // On any failure, fall through to the full-screen-intent notification,
-        // which takes over the screen when its own permission is granted and
-        // otherwise surfaces as a high-priority notification.
-        val launched = if (Settings.canDrawOverlays(this)) {
-            runCatching { startActivity(blockIntent) }
-                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
-                .isSuccess
-        } else {
-            false
-        }
-        if (!launched) {
-            notificationHelper.showBlockFullScreen(
-                sourcePackageName = sourcePackageName,
-                sourceLabel = sourceLabel,
-                hideSensitive = hideSensitiveNotifications.value,
-                isFocusSession = true,
-            )
-        }
     }
 
     private fun currentBaseReleasePlan(now: LocalDateTime): ReleasePlanState {
@@ -420,6 +441,33 @@ class AppMonitorService : Service() {
             releasePlan = currentBaseReleasePlan(now),
             adjustedNextReleaseWindow = taskStoreState.value.adjustedNextReleaseWindow,
         )
+    }
+
+    private fun syncWebsiteProtectionTunnel(windowSnapshot: ProtectionWindowSnapshot) {
+        val setup = setupState.value
+
+        val desiredByUser = setup.websiteProtectionEnabled
+        val plusUnlocked = websiteProtectionPlusUnlocked.value
+        val pauseForReleaseWindow =
+            windowSnapshot.isProtectionPaused && !setup.websiteProtectionAlwaysOn
+
+        val shouldRunVpn =
+            desiredByUser &&
+                plusUnlocked &&
+                !pauseForReleaseWindow
+
+        if (shouldRunVpn) {
+            if (!ImpulsiveVpnService.isRunning &&
+                ImpulsiveVpnController.consentIntent(this) == null
+            ) {
+                ImpulsiveVpnController.start(this)
+            }
+            return
+        }
+
+        if (ImpulsiveVpnService.isRunning) {
+            ImpulsiveVpnController.stop(this)
+        }
     }
 
     /**
@@ -473,30 +521,40 @@ class AppMonitorService : Service() {
         serviceScope.launch {
             urgeEventRepository.recordEvent(source = "app", packageName = sourcePackageName)
         }
-        val blockIntent = MainActivity.createBlockIntent(
-            context = this,
+        launchBlockSurface(
             sourcePackageName = sourcePackageName,
             sourceLabel = sourceLabel,
         )
-        // Try the direct activity launch first. It succeeds only when the
-        // overlay permission is active and the OS allows the background launch.
-        // On any failure, fall through to the full-screen-intent notification,
-        // which takes over the screen when its own permission is granted and
-        // otherwise surfaces as a high-priority notification.
-        val launched = if (Settings.canDrawOverlays(this)) {
-            runCatching { startActivity(blockIntent) }
-                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
-                .isSuccess
-        } else {
-            false
-        }
-        if (!launched) {
-            notificationHelper.showBlockFullScreen(
+    }
+
+    private fun launchBlockSurface(
+        sourcePackageName: String,
+        sourceLabel: String,
+        isFocusSession: Boolean = false,
+    ) {
+        // With the Display over other apps permission granted, this foreground
+        // service is allowed to start an activity directly, which pulls the
+        // user straight onto the block screen. The full screen intent
+        // notification stays as the fallback when the permission is missing or
+        // the launch fails, because a full screen intent only takes over a
+        // locked screen and shows just a heads up banner while the device is
+        // unlocked and in active use.
+        if (Settings.canDrawOverlays(applicationContext)) {
+            val blockIntent = MainActivity.createBlockIntent(
+                context = applicationContext,
                 sourcePackageName = sourcePackageName,
                 sourceLabel = sourceLabel,
-                hideSensitive = hideSensitiveNotifications.value,
+                isFocusSession = isFocusSession,
             )
+            val launched = runCatching { applicationContext.startActivity(blockIntent) }.isSuccess
+            if (launched) return
         }
+        notificationHelper.showBlockFullScreen(
+            sourcePackageName = sourcePackageName,
+            sourceLabel = sourceLabel,
+            hideSensitive = hideSensitiveNotifications.value,
+            isFocusSession = isFocusSession,
+        )
     }
 
     private fun emptyTaskRewardStoreState() = TaskRewardStoreState(
@@ -516,10 +574,36 @@ class AppMonitorService : Service() {
     )
 
     private fun stopSelfSafely() {
-        notificationHelper.cancelFocusSessionNotification()
         cancelOneMinuteAccessCountdown()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        removeProtectionNotificationOnly()
         stopSelf()
+    }
+
+    private fun hasActiveProtectionReason(): Boolean {
+        val setup = setupState.value
+        if (!setup.isLoaded) return true
+        val sessionPhase = focusSession.value?.phase
+        val focusActive = sessionPhase == FocusSessionPhase.Running ||
+            sessionPhase == FocusSessionPhase.Paused
+        return setup.selectedBlockedAppPackageNames.isNotEmpty() ||
+            setup.websiteProtectionEnabled ||
+            focusActive
+    }
+
+    private fun removeProtectionNotificationOnly() {
+        temporaryNotificationJob?.cancel()
+        temporaryNotificationJob = null
+
+        runCatching {
+            NotificationManagerCompat.from(this).cancel(ProtectionNotificationHelper.MonitoringNotificationId)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
     }
 
     private fun ensureOneMinuteCountdown(
@@ -528,23 +612,70 @@ class AppMonitorService : Service() {
         untilEpochMillis: Long,
     ) {
         if (oneMinuteCountdownJob?.isActive == true && oneMinuteCountdownPackage == packageName) return
+
         cancelOneMinuteAccessCountdown()
         oneMinuteCountdownPackage = packageName
+
         oneMinuteCountdownJob = serviceScope.launch {
-            while (isActive) {
-                val remainingSeconds = ((untilEpochMillis - System.currentTimeMillis()) / 1000L)
-                    .coerceAtLeast(0L)
-                    .toInt()
-                if (remainingSeconds <= 0) break
-                notificationHelper.showOneMinuteAccessCountdown(
-                    sourceLabel = sourceLabel,
-                    remainingSeconds = remainingSeconds,
-                    hideSensitive = hideSensitiveNotifications.value,
-                )
-                delay(1000L)
+            try {
+                while (isActive) {
+                    val remainingSeconds = ((untilEpochMillis - System.currentTimeMillis()) / 1000L)
+                        .coerceAtLeast(0L)
+                        .toInt()
+
+                    if (remainingSeconds <= 0) break
+
+                    notificationHelper.showOneMinuteAccessCountdown(
+                        sourceLabel = sourceLabel,
+                        remainingSeconds = remainingSeconds,
+                        hideSensitive = hideSensitiveNotifications.value,
+                    )
+
+                    delay(1000L)
+                }
+
+                if (isActive) {
+                    reblockAfterOneMinuteAccessExpiry(
+                        packageName = packageName,
+                        sourceLabel = sourceLabel,
+                    )
+                }
+            } finally {
+                oneMinuteCountdownPackage = null
+                oneMinuteCountdownJob = null
+                notificationHelper.cancelOneMinuteAccessCountdown()
             }
-            cancelOneMinuteAccessCountdown()
         }
+    }
+
+    private suspend fun reblockAfterOneMinuteAccessExpiry(
+        packageName: String,
+        sourceLabel: String,
+    ) {
+        oneMinuteAccessDataSource.clearActiveAllow()
+
+        val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage()
+        if (foregroundPackage != packageName) return
+        if (foregroundPackage == applicationContext.packageName) return
+        if (foregroundPackage !in setupState.value.selectedBlockedAppPackageNames) return
+
+        val windowSnapshot = currentProtectionWindowSnapshot()
+        if (windowSnapshot.isProtectionPaused) {
+            val pausedStart = windowSnapshot.pausedWindowStart
+            if (pausedStart != null && pausedStart.toString() != lastUsedWindowKey) {
+                lastUsedWindowKey = pausedStart.toString()
+                windowOutcomeRepository.markWindowUsed(pausedStart)
+            }
+            return
+        }
+
+        lastHandledPackageName = null
+        lastHandledAtMillis = 0L
+
+        launchBlockSurface(
+            sourcePackageName = packageName,
+            sourceLabel = sourceLabel,
+        )
     }
 
     private fun cancelOneMinuteAccessCountdown() {
@@ -554,11 +685,23 @@ class AppMonitorService : Service() {
         notificationHelper.cancelOneMinuteAccessCountdown()
     }
 
+    private fun LocalDateTime.toEpochMillisInUserZone(): Long =
+        atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+
     companion object {
         const val ActionStart = "com.impulsive.app.action.START_APP_MONITOR"
         const val ActionStop = "com.impulsive.app.action.STOP_APP_MONITOR"
+        const val ActionCancelProtectionNotification =
+            "com.impulsive.app.action.CANCEL_PROTECTION_NOTIFICATION"
+        const val ActionProtectionNotificationDismissed =
+            "com.impulsive.app.action.PROTECTION_NOTIFICATION_DISMISSED"
+        const val ExtraShowTemporaryProtectionNotification =
+            "com.impulsive.app.extra.SHOW_TEMPORARY_PROTECTION_NOTIFICATION"
         private const val CheckIntervalMillis = 1_200L
         private const val ScreenOffIntervalMillis = 30_000L
+        private const val Tag = "AppMonitorService"
         // Short guard covering only the gap between launching the block screen
         // and it actually reaching the foreground, so one interception cannot
         // fire twice. Leaving the protected app now clears the latch directly in

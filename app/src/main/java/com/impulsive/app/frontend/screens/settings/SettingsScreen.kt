@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -119,9 +120,11 @@ import kotlin.math.max
 import kotlin.math.sin
 import com.impulsive.app.backend.data.UserDataManager
 import com.impulsive.app.R
+import com.impulsive.app.backend.data.UserDataExporter
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
+import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
@@ -132,6 +135,7 @@ import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.session.auth.AccountDeletionUiState
 import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.progress.TaperViewModel
 import com.impulsive.app.backend.session.settings.AppLockViewModel
@@ -214,6 +218,10 @@ fun SettingsScreen(
     val activity = context as? Activity
     val protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
+    val premiumViewModel: PremiumViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val websiteProtectionPlusUnlocked by remember(premiumViewModel) {
+        premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
+    }.collectAsStateWithLifecycle()
     val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var showBlockedAppsSheet by remember { mutableStateOf(false) }
@@ -246,6 +254,16 @@ fun SettingsScreen(
     ) {
         notificationsAllowed = isNotificationPermissionAllowed(context)
         protectionSetupViewModel.setNotificationPermissionEnabled(notificationsAllowed)
+    }
+    val exportDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            appSettingsViewModel.exportData(uri)
+        }
+    }
+    LaunchedEffect(Unit) {
+        appSettingsViewModel.cleanupLegacyExportFiles()
     }
     val background = MaterialTheme.colorScheme.background
 
@@ -307,6 +325,7 @@ fun SettingsScreen(
             )
             ProtectionFocusGroup(
                 protectionState = protectionSetupState,
+                websiteProtectionPlusUnlocked = websiteProtectionPlusUnlocked,
                 appLockEnabled = appLockEnabled,
                 guard = appLockGuard::run,
                 onOpenBlockedApps = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
@@ -332,19 +351,7 @@ fun SettingsScreen(
                 },
                 onDismissAuthError = authViewModel::consumeError,
                 onExportData = {
-                    appSettingsViewModel.exportData { uri ->
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/json"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            putExtra(Intent.EXTRA_SUBJECT, "My Impulsive export")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        runCatching {
-                            context.startActivity(
-                                Intent.createChooser(share, "Export your Impulsive data"),
-                            )
-                        }
-                    }
+                    exportDocumentLauncher.launch(UserDataExporter.SuggestedExportFileName)
                 },
                 onDeleteAllData = {
                     activity?.let { authViewModel.deleteAccount(it) }
@@ -588,7 +595,7 @@ private fun ProtectionSetupItem.protectionReasonText(): String = when (this) {
     ProtectionSetupItem.UninstallProtection ->
         "Adds friction before uninstalling during weak moments. You stay in control."
     ProtectionSetupItem.InterruptionPermission ->
-        "Allows stronger pivot tools later when you explicitly enable them."
+        "Lets Impulsive open your pause screen the moment a protected app comes to the front."
     ProtectionSetupItem.BackgroundActivity ->
         "Helps Impulsive restart after reboot and avoid being stopped by battery optimization."
     ProtectionSetupItem.WebsiteProtection ->
@@ -597,23 +604,141 @@ private fun ProtectionSetupItem.protectionReasonText(): String = when (this) {
 
 @Composable
 private fun SettingsHeader() {
+    var showSettingsInfo by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
-            Text(
-                text = "Settings",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "Shape Impulsive around how you Notice, Pivot and Understand.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
+        Text(
+            text = "Settings",
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { showSettingsInfo = true },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = "About Settings",
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.76f),
+                modifier = Modifier.size(22.dp),
             )
         }
+    }
+
+    if (showSettingsInfo) {
+        SettingsInfoDialog(
+            onDismiss = { showSettingsInfo = false },
+        )
+    }
+}
+
+@Composable
+private fun SettingsInfoDialog(
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ),
+            ) {
+                Text("Got it")
+            }
+        },
+        title = {
+            Text(
+                text = "About Settings",
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "Shape Impulsive around how you Notice, Pivot and Understand.",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
+                )
+
+                SettingsInfoItem(
+                    title = "Profile",
+                    body = "Update your name, avatar, path details, and onboarding answers used to personalise the app.",
+                )
+
+                SettingsInfoItem(
+                    title = "Appearance",
+                    body = "Control light or dark mode, haptics, and guide replay preferences.",
+                )
+
+                SettingsInfoItem(
+                    title = "Pivot setup",
+                    body = "Adjust your trigger cues, timing pattern, weekly target, and daily support estimate.",
+                )
+
+                SettingsInfoItem(
+                    title = "Protection & Focus",
+                    body = "Manage protected apps, permissions, website protection, uninstall friction, and Focus-related protection setup.",
+                )
+
+                SettingsInfoItem(
+                    title = "Privacy & account",
+                    body = "Control app lock, notification privacy, export or delete local data, and link supported accounts.",
+                )
+
+                SettingsInfoItem(
+                    title = "Support",
+                    body = "Open Help, contact support, send feedback, report bugs, and review app information.",
+                )
+
+                SettingsInfoItem(
+                    title = "Impulsive Plus",
+                    body = "View premium protection and upgrade options without interrupting recovery moments.",
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun SettingsInfoItem(
+    title: String,
+    body: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = title,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
+
+        Text(
+            text = body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+            lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
+        )
     }
 }
 
@@ -1097,6 +1222,7 @@ private fun SingleSelectEditDialog(
 @Composable
 private fun ProtectionFocusGroup(
     protectionState: ProtectionSetupState,
+    websiteProtectionPlusUnlocked: Boolean,
     appLockEnabled: Boolean,
     guard: (enabled: Boolean, action: () -> Unit) -> Unit,
     onOpenBlockedApps: () -> Unit,
@@ -1151,33 +1277,6 @@ private fun ProtectionFocusGroup(
             },
         )
         SettingsDivider()
-        val blockScreenEnabled = protectionState.interruptionPermissionEnabled
-        val hasProtectedApps = protectionState.selectedBlockedAppPackageNames.isNotEmpty()
-        SettingsRow(
-            title = "Show block screen over apps",
-            value = if (blockScreenEnabled) "Enabled" else "Not enabled",
-            valueColor = if (blockScreenEnabled) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.error
-            },
-            subtext = when {
-                blockScreenEnabled ->
-                    "Lets Impulsive show the full block screen when you open a protected app."
-                hasProtectedApps ->
-                    "The block screen will not appear until you turn this on."
-                else ->
-                    "Required for the block screen to appear over a protected app."
-            },
-            onClick = {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + context.packageName),
-                )
-                runCatching { context.startActivity(intent) }
-            },
-        )
-        SettingsDivider()
         SettingsRow(
             title = "One-minute access",
             subtext = if (oneMinuteAccessState.enabled) {
@@ -1194,14 +1293,33 @@ private fun ProtectionFocusGroup(
             },
         )
         SettingsDivider()
-        SettingsRow(
-            title = "Website Protection",
-            value = "Plus",
-            valueColor = ImpulsivePsychological,
-            subtext = "Blocks adult and risky websites using local DNS-based filtering.",
-            trailingIcon = Icons.Filled.Lock,
-            onClick = onOpenWebsiteProtectionPlus,
-        )
+        if (websiteProtectionPlusUnlocked) {
+            SettingsRow(
+                title = "Website Protection",
+                value = when {
+                    !protectionState.websiteProtectionEnabled -> "Off"
+                    protectionState.websiteProtectionAlwaysOn -> "Always on"
+                    else -> "Protected time"
+                },
+                valueColor = if (protectionState.websiteProtectionEnabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                subtext = "Open Website Protection settings, status, and explanation.",
+                trailingIcon = Icons.Filled.Security,
+                onClick = onOpenWebsiteProtectionPlus,
+            )
+        } else {
+            SettingsRow(
+                title = "Website Protection",
+                value = "Plus",
+                valueColor = ImpulsivePsychological,
+                subtext = "Blocks adult and risky websites using local DNS-based filtering.",
+                trailingIcon = Icons.Filled.Lock,
+                onClick = onOpenWebsiteProtectionPlus,
+            )
+        }
         SettingsDivider()
         SettingsRow(
             title = "Uninstall protection",
@@ -1219,9 +1337,8 @@ private fun ProtectionFocusGroup(
             value = if (protectionState.backgroundActivityEnabled) "Allowed" else "Needs review",
             subtext = "Helps protection survive reboot and battery optimization.",
             onClick = {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                     .apply {
-                        data = Uri.parse("package:" + context.packageName)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                 runCatching { context.startActivity(intent) }

@@ -17,9 +17,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalView
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.work.WorkManager
 import com.impulsive.app.backend.data.local.preferences.AppLockPreferencesDataSource
+import com.impulsive.app.backend.data.local.preferences.PlayStoreRatingPromptDataSource
+import com.impulsive.app.backend.data.repository.JournalRepository
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.session.auth.AuthViewModel
@@ -30,6 +34,7 @@ import com.impulsive.app.frontend.screens.lock.AppLockGateScreen
 import com.impulsive.app.frontend.navigation.AppNavHost
 import com.impulsive.app.frontend.theme.ImpulsiveTheme
 import java.time.LocalTime
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -39,9 +44,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val appLockDataSource by lazy {
         AppLockPreferencesDataSource(applicationContext)
     }
+    private val playStoreRatingPromptDataSource by lazy {
+        PlayStoreRatingPromptDataSource(applicationContext)
+    }
     private val pendingBlockRequest = mutableStateOf<BlockRequest?>(null)
     private val pendingJournalNoteId = mutableStateOf<Long?>(null)
-    private val blockLaunchBypassActive = mutableStateOf(false)
     private val unlockedThisSession = mutableStateOf(false)
     private val showGuestPinResetDialog = mutableStateOf(false)
 
@@ -50,15 +57,37 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
-        blockLaunchBypassActive.value = pendingBlockRequest.value != null
         pendingJournalNoteId.value = intent.openJournalNoteIdOrNull()
         if (pendingBlockRequest.value != null) {
             cancelBlockFullScreenNotification()
         }
         refreshEmailVerificationIfReturnIntent(intent)
-        com.impulsive.app.backend.service.journal.FeedbackPromptScheduler(this).scheduleDailyNudge()
-        com.impulsive.app.backend.service.journal.FeedbackReadingScheduler(this).scheduleDailyReading()
-        com.impulsive.app.backend.service.sync.CloudSyncWorker.enqueue(applicationContext)
+        com.impulsive.app.backend.service.journal.FeedbackPromptScheduler(this)
+            .scheduleDailyNudge()
+
+        WorkManager
+            .getInstance(applicationContext)
+            .cancelUniqueWork(
+                "feedback_reading_daily",
+            )
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                JournalRepository(applicationContext)
+                    .purgeObsoleteFeedbackNotes()
+            }
+
+            runCatching {
+                applicationContext
+                    .preferencesDataStoreFile(
+                        "feedback_insights",
+                    )
+                    .delete()
+            }
+        }
+
+        com.impulsive.app.backend.service.sync.CloudSyncWorker
+            .enqueue(applicationContext)
 
         setContent {
             val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -90,8 +119,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 }
             }
 
-            val blockActive = pendingBlockRequest.value != null || blockLaunchBypassActive.value
-            val locked = appLockEnabled && !unlocked && !blockActive
+            val locked = appLockEnabled && !unlocked
 
             ImpulsiveTheme(darkTheme = useDark) {
                 if (locked) {
@@ -102,7 +130,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 } else {
                     AppNavHost(
                         authViewModel = authViewModel,
-                        initialBlockRequest = pendingBlockRequest.value,
+                        initialBlockRequest = if (!locked) pendingBlockRequest.value else null,
                         onBlockRequestConsumed = { pendingBlockRequest.value = null },
                         initialJournalNoteId = pendingJournalNoteId.value,
                         onJournalNoteConsumed = { pendingJournalNoteId.value = null },
@@ -140,7 +168,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
         pendingJournalNoteId.value = intent.openJournalNoteIdOrNull()
         if (pendingBlockRequest.value != null) {
-            blockLaunchBypassActive.value = true
             cancelBlockFullScreenNotification()
         }
         refreshEmailVerificationIfReturnIntent(intent)
@@ -149,12 +176,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onResume() {
         super.onResume()
         authViewModel.refreshEmailVerification()
+        lifecycleScope.launch(Dispatchers.IO) {
+            playStoreRatingPromptDataSource.recordAppUse()
+        }
     }
 
     override fun onStop() {
         super.onStop()
         unlockedThisSession.value = false
-        blockLaunchBypassActive.value = false
     }
 
     @Deprecated("onActivityResult is deprecated, but the Facebook SDK still requires it.")
@@ -193,18 +222,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private fun Intent.isEmailVerificationReturnIntent(): Boolean {
         val uri = data ?: return false
         return action == Intent.ACTION_VIEW &&
-            (uri.isHttpsEmailVerificationReturn() || uri.isCustomEmailVerificationReturn())
+            uri.isHttpsEmailVerificationReturn()
     }
 
     private fun Uri.isHttpsEmailVerificationReturn(): Boolean =
         scheme == "https" &&
             host == "useimpulsive.com" &&
             path == "/auth/verified"
-
-    private fun Uri.isCustomEmailVerificationReturn(): Boolean =
-        scheme == "impulsive" &&
-            host == "auth" &&
-            path == "/verified"
 
     private fun handleForgotPin() {
         when (authViewModel.state.value.user?.provider) {

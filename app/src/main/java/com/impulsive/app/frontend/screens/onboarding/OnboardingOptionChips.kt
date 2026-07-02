@@ -123,7 +123,7 @@ internal fun ReduceOptionChip(
     onClick: () -> Unit,
     onTokenLaunch: ((Offset) -> Unit)? = null,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) OnboardingSelectedOptionSurface else Color.White,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -171,7 +171,7 @@ internal fun TriggerOptionChip(
     onClick: () -> Unit,
     onTokenLaunch: ((Offset) -> Unit)? = null,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) OnboardingSelectedOptionSurface else Color.White,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -219,7 +219,7 @@ internal fun TimingOptionChip(
     onClick: () -> Unit,
     onTokenLaunch: ((Offset) -> Unit)? = null,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) OnboardingSelectedOptionSurface else Color.White,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -319,7 +319,7 @@ internal fun ContinueButton(
     modifier: Modifier = Modifier,
     label: String = "Continue",
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     val shadowAlpha by animateFloatAsState(
         targetValue = if (enabled) 0.10f else 0.045f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),

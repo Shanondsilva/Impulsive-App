@@ -48,7 +48,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
@@ -75,30 +74,31 @@ fun MindModeStatusSheet(
     onViewProgress: () -> Unit,
     bottomNavReservedSpace: Dp = 104.dp,
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val screenBackground = if (isDark) Color(0xFF11161A) else Color(0xFFFBF8FE)
-    val deepText = if (isDark) Color(0xFFFFFBFF) else Color(0xFF15121D)
-    val bodyText = if (isDark) Color(0xFFEFE7FA) else Color(0xFF342D3F)
-    val mutedText = if (isDark) Color(0xFFCFC4DD) else Color(0xFF7B7384)
-    val lavender = if (isDark) ImpulsivePsychological else ImpulsivePsychological
-    val lavenderSoft = if (isDark) Color(0xFF332642) else Color(0xFFEFE6FA)
-    val lavenderDeep = if (isDark) Color(0xFFF2ECFF) else Color(0xFF685985)
-    val onLavender = if (isDark) Color(0xFF281D38) else Color(0xFF3A2E50)
-    val screenBrush = if (isDark) {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFF11161A),
-                Color(0xFF11161A),
-                Color(0xFF11161A),
-            ),
-        )
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.luminance() < 0.5f
+
+    val screenBackground = colorScheme.background
+    val deepText = colorScheme.onBackground
+    val bodyText = colorScheme.onSurface
+    val mutedText = colorScheme.onSurfaceVariant
+
+    val lavender = colorScheme.primary
+    val lavenderSoft = if (isDark) {
+        colorScheme.primary.copy(alpha = 0.16f)
     } else {
-        Brush.verticalGradient(
-            colors = listOf(
-                screenBackground,
-                screenBackground,
-            ),
-        )
+        colorScheme.primary.copy(alpha = 0.28f)
+    }
+    val lavenderDeep = if (isDark) {
+        colorScheme.primary
+    } else {
+        Color(0xFF685985)
+    }
+    val onLavender = if (isDark) Color(0xFF281D38) else Color(0xFF3A2E50)
+    val cardSurface = colorScheme.surface
+    val cardBorder = if (isDark) {
+        colorScheme.primary.copy(alpha = 0.38f)
+    } else {
+        Color(0xFFE9DFF2)
     }
 
     BackHandler(onBack = onDismissRequest)
@@ -106,7 +106,7 @@ fun MindModeStatusSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(screenBrush),
+            .background(screenBackground),
     ) {
         ImpulsiveAmbientBackground()
         Column(
@@ -128,7 +128,7 @@ fun MindModeStatusSheet(
                     Text(
                         text = "Mind Mode",
                         color = deepText,
-                        style = MaterialTheme.typography.headlineLarge,
+                        style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -176,11 +176,11 @@ fun MindModeStatusSheet(
             Spacer(modifier = Modifier.height(24.dp))
 
             Surface(
-                color = if (isDark) Color(0xFF171D22) else Color(0xFFFFFBFF),
+                color = cardSurface,
                 shape = RoundedCornerShape(34.dp),
                 border = BorderStroke(
                     1.dp,
-                    if (isDark) ImpulsivePsychological.copy(alpha = 0.38f) else Color(0xFFE9DFF2),
+                    cardBorder,
                 ),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -198,11 +198,11 @@ fun MindModeStatusSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             Surface(
-                color = if (isDark) Color(0xFF171D22) else Color(0xFFFFFBFF),
+                color = cardSurface,
                 shape = RoundedCornerShape(34.dp),
                 border = BorderStroke(
                     1.dp,
-                    if (isDark) ImpulsivePsychological.copy(alpha = 0.38f) else Color(0xFFE9DFF2),
+                    cardBorder,
                 ),
                 modifier = Modifier.fillMaxWidth(),
             ) {

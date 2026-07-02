@@ -5,8 +5,12 @@
 
 package com.impulsive.app.frontend.screens.journal
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -34,10 +38,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,7 +61,7 @@ import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EditNote
-import androidx.compose.material.icons.outlined.Feedback
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PushPin
@@ -77,6 +83,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,18 +103,23 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
+import com.impulsive.app.backend.data.local.preferences.PlayStoreRatingPromptState
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
+import com.impulsive.app.backend.service.journal.FeedbackPromptScheduler
 import com.impulsive.app.backend.session.tasks.ChecklistDraftItem
+import com.impulsive.app.backend.session.tasks.FeedbackQueueItemUiState
 import com.impulsive.app.backend.session.tasks.JournalViewModel
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsivePhysical
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
+import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -125,6 +137,7 @@ fun JournalHubScreen(
     viewModel: JournalViewModel = viewModel(),
 ) {
     val state by viewModel.listState.collectAsStateWithLifecycle()
+    var showNotesInfo by remember { mutableStateOf(false) }
     BackHandler { onBack() }
 
     Column(
@@ -136,7 +149,7 @@ fun JournalHubScreen(
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        JournalHeader(title = "Notes", onBack = onBack)
+        JournalHeader(title = "Notes", onBack = onBack, onInfo = { showNotesInfo = true })
 
         JournalModeCard(
             title = "Notes",
@@ -163,6 +176,10 @@ fun JournalHubScreen(
             }
         }
     }
+
+    if (showNotesInfo) {
+        NotesAboutDialog(onDismiss = { showNotesInfo = false })
+    }
 }
 
 @Composable
@@ -170,16 +187,54 @@ fun JournalListScreen(
     onBack: () -> Unit,
     onCreateNote: (JournalNoteType) -> Unit,
     onOpenNote: (Long) -> Unit,
+    onOpenSavedNotifications: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: JournalViewModel = viewModel(),
 ) {
     val state by viewModel.listState.collectAsStateWithLifecycle()
-    var deleteNote by remember { mutableStateOf<JournalNoteEntity?>(null) }
+    val context =
+        LocalContext.current
+    var selectedNoteIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    var confirmDeleteSelected by remember { mutableStateOf(false) }
     var createMenuExpanded by remember { mutableStateOf(false) }
+    var answeringFeedbackResponseId by
+        remember {
+            mutableStateOf<Long?>(null)
+        }
+    val isSelectionMode = selectedNoteIds.isNotEmpty()
 
-    BackHandler { onBack() }
+    BackHandler {
+        if (isSelectionMode) {
+            selectedNoteIds = emptySet()
+        } else {
+            onBack()
+        }
+    }
     val pinned = state.notes.filter { it.isPinned }
     val others = state.notes.filterNot { it.isPinned }
+    val pendingFeedback =
+        state.feedbackQueue.pending
+            .firstOrNull()
+    val latestSavedNotification =
+        state.feedbackQueue.answered
+            .firstOrNull()
+
+    fun toggleSelected(noteId: Long) {
+        selectedNoteIds =
+            if (noteId in selectedNoteIds) {
+                selectedNoteIds - noteId
+            } else {
+                selectedNoteIds + noteId
+            }
+    }
+
+    fun enterSelection(noteId: Long) {
+        selectedNoteIds = selectedNoteIds + noteId
+    }
+
+    fun clearSelection() {
+        selectedNoteIds = emptySet()
+    }
 
     Box(
         modifier = modifier
@@ -194,7 +249,10 @@ fun JournalListScreen(
                 .padding(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalItemSpacing = 12.dp,
-            contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
+            contentPadding = PaddingValues(
+                top = 8.dp,
+                bottom = 320.dp,
+            ),
         ) {
             item(span = StaggeredGridItemSpan.FullLine) {
                 JournalHeader(title = "Notes", onBack = onBack)
@@ -204,6 +262,17 @@ fun JournalListScreen(
                     count = state.noteCount,
                     max = state.maxNotes,
                 )
+            }
+            if (isSelectionMode) {
+                item(span = StaggeredGridItemSpan.FullLine) {
+                    NotesSelectionActionRow(
+                        selectedCount = selectedNoteIds.size,
+                        onCancel = ::clearSelection,
+                        onDeleteSelected = {
+                            confirmDeleteSelected = true
+                        },
+                    )
+                }
             }
             if (!state.canCreateMore) {
                 item(span = StaggeredGridItemSpan.FullLine) { SaveLimitCard() }
@@ -221,8 +290,18 @@ fun JournalListScreen(
                     items(pinned, key = { it.id }) { note ->
                         JournalNoteCard(
                             note = note,
-                            onClick = { onOpenNote(note.id) },
-                            onLongPress = { deleteNote = note },
+                            selected = note.id in selectedNoteIds,
+                            selectionMode = isSelectionMode,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    toggleSelected(note.id)
+                                } else {
+                                    onOpenNote(note.id)
+                                }
+                            },
+                            onLongPress = {
+                                enterSelection(note.id)
+                            },
                         )
                     }
                 }
@@ -233,8 +312,18 @@ fun JournalListScreen(
                     items(others, key = { it.id }) { note ->
                         JournalNoteCard(
                             note = note,
-                            onClick = { onOpenNote(note.id) },
-                            onLongPress = { deleteNote = note },
+                            selected = note.id in selectedNoteIds,
+                            selectionMode = isSelectionMode,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    toggleSelected(note.id)
+                                } else {
+                                    onOpenNote(note.id)
+                                }
+                            },
+                            onLongPress = {
+                                enterSelection(note.id)
+                            },
                         )
                     }
                 }
@@ -243,6 +332,63 @@ fun JournalListScreen(
         NotesCreateFab(
             expanded = createMenuExpanded,
             enabled = state.canCreateMore,
+            pendingFeedback =
+                pendingFeedback,
+            latestSavedNotification =
+                latestSavedNotification,
+            playStoreRatingPrompt =
+                state.playStoreRatingPrompt,
+            isAnsweringPendingFeedback =
+                answeringFeedbackResponseId ==
+                    pendingFeedback?.responseId,
+            onAnswerPendingFeedback = {
+                    responseId,
+                    answerIndex ->
+
+                if (
+                    answeringFeedbackResponseId ==
+                    null
+                ) {
+                    answeringFeedbackResponseId =
+                        responseId
+
+                    viewModel.answerFeedbackResponse(
+                        responseId = responseId,
+                        answerIndex = answerIndex,
+                        onComplete = {
+                            answeringFeedbackResponseId =
+                                null
+                        },
+                    )
+                }
+            },
+            onRateOnPlayStore = {
+                val opened =
+                    openImpulsivePlayStoreListing(
+                        context = context,
+                    )
+
+                if (opened) {
+                    viewModel
+                        .markPlayStoreRatingOpened()
+                } else {
+                    Toast
+                        .makeText(
+                            context,
+                            "Google Play could not be opened.",
+                            Toast.LENGTH_SHORT,
+                        )
+                        .show()
+                }
+            },
+            onShowRatingLater = {
+                viewModel
+                    .showPlayStoreRatingPromptLater()
+            },
+            onNeverShowRatingAgain = {
+                viewModel
+                    .neverShowPlayStoreRatingPromptAgain()
+            },
             onToggle = { createMenuExpanded = !createMenuExpanded },
             onCreateText = {
                 createMenuExpanded = false
@@ -256,37 +402,419 @@ fun JournalListScreen(
                 createMenuExpanded = false
                 onCreateNote(JournalNoteType.Sketch)
             },
+            onOpenSavedNotifications = {
+                createMenuExpanded = false
+                onOpenSavedNotifications()
+            },
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 24.dp),
+                .align(Alignment.BottomCenter)
+                .padding(
+                    horizontal = 14.dp,
+                    vertical = 24.dp,
+                ),
         )
     }
 
-    deleteNote?.let { note ->
+    if (confirmDeleteSelected) {
         AlertDialog(
-            onDismissRequest = { deleteNote = null },
-            title = { Text("Delete note?") },
-            text = { Text("This removes the note and cancels its reminder if one is set.") },
+            onDismissRequest = { confirmDeleteSelected = false },
+            title = { Text("Delete selected notes?") },
+            text = { Text("This removes the selected notes and cancels any reminders set on them.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteNote(note.id)
-                        deleteNote = null
+                        val idsToDelete = selectedNoteIds.toList()
+                        viewModel.deleteNotes(idsToDelete) {
+                            selectedNoteIds = emptySet()
+                            confirmDeleteSelected = false
+                        }
                     },
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = ImpulsivePsychological,
+                        contentColor = ImpulsiveFocusMode,
                     ),
                 ) { Text("Delete") }
             },
             dismissButton = {
                 TextButton(
-                    onClick = { deleteNote = null },
+                    onClick = { confirmDeleteSelected = false },
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = ImpulsivePsychological,
                     ),
                 ) { Text("Cancel") }
             },
         )
+    }
+}
+
+@Composable
+fun SavedNotificationsScreen(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: JournalViewModel =
+        viewModel(),
+) {
+    val state by
+        viewModel.listState
+            .collectAsStateWithLifecycle()
+
+    var answeringFeedbackResponseId by
+        remember {
+            mutableStateOf<Long?>(null)
+        }
+
+    var nowMillis by remember {
+        mutableStateOf(
+            System.currentTimeMillis(),
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000L)
+
+            nowMillis =
+                System.currentTimeMillis()
+        }
+    }
+
+    BackHandler {
+        onBack()
+    }
+
+    val pending =
+        state.feedbackQueue.pending
+            .firstOrNull()
+
+    val answered =
+        state.feedbackQueue.answered
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                MaterialTheme
+                    .colorScheme
+                    .background,
+            )
+            .statusBarsPadding(),
+        contentPadding =
+            PaddingValues(
+                horizontal = 18.dp,
+                vertical = 16.dp,
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            JournalHeader(
+                title =
+                    "Saved Notifications",
+                onBack = onBack,
+            )
+        }
+
+        pending?.let { response ->
+            item(
+                key =
+                    "pending_${response.responseId}",
+            ) {
+                PendingSavedNotificationCard(
+                    response = response,
+                    isAnswering =
+                        answeringFeedbackResponseId ==
+                            response.responseId,
+                    onAnswer = { answerIndex ->
+                        if (
+                            answeringFeedbackResponseId ==
+                            null
+                        ) {
+                            answeringFeedbackResponseId =
+                                response.responseId
+
+                            viewModel
+                                .answerFeedbackResponse(
+                                    responseId =
+                                        response.responseId,
+                                    answerIndex =
+                                        answerIndex,
+                                    onComplete = {
+                                        answeringFeedbackResponseId =
+                                            null
+                                    },
+                                )
+                        }
+                    },
+                )
+            }
+        }
+
+        if (
+            pending == null &&
+            answered.isEmpty()
+        ) {
+            item {
+                SavedNotificationsEmptyState(
+                    nextScheduledAtMillis =
+                        FeedbackPromptScheduler
+                            .nextScheduledAtMillis(
+                                nowMillis =
+                                    nowMillis,
+                            ),
+                )
+            }
+        } else {
+            lazyItems(
+                items = answered,
+                key = {
+                    it.responseId
+                },
+            ) { response ->
+                SavedNotificationCard(
+                    response = response,
+                    nowMillis = nowMillis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedNotificationsEmptyState(
+    nextScheduledAtMillis: Long,
+) {
+    val cardShape =
+        RoundedCornerShape(24.dp)
+
+    Surface(
+        color =
+            MaterialTheme
+                .colorScheme
+                .surfaceVariant,
+        shape = cardShape,
+        modifier =
+            Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(18.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text =
+                    "No saved notifications yet",
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurface,
+                style =
+                    MaterialTheme
+                        .typography
+                        .titleMedium,
+                fontWeight =
+                    FontWeight.Bold,
+            )
+
+            Text(
+                text =
+                    "Your answered feedback notifications will remain here for seven days.",
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant,
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodyMedium,
+            )
+
+            Text(
+                text =
+                    "Next notification scheduled for ${
+                        formatSavedNotificationSchedule(
+                            nextScheduledAtMillis,
+                        )
+                    }.",
+                color =
+                    ImpulsivePsychological,
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodySmall,
+                fontWeight =
+                    FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PendingSavedNotificationCard(
+    response: FeedbackQueueItemUiState,
+    isAnswering: Boolean,
+    onAnswer: (Int) -> Unit,
+) {
+    val cardShape =
+        RoundedCornerShape(24.dp)
+
+    Surface(
+        color =
+            MaterialTheme
+                .colorScheme
+                .surfaceVariant,
+        shape = cardShape,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color =
+                    ImpulsivePsychological
+                        .copy(alpha = 0.28f),
+            ),
+        modifier =
+            Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(16.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(11.dp),
+        ) {
+            PendingFeedbackQuestionContent(
+                response = response,
+                isAnswering = isAnswering,
+                onAnswer = onAnswer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SavedNotificationCard(
+    response: FeedbackQueueItemUiState,
+    nowMillis: Long,
+) {
+    val cardShape =
+        RoundedCornerShape(24.dp)
+
+    val answeredAtMillis =
+        response.answeredAtMillis
+            ?: response.createdAtMillis
+
+    val selectedAnswer =
+        response.selectedAnswer
+            .orEmpty()
+            .ifBlank {
+                "Answer unavailable"
+            }
+
+    Surface(
+        color =
+            MaterialTheme
+                .colorScheme
+                .surfaceVariant,
+        shape = cardShape,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color =
+                    ImpulsivePsychological
+                        .copy(alpha = 0.18f),
+            ),
+        modifier =
+            Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(16.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(11.dp),
+        ) {
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                verticalAlignment =
+                    Alignment.CenterVertically,
+                horizontalArrangement =
+                    Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text =
+                        formatSavedNotificationDate(
+                            answeredAtMillis,
+                        ),
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelMedium,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                )
+
+                Text(
+                    text =
+                        savedNotificationDeletionLabel(
+                            expiresAtMillis =
+                                response
+                                    .expiresAtMillis,
+                            nowMillis =
+                                nowMillis,
+                        ),
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall,
+                )
+            }
+
+            Text(
+                text = response.question,
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurface,
+                style =
+                    MaterialTheme
+                        .typography
+                        .titleSmall,
+                fontWeight =
+                    FontWeight.Bold,
+            )
+
+            Surface(
+                color =
+                    ImpulsivePsychological
+                        .copy(alpha = 0.20f),
+                shape =
+                    RoundedCornerShape(18.dp),
+            ) {
+                Text(
+                    text = selectedAnswer,
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .bodyMedium,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 13.dp,
+                            vertical = 10.dp,
+                        ),
+                )
+            }
+        }
     }
 }
 
@@ -301,7 +829,6 @@ fun JournalEditorScreen(
     val state by viewModel.editorState.collectAsStateWithLifecycle()
     val listState by viewModel.listState.collectAsStateWithLifecycle()
     val isAtSaveLimit = noteId == 0L && !listState.canCreateMore
-    val feedbackLocked = state.type == JournalNoteType.Feedback && noteId != 0L
     var reminderDialogOpen by remember { mutableStateOf(false) }
     var labelDialogOpen by remember { mutableStateOf(false) }
 
@@ -310,11 +837,7 @@ fun JournalEditorScreen(
     }
 
     fun exitEditor() {
-        if (feedbackLocked) {
-            onBack()
-        } else {
-            viewModel.saveCurrentIfNeeded(onBack)
-        }
+        viewModel.saveCurrentIfNeeded(onBack)
     }
 
     BackHandler { exitEditor() }
@@ -347,31 +870,10 @@ fun JournalEditorScreen(
             label = { Text("Title") },
             shape = RoundedCornerShape(22.dp),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            readOnly = feedbackLocked,
         )
-
-        if (state.type == JournalNoteType.Feedback) {
-            Text(
-                text = if (feedbackLocked) {
-                    "Saved. A feedback note can't be edited."
-                } else {
-                    "Heads up: this saves once and can't be edited after."
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
 
         when (state.type) {
             JournalNoteType.Text -> TextEditorBody(state.bodyDraft, viewModel::updateBody)
-            JournalNoteType.Feedback -> TextEditorBody(
-                body = state.bodyDraft,
-                onBodyChanged = viewModel::updateBody,
-                heading = "Today's feedback",
-                placeholder = "What did you do? How did it help? When did it happen?\n" +
-                    "e.g. did some progress, helped a lot, around 19:30",
-                readOnly = feedbackLocked,
-            )
             JournalNoteType.Checklist -> ChecklistEditorBody(
                 items = state.checklistItems,
                 onItemChanged = viewModel::updateChecklistItem,
@@ -424,7 +926,7 @@ fun JournalEditorScreen(
 }
 
 @Composable
-private fun JournalHeader(title: String, onBack: () -> Unit) {
+private fun JournalHeader(title: String, onBack: () -> Unit, onInfo: (() -> Unit)? = null) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -439,7 +941,48 @@ private fun JournalHeader(title: String, onBack: () -> Unit) {
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
+        if (onInfo != null) {
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onInfo) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = "About Notes",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun NotesAboutDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Outlined.Info,
+                contentDescription = null,
+                tint = ImpulsiveSpiritual,
+            )
+        },
+        title = { Text("About Notes") },
+        text = {
+            Text(
+                "Notes is your space to capture what helps. Save plain notes, build " +
+                    "checklists, and set gentle reminders, so a thought, a plan, or a coping " +
+                    "step is ready when you need it. Pin the ones that matter most to keep " +
+                    "them at the top.",
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = ImpulsivePsychological,
+                ),
+            ) { Text("Got it") }
+        },
+    )
 }
 
 @Composable
@@ -590,13 +1133,87 @@ private fun NotesCountRow(count: Int, max: Int) {
 }
 
 @Composable
+private fun NotesSelectionActionRow(
+    selectedCount: Int,
+    onCancel: () -> Unit,
+    onDeleteSelected: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = ImpulsivePsychological.copy(alpha = 0.16f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = ImpulsivePsychological.copy(alpha = 0.34f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "$selectedCount selected",
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+
+            TextButton(
+                onClick = onCancel,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            ) {
+                Text("Cancel")
+            }
+
+            TextButton(
+                onClick = onDeleteSelected,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = ImpulsiveFocusMode,
+                ),
+            ) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Delete selected")
+            }
+        }
+    }
+}
+
+@Composable
 private fun NotesCreateFab(
     expanded: Boolean,
     enabled: Boolean,
+    pendingFeedback:
+        FeedbackQueueItemUiState?,
+    latestSavedNotification:
+        FeedbackQueueItemUiState?,
+    playStoreRatingPrompt:
+        PlayStoreRatingPromptState,
+    isAnsweringPendingFeedback:
+        Boolean,
+    onAnswerPendingFeedback:
+        (
+            responseId: Long,
+            answerIndex: Int,
+        ) -> Unit,
+    onRateOnPlayStore: () -> Unit,
+    onShowRatingLater: () -> Unit,
+    onNeverShowRatingAgain: () -> Unit,
     onToggle: () -> Unit,
     onCreateText: () -> Unit,
     onCreateList: () -> Unit,
     onCreateDraw: () -> Unit,
+    onOpenSavedNotifications: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val rotation by animateFloatAsState(
@@ -609,7 +1226,8 @@ private fun NotesCreateFab(
     )
 
     Column(
-        modifier = modifier,
+        modifier =
+            modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -653,6 +1271,899 @@ private fun NotesCreateFab(
                         .size(28.dp)
                         .graphicsLayer(rotationZ = rotation),
                 )
+            }
+        }
+        SavedNotificationsEntry(
+            pendingResponse =
+                pendingFeedback,
+            latestResponse =
+                latestSavedNotification,
+            playStoreRatingPrompt =
+                playStoreRatingPrompt,
+            isAnswering =
+                isAnsweringPendingFeedback,
+            onAnswer = { answerIndex ->
+                val responseId =
+                    pendingFeedback
+                        ?.responseId
+                        ?: return@SavedNotificationsEntry
+
+                onAnswerPendingFeedback(
+                    responseId,
+                    answerIndex,
+                )
+            },
+            onRateOnPlayStore =
+                onRateOnPlayStore,
+            onShowRatingLater =
+                onShowRatingLater,
+            onNeverShowRatingAgain =
+                onNeverShowRatingAgain,
+            onClick =
+                onOpenSavedNotifications,
+            modifier =
+                Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun PendingFeedbackQuestionContent(
+    response: FeedbackQueueItemUiState,
+    isAnswering: Boolean,
+    onAnswer: (Int) -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            Arrangement.SpaceBetween,
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Today's question",
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .onSurfaceVariant,
+            style =
+                MaterialTheme
+                    .typography
+                    .labelMedium,
+            fontWeight =
+                FontWeight.SemiBold,
+        )
+
+        Text(
+            text = "Answer before midnight",
+            color =
+                ImpulsivePsychological,
+            style =
+                MaterialTheme
+                    .typography
+                    .labelSmall,
+            fontWeight =
+                FontWeight.SemiBold,
+        )
+    }
+
+    Text(
+        text = response.question,
+        color =
+            MaterialTheme
+                .colorScheme
+                .onSurface,
+        style =
+            MaterialTheme
+                .typography
+                .bodyMedium,
+        fontWeight =
+            FontWeight.Bold,
+        maxLines = 2,
+        overflow =
+            TextOverflow.Ellipsis,
+    )
+
+    Row(
+        modifier =
+            Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            Arrangement.spacedBy(10.dp),
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = {
+                onAnswer(0)
+            },
+            enabled = !isAnswering,
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp),
+            shape =
+                RoundedCornerShape(18.dp),
+            border =
+                BorderStroke(
+                    width = 1.dp,
+                    color =
+                        ImpulsivePsychological
+                            .copy(alpha = 0.45f),
+                ),
+            colors =
+                ButtonDefaults
+                    .outlinedButtonColors(
+                        contentColor =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface,
+                    ),
+            contentPadding =
+                PaddingValues(
+                    horizontal = 8.dp,
+                    vertical = 8.dp,
+                ),
+        ) {
+            Text(
+                text =
+                    response.positiveAnswer,
+                maxLines = 2,
+                overflow =
+                    TextOverflow.Ellipsis,
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelMedium,
+                fontWeight =
+                    FontWeight.SemiBold,
+            )
+        }
+
+        OutlinedButton(
+            onClick = {
+                onAnswer(1)
+            },
+            enabled = !isAnswering,
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp),
+            shape =
+                RoundedCornerShape(18.dp),
+            border =
+                BorderStroke(
+                    width = 1.dp,
+                    color =
+                        ImpulsivePsychological
+                            .copy(alpha = 0.45f),
+                ),
+            colors =
+                ButtonDefaults
+                    .outlinedButtonColors(
+                        contentColor =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface,
+                    ),
+            contentPadding =
+                PaddingValues(
+                    horizontal = 8.dp,
+                    vertical = 8.dp,
+                ),
+        ) {
+            Text(
+                text =
+                    response.honestAnswer,
+                maxLines = 2,
+                overflow =
+                    TextOverflow.Ellipsis,
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelMedium,
+                fontWeight =
+                    FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SavedFeedbackSuccessContent(
+    nextScheduledAtMillis: Long,
+    nowMillis: Long,
+) {
+    val relativeSchedule =
+        formatRelativeFeedbackSchedule(
+            scheduledAtMillis =
+                nextScheduledAtMillis,
+            nowMillis =
+                nowMillis,
+        ).replaceFirstChar { character ->
+            character.uppercase()
+        }
+
+    Column(
+        modifier =
+            Modifier.fillMaxSize(),
+        verticalArrangement =
+            Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text =
+                "Great work. Impulsive is working.",
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .onSurface,
+            style =
+                MaterialTheme
+                    .typography
+                    .titleSmall,
+            fontWeight =
+                FontWeight.Bold,
+            maxLines = 2,
+            overflow =
+                TextOverflow.Ellipsis,
+        )
+
+        Surface(
+            color =
+                ImpulsivePsychological
+                    .copy(alpha = 0.18f),
+            shape =
+                RoundedCornerShape(18.dp),
+            modifier =
+                Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier =
+                    Modifier.padding(
+                        horizontal = 12.dp,
+                        vertical = 10.dp,
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text =
+                        "Next feedback notification",
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelMedium,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    text =
+                        relativeSchedule,
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .bodyMedium,
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Text(
+            text =
+                "Your answer is saved for seven days.",
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .onSurfaceVariant,
+            style =
+                MaterialTheme
+                    .typography
+                    .labelSmall,
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun PlayStoreRatingPromptContent(
+    nextScheduledAtMillis: Long,
+    nowMillis: Long,
+    onRate: () -> Unit,
+    onShowLater: () -> Unit,
+    onNeverShowAgain: () -> Unit,
+) {
+    val nextSchedule =
+        formatRelativeFeedbackSchedule(
+            scheduledAtMillis =
+                nextScheduledAtMillis,
+            nowMillis =
+                nowMillis,
+        )
+
+    Column(
+        modifier =
+            Modifier.fillMaxSize(),
+        verticalArrangement =
+            Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text =
+                "Great work. Impulsive is working.",
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .onSurface,
+            style =
+                MaterialTheme
+                    .typography
+                    .titleSmall,
+            fontWeight =
+                FontWeight.Bold,
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+        )
+
+        Text(
+            text =
+                "Enjoying Impulsive? Your review helps more people discover the app.",
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .onSurfaceVariant,
+            style =
+                MaterialTheme
+                    .typography
+                    .bodySmall,
+            maxLines = 2,
+            overflow =
+                TextOverflow.Ellipsis,
+        )
+
+        Row(
+            modifier =
+                Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.spacedBy(6.dp),
+        ) {
+            Button(
+                onClick = onRate,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape =
+                    RoundedCornerShape(14.dp),
+                colors =
+                    ButtonDefaults
+                        .buttonColors(
+                            containerColor =
+                                ImpulsivePsychological,
+                            contentColor =
+                                Color(0xFF281D38),
+                        ),
+                contentPadding =
+                    PaddingValues(
+                        horizontal = 4.dp,
+                        vertical = 4.dp,
+                    ),
+            ) {
+                Text(
+                    text =
+                        "Rate on Play Store",
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall,
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 2,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    textAlign =
+                        TextAlign.Center,
+                )
+            }
+
+            OutlinedButton(
+                onClick = onShowLater,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape =
+                    RoundedCornerShape(14.dp),
+                border =
+                    BorderStroke(
+                        width = 1.dp,
+                        color =
+                            ImpulsivePsychological
+                                .copy(
+                                    alpha = 0.52f,
+                                ),
+                    ),
+                contentPadding =
+                    PaddingValues(
+                        horizontal = 4.dp,
+                        vertical = 4.dp,
+                    ),
+            ) {
+                Text(
+                    text = "Show later",
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                    maxLines = 2,
+                    textAlign =
+                        TextAlign.Center,
+                )
+            }
+
+            OutlinedButton(
+                onClick =
+                    onNeverShowAgain,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape =
+                    RoundedCornerShape(14.dp),
+                border =
+                    BorderStroke(
+                        width = 1.dp,
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurfaceVariant
+                                .copy(alpha = 0.35f),
+                    ),
+                contentPadding =
+                    PaddingValues(
+                        horizontal = 4.dp,
+                        vertical = 4.dp,
+                    ),
+            ) {
+                Text(
+                    text =
+                        "Never show again",
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    textAlign =
+                        TextAlign.Center,
+                )
+            }
+        }
+
+        Text(
+            text =
+                "Next feedback: $nextSchedule",
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .onSurfaceVariant,
+            style =
+                MaterialTheme
+                    .typography
+                    .labelSmall,
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun SavedNotificationsEntry(
+    pendingResponse:
+        FeedbackQueueItemUiState?,
+    latestResponse:
+        FeedbackQueueItemUiState?,
+    playStoreRatingPrompt:
+        PlayStoreRatingPromptState,
+    isAnswering: Boolean,
+    onAnswer: (Int) -> Unit,
+    onRateOnPlayStore: () -> Unit,
+    onShowRatingLater: () -> Unit,
+    onNeverShowRatingAgain: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val entryShape =
+        RoundedCornerShape(26.dp)
+
+    val isDark =
+        MaterialTheme
+            .colorScheme
+            .background
+            .luminance() < 0.5f
+
+    var nowMillis by remember(
+        latestResponse?.responseId,
+    ) {
+        mutableStateOf(
+            System.currentTimeMillis(),
+        )
+    }
+
+    LaunchedEffect(
+        latestResponse?.responseId,
+    ) {
+        if (latestResponse == null) {
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            delay(60_000L)
+
+            nowMillis =
+                System.currentTimeMillis()
+        }
+    }
+
+    val answeredAtMillis =
+        latestResponse
+            ?.answeredAtMillis
+            ?: latestResponse
+                ?.createdAtMillis
+
+    val selectedAnswer =
+        latestResponse
+            ?.selectedAnswer
+            .orEmpty()
+            .ifBlank {
+                "Answer unavailable"
+            }
+
+    val answeredToday =
+        latestResponse
+            ?.answeredAtMillis
+            ?.let { answeredAtMillis ->
+                isSameSavedNotificationDate(
+                    firstMillis =
+                        answeredAtMillis,
+                    secondMillis =
+                        nowMillis,
+                )
+            } == true
+
+    val currentEpochDay =
+        Instant
+            .ofEpochMilli(nowMillis)
+            .atZone(DateZone)
+            .toLocalDate()
+            .toEpochDay()
+
+    val ratingPromptSnoozed =
+        playStoreRatingPrompt
+            .snoozedUntilEpochDay
+            ?.let { snoozedUntil ->
+                currentEpochDay <
+                    snoozedUntil
+            } == true
+
+    val productionRatingEligible =
+        answeredToday &&
+            playStoreRatingPrompt
+                .isEligibleOn(
+                    currentEpochDay,
+                )
+
+    val shouldShowRatingPrompt =
+        pendingResponse == null &&
+            !playStoreRatingPrompt
+                .isPermanentlySuppressed &&
+            !ratingPromptSnoozed &&
+            productionRatingEligible
+
+    Surface(
+        shape = entryShape,
+        color =
+            MaterialTheme
+                .colorScheme
+                .surfaceVariant,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color =
+                    ImpulsivePsychological
+                        .copy(
+                            alpha =
+                                if (isDark) {
+                                    0.30f
+                                } else {
+                                    0.20f
+                                },
+                        ),
+        ),
+        shadowElevation = 8.dp,
+        modifier = modifier
+            .height(220.dp)
+            .clip(entryShape)
+            .impulsiveNoSquareRippleClickable {
+                onClick()
+            },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+        ) {
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                verticalAlignment =
+                    Alignment.CenterVertically,
+                horizontalArrangement =
+                    Arrangement.spacedBy(9.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .background(
+                            color =
+                                ImpulsivePsychological
+                                    .copy(
+                                        alpha = 0.26f,
+                                    ),
+                            shape = CircleShape,
+                        ),
+                    contentAlignment =
+                        Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector =
+                            Icons.Outlined
+                                .Notifications,
+                        contentDescription = null,
+                        tint =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface,
+                        modifier =
+                            Modifier.size(18.dp),
+                    )
+                }
+
+                Text(
+                    text =
+                        "Saved Notifications",
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .titleSmall,
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(10.dp),
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(8.dp),
+            ) {
+                when {
+                    pendingResponse != null -> {
+                        PendingFeedbackQuestionContent(
+                            response =
+                                pendingResponse,
+                            isAnswering =
+                                isAnswering,
+                            onAnswer =
+                                onAnswer,
+                        )
+                    }
+
+                    shouldShowRatingPrompt -> {
+                        PlayStoreRatingPromptContent(
+                            nextScheduledAtMillis =
+                                FeedbackPromptScheduler
+                                    .nextScheduledAtMillis(
+                                        nowMillis =
+                                            nowMillis,
+                                    ),
+                            nowMillis =
+                                nowMillis,
+                            onRate =
+                                onRateOnPlayStore,
+                            onShowLater =
+                                onShowRatingLater,
+                            onNeverShowAgain =
+                                onNeverShowRatingAgain,
+                        )
+                    }
+
+                    answeredToday -> {
+                        SavedFeedbackSuccessContent(
+                            nextScheduledAtMillis =
+                                FeedbackPromptScheduler
+                                    .nextScheduledAtMillis(
+                                        nowMillis =
+                                            nowMillis,
+                                    ),
+                            nowMillis =
+                                nowMillis,
+                        )
+                    }
+
+                    latestResponse != null &&
+                        answeredAtMillis != null -> {
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.SpaceBetween,
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text =
+                                    formatSavedNotificationDate(
+                                        answeredAtMillis,
+                                    ),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .labelSmall,
+                                fontWeight =
+                                    FontWeight.SemiBold,
+                            )
+
+                            Text(
+                                text =
+                                    savedNotificationDeletionLabel(
+                                        expiresAtMillis =
+                                            latestResponse
+                                                .expiresAtMillis,
+                                        nowMillis =
+                                            nowMillis,
+                                    ),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .labelSmall,
+                            )
+                        }
+
+                        Text(
+                            text =
+                                latestResponse.question,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface,
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodyMedium,
+                            fontWeight =
+                                FontWeight.Bold,
+                            maxLines = 2,
+                            overflow =
+                                TextOverflow.Ellipsis,
+                        )
+
+                        Surface(
+                            color =
+                                ImpulsivePsychological
+                                    .copy(alpha = 0.20f),
+                            shape =
+                                RoundedCornerShape(16.dp),
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = selectedAnswer,
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurface,
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .bodySmall,
+                                fontWeight =
+                                    FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow =
+                                    TextOverflow.Ellipsis,
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal = 12.dp,
+                                        vertical = 9.dp,
+                                    ),
+                            )
+                        }
+                    }
+
+                    else -> {
+                        Spacer(
+                            modifier =
+                                Modifier.height(6.dp),
+                        )
+
+                        Text(
+                            text =
+                                "No saved notifications yet",
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface,
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodyMedium,
+                            fontWeight =
+                                FontWeight.SemiBold,
+                        )
+
+                        Text(
+                            text =
+                                "Today's unanswered question or your latest saved answer will appear here.",
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodySmall,
+                            maxLines = 3,
+                            overflow =
+                                TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
     }
@@ -839,7 +2350,6 @@ private fun NoteToolDock(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     JournalNoteType.entries
-                        .filter { it != JournalNoteType.Feedback }
                         .forEach { type ->
                             ToolChoiceChip(
                                 type = type,
@@ -945,6 +2455,8 @@ private fun EmptyJournalState(canCreate: Boolean, onCreateNote: () -> Unit) {
 @Composable
 private fun JournalNoteCard(
     note: JournalNoteEntity,
+    selected: Boolean,
+    selectionMode: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ) {
@@ -952,14 +2464,18 @@ private fun JournalNoteCard(
     Surface(
         color = note.cardColor(),
         shape = noteShape,
-        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
-        } else {
-            null
+        border = when {
+            selected -> BorderStroke(2.dp, ImpulsivePsychological.copy(alpha = 0.86f))
+            MaterialTheme.colorScheme.background.luminance() < 0.5f ->
+                BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
+            else -> null
         },
         modifier = Modifier
             .fillMaxWidth()
             .clip(noteShape)
+            .graphicsLayer {
+                alpha = if (selectionMode && !selected) 0.82f else 1f
+            }
             .impulsiveNoSquareRippleCombinedClickable(
                 onClick = onClick,
                 onLongClick = onLongPress,
@@ -977,6 +2493,21 @@ private fun JournalNoteCard(
                 }
                 if (note.isPinned) {
                     Text("Pinned", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .background(ImpulsivePsychological.copy(alpha = 0.9f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Check,
+                            contentDescription = "Selected",
+                            tint = MaterialTheme.colorScheme.background,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
                 }
             }
             Text(note.preview(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis)
@@ -1901,7 +3432,6 @@ private fun JournalNoteEntity.preview(): String {
             .ifBlank { "Empty list" }
         JournalNoteType.Sketch -> if (sketch.isBlank()) "Blank drawing" else "Drawing saved"
         JournalNoteType.Reminder -> body.ifBlank { "Reminder note" }
-        JournalNoteType.Feedback -> body.ifBlank { "Feedback note" }
     }
 }
 
@@ -1928,7 +3458,6 @@ private fun JournalNoteType.accentColor(): Color = when (this) {
     JournalNoteType.Checklist -> ImpulsivePhysical
     JournalNoteType.Sketch -> ImpulsiveSpiritual
     JournalNoteType.Reminder -> ImpulsiveFocusMode
-    JournalNoteType.Feedback -> ImpulsivePsychological
 }
 
 private fun JournalNoteType.smallIcon() = when (this) {
@@ -1936,7 +3465,64 @@ private fun JournalNoteType.smallIcon() = when (this) {
     JournalNoteType.Checklist -> Icons.Outlined.Checklist
     JournalNoteType.Sketch -> Icons.Outlined.Brush
     JournalNoteType.Reminder -> Icons.Outlined.Notifications
-    JournalNoteType.Feedback -> Icons.Outlined.Feedback
+}
+
+private const val
+    ImpulsivePlayStorePackageName =
+    "com.impulsive.app"
+
+private const val
+    GooglePlayPackageName =
+    "com.android.vending"
+
+private fun openImpulsivePlayStoreListing(
+    context: Context,
+): Boolean {
+    val listingUri =
+        Uri.parse(
+            "https://play.google.com/store/apps/details" +
+                "?id=$ImpulsivePlayStorePackageName",
+        )
+
+    val playStoreIntent =
+        Intent(
+            Intent.ACTION_VIEW,
+            listingUri,
+        ).apply {
+            setPackage(
+                GooglePlayPackageName,
+            )
+
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK,
+            )
+        }
+
+    if (
+        runCatching {
+            context.startActivity(
+                playStoreIntent,
+            )
+        }.isSuccess
+    ) {
+        return true
+    }
+
+    val browserIntent =
+        Intent(
+            Intent.ACTION_VIEW,
+            listingUri,
+        ).apply {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK,
+            )
+        }
+
+    return runCatching {
+        context.startActivity(
+            browserIntent,
+        )
+    }.isSuccess
 }
 
 private const val HighlightPsychology = "PSYCHOLOGY"
@@ -2096,6 +3682,10 @@ private fun Offset.distanceTo(other: Offset): Float {
 private val ShortDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
 private val ReminderFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a")
 private val ReminderCompactFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM h:mm a")
+private const val SavedNotificationDayMillis = 24L * 60L * 60L * 1000L
+private val SavedNotificationDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM")
+private val SavedNotificationScheduleFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM 'at' h:mm a")
+private val SavedNotificationTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
 private val DateZone: ZoneId = ZoneId.systemDefault()
 
 private fun formatShortDate(millis: Long): String {
@@ -2108,4 +3698,107 @@ private fun formatReminder(millis: Long): String {
 
 private fun formatReminderCompact(millis: Long): String {
     return Instant.ofEpochMilli(millis).atZone(DateZone).format(ReminderCompactFormatter)
+}
+
+private fun formatSavedNotificationDate(
+    millis: Long,
+): String {
+    return Instant
+        .ofEpochMilli(millis)
+        .atZone(DateZone)
+        .format(
+            SavedNotificationDateFormatter,
+        )
+}
+
+private fun formatSavedNotificationSchedule(
+    millis: Long,
+): String {
+    return Instant
+        .ofEpochMilli(millis)
+        .atZone(DateZone)
+        .format(
+            SavedNotificationScheduleFormatter,
+        )
+}
+
+private fun isSameSavedNotificationDate(
+    firstMillis: Long,
+    secondMillis: Long,
+): Boolean {
+    val firstDate =
+        Instant
+            .ofEpochMilli(firstMillis)
+            .atZone(DateZone)
+            .toLocalDate()
+
+    val secondDate =
+        Instant
+            .ofEpochMilli(secondMillis)
+            .atZone(DateZone)
+            .toLocalDate()
+
+    return firstDate == secondDate
+}
+
+private fun formatRelativeFeedbackSchedule(
+    scheduledAtMillis: Long,
+    nowMillis: Long,
+): String {
+    val nowDate =
+        Instant
+            .ofEpochMilli(nowMillis)
+            .atZone(DateZone)
+            .toLocalDate()
+
+    val scheduled =
+        Instant
+            .ofEpochMilli(
+                scheduledAtMillis,
+            )
+            .atZone(DateZone)
+
+    val scheduledTime =
+        scheduled.format(
+            SavedNotificationTimeFormatter,
+        )
+
+    return when (
+        scheduled.toLocalDate()
+    ) {
+        nowDate ->
+            "today at $scheduledTime"
+
+        nowDate.plusDays(1L) ->
+            "tomorrow at $scheduledTime"
+
+        else ->
+            scheduled.format(
+                SavedNotificationScheduleFormatter,
+            )
+    }
+}
+
+private fun savedNotificationDeletionLabel(
+    expiresAtMillis: Long,
+    nowMillis: Long,
+): String {
+    val remainingMillis =
+        (
+            expiresAtMillis -
+                nowMillis
+        ).coerceAtLeast(1L)
+
+    val remainingDays =
+        (
+            remainingMillis +
+                SavedNotificationDayMillis -
+                1L
+        ) / SavedNotificationDayMillis
+
+    return if (remainingDays == 1L) {
+        "Deletes in 1 day"
+    } else {
+        "Deletes in $remainingDays days"
+    }
 }

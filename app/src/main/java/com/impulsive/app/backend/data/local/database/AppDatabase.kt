@@ -10,11 +10,15 @@ import com.impulsive.app.backend.data.local.dao.BlockedDomainDao
 import com.impulsive.app.backend.data.local.dao.FeedbackResponseDao
 import com.impulsive.app.backend.data.local.dao.JournalNoteDao
 import com.impulsive.app.backend.data.local.dao.RecoverySessionDao
+import com.impulsive.app.backend.data.local.dao.SyncTombstoneDao
 import com.impulsive.app.backend.data.local.entity.BlockedDomainEntity
 import com.impulsive.app.backend.data.local.entity.FeedbackResponseEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
+import com.impulsive.app.backend.data.local.entity.SyncTombstoneEntity
+import com.impulsive.app.security.storage.DatabasePassphraseStore
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
     entities = [
@@ -23,8 +27,9 @@ import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
         JournalChecklistItemEntity::class,
         BlockedDomainEntity::class,
         FeedbackResponseEntity::class,
+        SyncTombstoneEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +37,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun journalNoteDao(): JournalNoteDao
     abstract fun blockedDomainDao(): BlockedDomainDao
     abstract fun feedbackResponseDao(): FeedbackResponseDao
+    abstract fun syncTombstoneDao(): SyncTombstoneDao
 
     companion object {
         private const val DatabaseName = "impulsive.db"
@@ -147,26 +153,63 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val Migration5To6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS sync_tombstones (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        recordType TEXT NOT NULL,
+                        parentKey TEXT NOT NULL DEFAULT '',
+                        recordKey TEXT NOT NULL,
+                        deletedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    index_sync_tombstones_recordType_parentKey_recordKey
+                    ON sync_tombstones(recordType, parentKey, recordKey)
+                    """.trimIndent(),
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    DatabaseName,
-                )
-                    .addMigrations(
-                        Migration1To2,
-                        Migration2To3,
-                        Migration3To4,
-                        Migration4To5,
+                instance ?: run {
+                    val appContext = context.applicationContext
+                    val passphrase = DatabasePassphraseStore(appContext).getOrCreatePassphrase()
+
+                    SqlCipherDatabaseMigrator.migratePlaintextDatabaseIfNeeded(
+                        context = appContext,
+                        databaseName = DatabaseName,
+                        passphrase = passphrase,
                     )
-                    .build()
-                    .also { database ->
-                        instance = database
-                    }
+                    SqlCipherDatabaseMigrator.ensureSqlCipherLoaded()
+
+                    Room.databaseBuilder(
+                        appContext,
+                        AppDatabase::class.java,
+                        DatabaseName,
+                    )
+                        .openHelperFactory(SupportOpenHelperFactory(passphrase))
+                        .addMigrations(
+                            Migration1To2,
+                            Migration2To3,
+                            Migration3To4,
+                            Migration4To5,
+                            Migration5To6,
+                        )
+                        .build()
+                        .also { database ->
+                            instance = database
+                        }
+                }
             }
         }
     }

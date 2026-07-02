@@ -26,6 +26,7 @@ class ProtectionSetupPreferencesDataSource(
             selectedBlockedAppPackageNames =
                 preferences[SelectedBlockedAppPackageNamesKey].toStringSet(),
             websiteProtectionEnabled = preferences[WebsiteProtectionEnabledKey] ?: false,
+            websiteProtectionAlwaysOn = preferences[WebsiteProtectionAlwaysOnKey] ?: false,
             interruptionPermissionEnabled = preferences[InterruptionPermissionEnabledKey] ?: false,
             backgroundActivityEnabled = preferences[BackgroundActivityEnabledKey] ?: false,
             uninstallProtectionEnabled = preferences[UninstallProtectionEnabledKey] ?: false,
@@ -60,6 +61,12 @@ class ProtectionSetupPreferencesDataSource(
         dataStore.edit { preferences ->
             preferences[WebsiteProtectionEnabledKey] = enabled
             if (enabled) preferences.removeSkippedItem(ProtectionSetupItem.WebsiteProtection)
+        }
+    }
+
+    suspend fun setWebsiteProtectionAlwaysOn(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[WebsiteProtectionAlwaysOnKey] = enabled
         }
     }
 
@@ -149,6 +156,7 @@ class ProtectionSetupPreferencesDataSource(
         val SelectedBlockedAppPackageNamesKey =
             stringPreferencesKey("selected_blocked_app_package_names")
         val WebsiteProtectionEnabledKey = booleanPreferencesKey("website_protection_enabled")
+        val WebsiteProtectionAlwaysOnKey = booleanPreferencesKey("website_protection_always_on")
         val InterruptionPermissionEnabledKey = booleanPreferencesKey("interruption_permission_enabled")
         val BackgroundActivityEnabledKey = booleanPreferencesKey("background_activity_enabled")
         val UninstallProtectionEnabledKey = booleanPreferencesKey("uninstall_protection_enabled")

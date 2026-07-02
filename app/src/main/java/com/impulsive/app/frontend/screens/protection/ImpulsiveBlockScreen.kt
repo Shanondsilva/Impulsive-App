@@ -1,14 +1,18 @@
 package com.impulsive.app.frontend.screens.protection
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +64,7 @@ fun ImpulsiveBlockScreen(
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     var now by remember { mutableStateOf(LocalDateTime.now()) }
+    val scrollState = rememberScrollState()
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -82,23 +87,28 @@ fun ImpulsiveBlockScreen(
     )
     val timeLeft = windowSnapshot.timeUntilNextWindow
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(20.dp),
         contentAlignment = Alignment.Center,
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = maxHeight),
             shape = RoundedCornerShape(32.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
             ),
         ) {
             Column(
-                modifier = Modifier.padding(22.dp),
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(

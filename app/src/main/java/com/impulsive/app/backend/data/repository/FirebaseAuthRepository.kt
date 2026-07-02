@@ -249,9 +249,27 @@ class FirebaseAuthRepository(
         }
     }
 
-    private suspend fun getFacebookFirebaseCredential(activity: Activity): ProviderCredentialResult {
+    private suspend fun getFacebookFirebaseCredential(
+        activity: Activity,
+        reuseExistingSession: Boolean = false,
+    ): ProviderCredentialResult {
         if (!isFacebookConfigured()) {
             return ProviderCredentialResult.Error(AuthResult.Error(AuthNotConfiguredMessage))
+        }
+
+        // Reuse an already-valid Facebook session instead of launching a second
+        // login. Re-running logInWithReadPermissions while the user is still
+        // signed in to Facebook can return without ever firing the SDK callback,
+        // which leaves the caller suspended forever. This was observed during
+        // account-deletion reauthentication: the login sheet reappeared, the user
+        // continued, and the app sat on "Deleting your account" indefinitely. An
+        // active token is enough to build the Firebase credential, so use it.
+        if (reuseExistingSession && AccessToken.isCurrentAccessTokenActive()) {
+            AccessToken.getCurrentAccessToken()?.let { current ->
+                return ProviderCredentialResult.Success(
+                    FacebookAuthProvider.getCredential(current.token),
+                )
+            }
         }
 
         val loginOutcome = suspendCancellableCoroutine<FacebookLoginOutcome> { cont ->
@@ -289,7 +307,7 @@ class FirebaseAuthRepository(
             )
 
             try {
-                loginManager.logInWithReadPermissions(activity, listOf("email", "public_profile"))
+                loginManager.logInWithReadPermissions(activity, listOf("public_profile"))
             } catch (e: Exception) {
                 loginManager.unregisterCallback(facebookCallbackManager)
                 if (cont.isActive) {
@@ -362,7 +380,7 @@ class FirebaseAuthRepository(
 
         val credentialResult: ProviderCredentialResult = when (provider) {
             AuthProvider.Google -> getGoogleFirebaseCredential(activity)
-            AuthProvider.Facebook -> getFacebookFirebaseCredential(activity)
+            AuthProvider.Facebook -> getFacebookFirebaseCredential(activity, reuseExistingSession = true)
             AuthProvider.Email -> {
                 val email = user.email
                 if (email.isNullOrBlank() || password.isNullOrBlank()) {

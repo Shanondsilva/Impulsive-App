@@ -76,14 +76,14 @@ fun BottomNavBar(
     selected: BottomNavItem,
     onSelect: (BottomNavItem) -> Unit,
     onLongSelect: (BottomNavItem) -> Unit = {},
-    hapticsEnabled: Boolean = true,
+    hapticsEnabled: Boolean? = null,
     settingsBadgeVisible: Boolean = false,
     modeSelectorOpen: Boolean = false,
     indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
     isActive: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = rememberImpulsiveHaptics(hapticsEnabled)
+    val haptics = rememberImpulsiveHaptics(enabled = hapticsEnabled)
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val navGlow = ImpulsivePsychological
     val selectedGlow = ImpulsivePsychological

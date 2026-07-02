@@ -1,10 +1,13 @@
 package com.impulsive.app.backend.data.repository
 
 import android.content.Context
+import com.impulsive.app.BuildConfig
 import com.impulsive.app.backend.data.local.preferences.PremiumEntitlementDataSource
+import com.impulsive.app.backend.domain.model.premium.BillingPeriod
 import com.impulsive.app.backend.domain.model.premium.EntitlementSource
 import com.impulsive.app.backend.domain.model.premium.PremiumEntitlement
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
+import com.impulsive.app.backend.domain.model.premium.PremiumTier
 import com.impulsive.app.backend.domain.model.premium.includes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -13,7 +16,10 @@ import kotlinx.coroutines.flow.map
 class PremiumRepository(context: Context) {
     private val dataSource = PremiumEntitlementDataSource(context)
 
-    val entitlement: Flow<PremiumEntitlement> = dataSource.entitlement
+    val entitlement: Flow<PremiumEntitlement> =
+        dataSource.entitlement.map { entitlement ->
+            entitlement.withLocalDevelopmentUnlock()
+        }
 
     fun hasFeature(feature: PremiumFeature): Flow<Boolean> =
         entitlement.map { it.tier.includes(feature) }
@@ -30,5 +36,17 @@ class PremiumRepository(context: Context) {
             return
         }
         dataSource.setEntitlement(entitlement)
+    }
+
+    private fun PremiumEntitlement.withLocalDevelopmentUnlock(): PremiumEntitlement {
+        if (!BuildConfig.DEBUG) return this
+
+        if (source == EntitlementSource.PlayBilling) return this
+
+        return copy(
+            tier = PremiumTier.Basic,
+            period = BillingPeriod.Monthly,
+            source = EntitlementSource.Debug,
+        )
     }
 }

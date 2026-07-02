@@ -11,9 +11,12 @@ class ForegroundAppReader(
 ) {
     private val packageManager: PackageManager = context.packageManager
 
+    @Volatile
+    private var lastKnownForegroundPackage: String? = null
+
     fun getCurrentForegroundPackage(lookbackMillis: Long = 10_000L): String? {
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as?
-            UsageStatsManager ?: return null
+            UsageStatsManager ?: return lastKnownForegroundPackage
         val endTime = System.currentTimeMillis()
         val startTime = (endTime - lookbackMillis).coerceAtLeast(0L)
         val events = usageStatsManager.queryEvents(startTime, endTime)
@@ -31,7 +34,18 @@ class ForegroundAppReader(
                 latestPackageName = event.packageName
             }
         }
-        return latestPackageName
+        // When the user stays inside one app, the system stops emitting new foreground
+        // events, so a short lookback window finds nothing and this query returns null.
+        // Treating that null as "no app in front" is what let a protected app stay open
+        // after its access window ended: both the re-block check and the monitor loop
+        // bail out on a null package. The most recent foreground app is still the one in
+        // front until a newer foreground event appears, so remember it and fall back to
+        // it whenever the current query is empty.
+        if (latestPackageName != null) {
+            lastKnownForegroundPackage = latestPackageName
+            return latestPackageName
+        }
+        return lastKnownForegroundPackage
     }
 
     fun getApplicationLabel(packageName: String): String {

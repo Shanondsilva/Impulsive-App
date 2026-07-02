@@ -2,7 +2,6 @@ package com.impulsive.app.backend.data
 
 import android.content.Context
 import android.net.Uri
-import androidx.core.content.FileProvider
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
@@ -104,14 +103,34 @@ class UserDataExporter(private val context: Context) {
         }
     }
 
-    /** Writes the export to a shareable cache file and returns a content:// uri. */
-    suspend fun writeExportFile(): Uri = withContext(Dispatchers.IO) {
+    /**
+     * Writes the export directly to a user-selected document URI.
+     *
+     * No sensitive restore export is written to app cache. A cleanup pass still
+     * removes the old cache export folder left by previous versions.
+     */
+    suspend fun writeExportToUri(destinationUri: Uri): Boolean = withContext(Dispatchers.IO) {
+        deleteLegacyTemporaryExportFiles()
+
         val json = buildRestorableExportJson()
-        val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-        // Stable filename so repeated exports overwrite rather than pile up.
-        val file = File(dir, "impulsive-restore-export.json")
-        file.writeText(json)
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val written = runCatching {
+            val outputStream = context.contentResolver.openOutputStream(destinationUri, "wt")
+                ?: return@runCatching false
+
+            outputStream.use { output ->
+                output.write(json.toByteArray(Charsets.UTF_8))
+            }
+
+            true
+        }.getOrDefault(false)
+
+        deleteLegacyTemporaryExportFiles()
+
+        written
+    }
+
+    fun deleteLegacyTemporaryExportFiles() {
+        File(context.cacheDir, LegacyExportDirectory).deleteRecursively()
     }
 
     /** Builds a structured export for the future manual restore flow. */
@@ -383,4 +402,9 @@ class UserDataExporter(private val context: Context) {
 
     private fun JSONObject.putNullable(name: String, value: Any?): JSONObject =
         put(name, value ?: JSONObject.NULL)
+
+    companion object {
+        const val SuggestedExportFileName = "impulsive-restore-export.json"
+        private const val LegacyExportDirectory = "exports"
+    }
 }

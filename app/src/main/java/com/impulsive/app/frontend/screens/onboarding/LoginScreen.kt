@@ -821,7 +821,7 @@ private fun LoginPrimaryButton(
     height: Dp,
     onClick: () -> Unit,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     Button(
         onClick = {
             haptics.confirm()
@@ -856,7 +856,7 @@ private fun LoginOutlinedButton(
     height: Dp,
     onClick: () -> Unit,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     Button(
         onClick = {
             haptics.light()
@@ -898,7 +898,7 @@ private fun LoginNeutralButton(
     height: Dp,
     onClick: () -> Unit,
 ) {
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     Button(
         onClick = {
             haptics.light()

@@ -14,16 +14,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -51,7 +58,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
 import com.impulsive.app.backend.domain.model.focus.FocusSessionState
 import com.impulsive.app.backend.domain.model.focus.formattedRemaining
-import com.impulsive.app.backend.domain.model.focus.focusCompletionLevelPoints
 import com.impulsive.app.backend.domain.model.focus.remainingSeconds
 import com.impulsive.app.backend.session.focus.FocusSessionViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
@@ -67,6 +73,7 @@ import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.frontend.theme.ImpulsiveFocusMode
 import com.impulsive.app.frontend.theme.ImpulsiveFocusModeDark
+import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import java.time.LocalDateTime
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,6 +89,7 @@ fun FocusScreen(
 ) {
     val session by focusViewModel.session.collectAsStateWithLifecycle()
     val now by focusViewModel.now.collectAsStateWithLifecycle()
+    val lastFocusTimeAward by focusViewModel.lastFocusTimeAward.collectAsStateWithLifecycle()
     val protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val configuredFocusBlockedPackages by focusViewModel.configuredFocusBlockedPackages.collectAsStateWithLifecycle()
@@ -313,6 +321,9 @@ fun FocusScreen(
     completedSummarySession?.let { summarySession ->
         FocusCompletionSummaryDialog(
             completedSession = summarySession,
+            levelPointsAwarded = lastFocusTimeAward
+                ?.takeIf { (sessionId, _) -> sessionId == summarySession.sessionId }
+                ?.second,
             blockedAppsCount = effectiveFocusApps.size,
             accent = accent,
             text = text,
@@ -341,13 +352,18 @@ fun FocusScreen(
 @Composable
 private fun FocusCompletionSummaryDialog(
     completedSession: FocusSessionState,
+    levelPointsAwarded: Int?,
     blockedAppsCount: Int,
     accent: Color,
     text: Color,
     muted: Color,
     onDismiss: () -> Unit,
 ) {
-    val levelPoints = focusCompletionLevelPoints(completedSession.durationMinutes)
+    val levelPointsText = when (val points = levelPointsAwarded) {
+        null -> "Calculating..."
+        0 -> "Focus LP reached for today"
+        else -> "+$points LP"
+    }
     val blockedAppsText = when (blockedAppsCount) {
         0 -> "No apps blocked"
         1 -> "1 app guarded"
@@ -401,7 +417,7 @@ private fun FocusCompletionSummaryDialog(
 
                 FocusSummaryRow(
                     label = "Level Points earned",
-                    value = "+$levelPoints LP",
+                    value = levelPointsText,
                     text = text,
                     muted = muted,
                 )
@@ -468,18 +484,9 @@ private fun FocusSetupContent(
     borderColor: Color,
     clockSizeDp: Int,
 ) {
-    Text(
-        text = "FOCUS",
-        color = muted,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Bold,
-    )
-
-    Text(
-        text = "Take a break.",
-        color = text,
-        style = MaterialTheme.typography.headlineMedium,
-        fontWeight = FontWeight.Bold,
+    FocusHeader(
+        text = text,
+        muted = muted,
     )
 
     
@@ -545,6 +552,147 @@ private fun FocusSetupContent(
         onPauseResume = onTogglePause,
         onEndSession = onEndSession,
     )
+}
+
+@Composable
+private fun FocusHeader(
+    text: Color,
+    muted: Color,
+) {
+    var showFocusInfo by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Focus",
+            color = text,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        IconButton(
+            onClick = { showFocusInfo = true },
+            modifier = Modifier.size(34.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = "About Focus",
+                tint = text.copy(alpha = 0.76f),
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+
+    if (showFocusInfo) {
+        FocusInfoDialog(
+            text = text,
+            muted = muted,
+            onDismiss = { showFocusInfo = false },
+        )
+    }
+}
+
+@Composable
+private fun FocusInfoDialog(
+    text: Color,
+    muted: Color,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = ImpulsivePsychological,
+                ),
+            ) {
+                Text("Got it")
+            }
+        },
+        title = {
+            Text(
+                text = "About Focus",
+                color = text,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "Take a break.",
+                    color = text.copy(alpha = 0.84f),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+                FocusInfoItem(
+                    title = "Focus session",
+                    body = "Choose a focused time block and let Impulsive guard the session from distracting apps.",
+                    text = text,
+                    muted = muted,
+                )
+
+                FocusInfoItem(
+                    title = "Time dial",
+                    body = "Drag the clock to set your focus length before starting. Once a session starts, the timer becomes locked.",
+                    text = text,
+                    muted = muted,
+                )
+
+                FocusInfoItem(
+                    title = "Blocked apps",
+                    body = "Shows how many apps are protected during Focus. Tap the card to adjust the Focus blocking list.",
+                    text = text,
+                    muted = muted,
+                )
+
+                FocusInfoItem(
+                    title = "Start, Pause, End",
+                    body = "Start begins protection, Pause temporarily holds the session, and End stops the current Focus block.",
+                    text = text,
+                    muted = muted,
+                )
+
+                FocusInfoItem(
+                    title = "Focus points",
+                    body = "Completed Focus time can build Level Points, but Focus LP is capped so it supports progress without becoming farmable.",
+                    text = text,
+                    muted = muted,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun FocusInfoItem(
+    title: String,
+    body: String,
+    text: Color,
+    muted: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = title,
+            color = text,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
+
+        Text(
+            text = body,
+            color = muted,
+            style = MaterialTheme.typography.bodySmall,
+            lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
+        )
+    }
 }
 
 @Composable

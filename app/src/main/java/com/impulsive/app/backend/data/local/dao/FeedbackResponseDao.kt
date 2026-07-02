@@ -93,11 +93,29 @@ interface FeedbackResponseDao {
 
     @Query(
         """
+        UPDATE feedback_responses
+        SET expiresAtMillis = :expiresAtMillis
+        WHERE promptDateEpochDay = :promptDateEpochDay
+          AND answeredAtMillis IS NULL
+        """,
+    )
+    suspend fun updatePendingExpiryForDate(
+        promptDateEpochDay: Long,
+        expiresAtMillis: Long,
+    ): Int
+
+    @Query(
+        """
         DELETE FROM feedback_responses
         WHERE expiresAtMillis <= :nowMillis
+           OR (
+                answeredAtMillis IS NULL
+                AND promptDateEpochDay < :currentEpochDay
+           )
         """,
     )
     suspend fun deleteExpired(
         nowMillis: Long,
+        currentEpochDay: Long,
     ): Int
 }

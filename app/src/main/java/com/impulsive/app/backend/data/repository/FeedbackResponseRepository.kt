@@ -4,6 +4,8 @@ import android.content.Context
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.entity.FeedbackResponseEntity
 import kotlinx.coroutines.flow.Flow
+import java.time.Instant
+import java.time.ZoneId
 
 class FeedbackResponseRepository(
     context: Context,
@@ -49,7 +51,9 @@ class FeedbackResponseRepository(
                 honestAnswerText = honestAnswerText,
                 createdAtMillis = createdAtMillis,
                 expiresAtMillis =
-                    createdAtMillis + RetentionMillis,
+                    pendingExpiresAtMillis(
+                        createdAtMillis = createdAtMillis,
+                    ),
                 updatedAtMillis = createdAtMillis,
             ),
         )
@@ -87,11 +91,54 @@ class FeedbackResponseRepository(
 
     suspend fun deleteExpired(
         nowMillis: Long,
-    ): Int =
-        dao.deleteExpired(nowMillis)
+    ): Int {
+        val zone =
+            ZoneId.systemDefault()
+
+        val currentDate =
+            Instant
+                .ofEpochMilli(nowMillis)
+                .atZone(zone)
+                .toLocalDate()
+
+        val currentEpochDay =
+            currentDate.toEpochDay()
+
+        dao.updatePendingExpiryForDate(
+            promptDateEpochDay =
+                currentEpochDay,
+            expiresAtMillis =
+                pendingExpiresAtMillis(
+                    createdAtMillis =
+                        nowMillis,
+                    zone = zone,
+                ),
+        )
+
+        return dao.deleteExpired(
+            nowMillis = nowMillis,
+            currentEpochDay =
+                currentEpochDay,
+        )
+    }
 
     companion object {
         const val RetentionMillis: Long =
             7L * 24L * 60L * 60L * 1000L
+
+        fun pendingExpiresAtMillis(
+            createdAtMillis: Long,
+            zone: ZoneId =
+                ZoneId.systemDefault(),
+        ): Long {
+            return Instant
+                .ofEpochMilli(createdAtMillis)
+                .atZone(zone)
+                .toLocalDate()
+                .plusDays(1L)
+                .atStartOfDay(zone)
+                .toInstant()
+                .toEpochMilli()
+        }
     }
 }

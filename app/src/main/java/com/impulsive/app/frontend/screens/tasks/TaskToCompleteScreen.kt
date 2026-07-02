@@ -199,7 +199,7 @@ fun TaskToCompleteScreen(
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val colors = rememberTaskModeColors()
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
     val currentNow by produceState(initialValue = LocalDateTime.now().withSecond(0).withNano(0)) {
         while (true) {
@@ -352,9 +352,28 @@ private fun TaskHeader(
                 )
             },
             text = {
-                Text(
-                    text = "Tasks are short control actions that help you pause, redirect your attention, and earn progress before the next window. Complete one real action to reduce waiting time and build Level Points.",
-                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "Complete one real action to reduce the wait.",
+                        color = colors.primaryText.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    Text(
+                        text = "Tasks are short control actions that help you pause, redirect attention, and build progress before the next window.",
+                        color = colors.primaryText.copy(alpha = 0.78f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    Text(
+                        text = "Only one main wait cut should count per day. Extra completed tasks may still help progress, but the task system should not become something to farm.",
+                        color = colors.primaryText.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall,
+                        lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -371,7 +390,7 @@ private fun TaskHeader(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(
             onClick = onBack,
@@ -385,34 +404,26 @@ private fun TaskHeader(
             )
         }
 
-        Column(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Tasks",
-                    color = colors.accentText,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                IconButton(
-                    onClick = { showTaskInfo = true },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = "About Tasks",
-                        tint = colors.accentText.copy(alpha = 0.88f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Complete one real action to reduce the wait.",
-                color = colors.primaryText.copy(alpha = 0.78f),
-                style = MaterialTheme.typography.bodyMedium,
+        Spacer(modifier = Modifier.width(6.dp))
+
+        Text(
+            text = "Tasks",
+            color = colors.primaryText,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        IconButton(
+            onClick = { showTaskInfo = true },
+            modifier = Modifier.size(34.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = "About Tasks",
+                tint = colors.primaryText.copy(alpha = 0.76f),
+                modifier = Modifier.size(22.dp),
             )
         }
     }

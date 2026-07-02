@@ -1,11 +1,14 @@
 package com.impulsive.app.backend.session.tasks
 
 import android.app.Application
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.local.entity.FeedbackResponseEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
+import com.impulsive.app.backend.data.local.preferences.PlayStoreRatingPromptDataSource
+import com.impulsive.app.backend.data.local.preferences.PlayStoreRatingPromptState
 import com.impulsive.app.backend.data.repository.FeedbackResponseRepository
 import com.impulsive.app.backend.data.repository.JournalRepository
 import com.impulsive.app.backend.data.repository.MoveDirection
@@ -21,30 +24,15 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
-import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
 private val ReminderZone: ZoneId = ZoneId.systemDefault()
 
-private const val FeedbackNotificationSource = "feedback_notification"
-
-private const val FeedbackNotificationRetentionMillis =
-    7L * 24L * 60L * 60L * 1000L
-
 data class ChecklistDraftItem(
     val localId: Long,
     val text: String,
     val isChecked: Boolean = false,
-)
-
-data class SavedNotificationFeedbackUiState(
-    val noteId: Long,
-    val question: String,
-    val selectedAnswer: String,
-    val savedAtMillis: Long,
-    val expiresAtMillis: Long,
 )
 
 data class FeedbackQueueItemUiState(
@@ -70,11 +58,13 @@ data class JournalListUiState(
     val notes: List<JournalNoteEntity> = emptyList(),
     val recentNotes: List<JournalNoteEntity> = emptyList(),
     val noteCount: Int = 0,
-    val maxNotes: Int = JournalViewModel.MaxNormalJournalSaves,
-    val feedbackDoneToday: Boolean = false,
-    val savedNotificationFeedback: SavedNotificationFeedbackUiState? = null,
+    val maxNotes: Int =
+        JournalViewModel.MaxNormalJournalSaves,
     val feedbackQueue: FeedbackQueueUiState =
         FeedbackQueueUiState(),
+    val playStoreRatingPrompt:
+        PlayStoreRatingPromptState =
+        PlayStoreRatingPromptState(),
 ) {
     val canCreateMore: Boolean get() = noteCount < maxNotes
 }
@@ -104,11 +94,14 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         TaskRewardRepository(application)
     private val feedbackResponseRepository =
         FeedbackResponseRepository(application)
+    private val playStoreRatingPromptDataSource =
+        PlayStoreRatingPromptDataSource(
+            application,
+        )
 
     companion object {
         const val MaxNormalJournalSaves = 50
         const val NoteCreationLevelPoints = 10
-        const val FeedbackNoteLevelPoints = 4
     }
 
     private val _listState = MutableStateFlow(JournalListUiState())
@@ -128,49 +121,25 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         viewModelScope.launch {
-            repository.observeNotes().collect { notes ->
-                val today = LocalDate.now(ReminderZone)
-                val feedbackDoneToday = notes.any { note ->
-                    note.noteType == JournalNoteType.Feedback.storageValue &&
-                        Instant.ofEpochMilli(note.createdAtMillis)
-                            .atZone(ReminderZone)
-                            .toLocalDate() == today
+            playStoreRatingPromptDataSource
+                .state
+                .collect { promptState ->
+                    _listState.update { current ->
+                        current.copy(
+                            playStoreRatingPrompt =
+                                promptState,
+                        )
+                    }
                 }
-                _listState.update { it.copy(notes = notes, feedbackDoneToday = feedbackDoneToday) }
-            }
         }
         viewModelScope.launch {
-            repository
-                .observeLatestNoteBySource(FeedbackNotificationSource)
-                .collectLatest { note ->
-                    val feedback = note?.toSavedNotificationFeedbackUiState()
-                    val remainingMillis =
-                        feedback?.expiresAtMillis?.minus(System.currentTimeMillis()) ?: 0L
-
-                    if (feedback == null || remainingMillis <= 0L) {
-                        _listState.update {
-                            it.copy(savedNotificationFeedback = null)
-                        }
-                        return@collectLatest
-                    }
-
-                    _listState.update {
-                        it.copy(savedNotificationFeedback = feedback)
-                    }
-
-                    delay(remainingMillis)
-
-                    _listState.update { current ->
-                        if (
-                            current.savedNotificationFeedback?.noteId ==
-                            feedback.noteId
-                        ) {
-                            current.copy(savedNotificationFeedback = null)
-                        } else {
-                            current
-                        }
-                    }
+            repository.observeNotes().collect { notes ->
+                _listState.update {
+                    it.copy(
+                        notes = notes,
+                    )
                 }
+            }
         }
         viewModelScope.launch {
             val startupNowMillis =
@@ -242,19 +211,33 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun startNew(type: JournalNoteType) {
+    fun startNew(
+        type: JournalNoteType,
+    ) {
         activeEditorNoteId = 0L
         editorLoadJob?.cancel()
         checklistLoadJob?.cancel()
-        _editorState.value = JournalEditorUiState(
-            type = type,
-            titleDraft = "",
-            bodyDraft = "",
-            sketchDraft = "",
-            checklistItems = if (type == JournalNoteType.Checklist) listOf(newBlankChecklistItem()) else emptyList(),
-            hasLoaded = true,
-            noteLimitReached = false,
-        )
+
+        _editorState.value =
+            JournalEditorUiState(
+                type = type,
+                titleDraft = "",
+                bodyDraft = "",
+                sketchDraft = "",
+                checklistItems =
+                    if (
+                        type ==
+                        JournalNoteType.Checklist
+                    ) {
+                        listOf(
+                            newBlankChecklistItem(),
+                        )
+                    } else {
+                        emptyList()
+                    },
+                hasLoaded = true,
+                noteLimitReached = false,
+            )
     }
 
     fun loadExisting(noteId: Long) {
@@ -475,18 +458,14 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
             // A newly created note with real content earns level points once.
             // Re-saving an existing note does not, since by then noteId is no longer
             // 0, so the reward cannot be farmed by saving the same note repeatedly.
-            if (isNewNote && hasMeaningfulContent && current.type != JournalNoteType.Feedback) {
-                taskRewardRepository.awardLevelPoints(NoteCreationLevelPoints)
-            }
-            // The first feedback note of the day, with something written, earns a
-            // small Level Points reward. The award is capped to once per day in the
-            // reward store, and feedback notes are limited to one per day, so it
-            // cannot be farmed.
-            if (isNewNote &&
-                current.type == JournalNoteType.Feedback &&
-                current.bodyDraft.isNotBlank()
+            if (
+                isNewNote &&
+                hasMeaningfulContent
             ) {
-                taskRewardRepository.awardNoteCreationPointsIfNewDay(FeedbackNoteLevelPoints)
+                taskRewardRepository
+                    .awardLevelPoints(
+                        NoteCreationLevelPoints,
+                    )
             }
             activeEditorNoteId = savedId
             _editorState.update {
@@ -556,9 +535,39 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
                         FeedbackAnswerReceiver
                             .FeedbackAnswerPoints,
                     )
+
+                NotificationManagerCompat
+                    .from(
+                        getApplication<Application>(),
+                    )
+                    .cancel(
+                        FeedbackAnswerReceiver
+                            .FeedbackNotificationId,
+                    )
             } finally {
                 onComplete()
             }
+        }
+    }
+
+    fun showPlayStoreRatingPromptLater() {
+        viewModelScope.launch {
+            playStoreRatingPromptDataSource
+                .showLater()
+        }
+    }
+
+    fun neverShowPlayStoreRatingPromptAgain() {
+        viewModelScope.launch {
+            playStoreRatingPromptDataSource
+                .neverShowAgain()
+        }
+    }
+
+    fun markPlayStoreRatingOpened() {
+        viewModelScope.launch {
+            playStoreRatingPromptDataSource
+                .markRatedOnPlayStore()
         }
     }
 
@@ -574,6 +583,18 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
     fun deleteNote(noteId: Long, onDeleted: () -> Unit = {}) {
         viewModelScope.launch {
             repository.deleteNote(noteId)
+            onDeleted()
+        }
+    }
+
+    fun deleteNotes(noteIds: List<Long>, onDeleted: () -> Unit = {}) {
+        if (noteIds.isEmpty()) {
+            onDeleted()
+            return
+        }
+
+        viewModelScope.launch {
+            repository.deleteNotes(noteIds)
             onDeleted()
         }
     }
@@ -716,31 +737,6 @@ private fun pendingBadgeText(
     }
 }
 
-private fun JournalNoteEntity.toSavedNotificationFeedbackUiState():
-    SavedNotificationFeedbackUiState? {
-    if (source != FeedbackNotificationSource) return null
-
-    val lines = body.lines()
-    val question = lines.firstOrNull()?.trim().orEmpty()
-    val selectedAnswer = lines
-        .drop(1)
-        .joinToString("\n")
-        .trim()
-
-    if (question.isBlank() || selectedAnswer.isBlank()) {
-        return null
-    }
-
-    return SavedNotificationFeedbackUiState(
-        noteId = id,
-        question = question,
-        selectedAnswer = selectedAnswer,
-        savedAtMillis = createdAtMillis,
-        expiresAtMillis =
-            createdAtMillis + FeedbackNotificationRetentionMillis,
-    )
-}
-
 private fun JournalNoteEntity.toEditorState(checklistItems: List<ChecklistDraftItem>): JournalEditorUiState {
     return JournalEditorUiState(
         noteId = id,
@@ -765,7 +761,6 @@ private fun JournalNoteType.defaultTitle(): String = when (this) {
     JournalNoteType.Checklist -> "New list"
     JournalNoteType.Sketch -> "New drawing"
     JournalNoteType.Reminder -> "New reminder"
-    JournalNoteType.Feedback -> "Today's feedback"
 }
 
 private fun List<ChecklistDraftItem>.sortedForDisplay(): List<ChecklistDraftItem> {

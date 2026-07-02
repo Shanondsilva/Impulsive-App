@@ -111,7 +111,7 @@ private fun DailyRelapseCountWheelPicker(
     val values = remember { (1..10).toList() }
     val rowHeight = 54.dp
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = selectedCount.coerceIn(1, 10) - 1)
-    val haptics = rememberImpulsiveHaptics(enabled = true)
+    val haptics = rememberImpulsiveHaptics()
     var lastHapticCount by remember { mutableStateOf(selectedCount.coerceIn(1, 10)) }
     val centeredIndex by remember {
         derivedStateOf {

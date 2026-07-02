@@ -16,6 +16,8 @@ fragment = "1.8.5"
 lifecycle = "2.8.7"
 navigation = "2.8.6"
 room = "2.7.2"
+sqlcipher = "4.16.0"
+sqlite = "2.6.2"
 work = "2.10.0"
 credentials = "1.3.0"
 splashscreen = "1.0.1"
@@ -43,7 +45,6 @@ junit = "4.13.2"
 androidxJunit = "1.2.1"
 androidxRunner = "1.6.2"
 # 3D
-sceneview = "4.17.0"
 
 [libraries]
 # AndroidX
@@ -60,9 +61,10 @@ androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
+androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "sqlite" }
+sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 # 3D
-sceneview = { module = "io.github.sceneview:sceneview", version.ref = "sceneview" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
@@ -85,6 +87,8 @@ firebase-auth = { module = "com.google.firebase:firebase-auth" }
 firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
 firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
 firebase-functions = { module = "com.google.firebase:firebase-functions" }
+firebase-appcheck-playintegrity = { module = "com.google.firebase:firebase-appcheck-playintegrity" }
+firebase-appcheck-debug = { module = "com.google.firebase:firebase-appcheck-debug" }
 
 # Billing
 billing-ktx = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }

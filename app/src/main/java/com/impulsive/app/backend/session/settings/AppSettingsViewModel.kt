@@ -1,6 +1,7 @@
 package com.impulsive.app.backend.session.settings
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.UserDataExporter
@@ -55,10 +56,21 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun exportData(onReady: (android.net.Uri) -> Unit) {
+    fun exportData(destinationUri: Uri, onComplete: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            val uri = runCatching { UserDataExporter(getApplication()).writeExportFile() }.getOrNull()
-            if (uri != null) onReady(uri)
+            val success = runCatching {
+                UserDataExporter(getApplication()).writeExportToUri(destinationUri)
+            }.getOrDefault(false)
+
+            onComplete(success)
+        }
+    }
+
+    fun cleanupLegacyExportFiles() {
+        viewModelScope.launch {
+            runCatching {
+                UserDataExporter(getApplication()).deleteLegacyTemporaryExportFiles()
+            }
         }
     }
 }

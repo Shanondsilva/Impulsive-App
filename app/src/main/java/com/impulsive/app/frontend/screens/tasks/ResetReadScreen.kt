@@ -1,12 +1,17 @@
 package com.impulsive.app.frontend.screens.tasks
 
 import android.net.Uri
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.Canvas
@@ -64,6 +69,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.airbnb.lottie.compose.LottieAnimation
@@ -94,6 +100,7 @@ import com.impulsive.app.frontend.theme.ImpulsiveSurface
 import com.impulsive.app.frontend.theme.ImpulsiveText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import java.io.ByteArrayInputStream
 import java.time.LocalDateTime
 
 @Composable
@@ -110,6 +117,11 @@ fun ResetReadScreen(
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
+    var isScreenResumed by remember(lifecycleOwner) {
+        mutableStateOf(
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED),
+        )
+    }
     var rewardLogged by remember { mutableStateOf(false) }
     LaunchedEffect(launchMode) {
         resetReadViewModel.configureLaunchMode(launchMode)
@@ -149,6 +161,8 @@ fun ResetReadScreen(
     }
 
     fun exitSafely() {
+        isScreenResumed = false
+        resetReadViewModel.pause()
         if (uiState.validCompletion) {
             taskRewardViewModel.clearLastCompletionResult()
         } else if (uiState.article != null) {
@@ -168,8 +182,18 @@ fun ResetReadScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> resetReadViewModel.resume()
-                Lifecycle.Event.ON_STOP -> resetReadViewModel.pause()
+                Lifecycle.Event.ON_RESUME -> {
+                    isScreenResumed = true
+                    resetReadViewModel.resume()
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    isScreenResumed = false
+                    resetReadViewModel.pause()
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    isScreenResumed = false
+                    resetReadViewModel.pause()
+                }
                 else -> Unit
             }
         }
@@ -187,7 +211,7 @@ fun ResetReadScreen(
 
     LaunchedEffect(uiState.phase, uiState.article?.id) {
         while (isActive && uiState.phase == ResetReadPhase.Reading && uiState.article != null) {
-            withFrameMillis { }
+            delay(50L)
             resetReadViewModel.tick()
         }
     }
@@ -210,6 +234,7 @@ fun ResetReadScreen(
                 ResetReadPhase.Reading -> ReadingView(
                     article = article,
                     uiState = uiState,
+                    isScreenResumed = isScreenResumed,
                     onReachedEnd = resetReadViewModel::markReachedEnd,
                     onScrollProgress = resetReadViewModel::updateScrollProgress,
                     onOpenQuestion = resetReadViewModel::openQuestion,
@@ -255,6 +280,7 @@ private fun ReaderHeader(onExit: () -> Unit) {
 private fun ReadingView(
     article: ResetReadArticle,
     uiState: ResetReadUiState,
+    isScreenResumed: Boolean,
     onReachedEnd: () -> Unit,
     onScrollProgress: (Float) -> Unit,
     onOpenQuestion: () -> Unit,
@@ -274,6 +300,7 @@ private fun ReadingView(
         } else {
             NativeArticleView(
                 article = article,
+                isScreenResumed = isScreenResumed,
                 onReachedEnd = onReachedEnd,
                 onScrollProgress = onScrollProgress,
                 modifier = Modifier.weight(1f),
@@ -354,6 +381,7 @@ private fun ReadProgressPanel(uiState: ResetReadUiState) {
 @Composable
 private fun NativeArticleView(
     article: ResetReadArticle,
+    isScreenResumed: Boolean,
     onReachedEnd: () -> Unit,
     onScrollProgress: (Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -431,11 +459,13 @@ private fun NativeArticleView(
                         assetFileName = block.assetFileName,
                         title = block.title,
                         caption = block.caption,
+                        isScreenResumed = isScreenResumed,
                     )
                     is ArticleBlock.Lottie -> InlineArticleLottie(
                         rawResName = block.rawResName,
                         title = block.title,
                         caption = block.caption,
+                        isScreenResumed = isScreenResumed,
                     )
                 }
                 if (index != article.blocks.lastIndex) {
@@ -495,10 +525,12 @@ private fun InlineArticleImage(
 }
 
 @Composable
+@OptIn(UnstableApi::class)
 private fun InlineArticleVideo(
     assetFileName: String,
     title: String,
     caption: String? = null,
+    isScreenResumed: Boolean,
 ) {
     val context = LocalContext.current
     val safeAssetFileName = remember(assetFileName) {
@@ -515,13 +547,25 @@ private fun InlineArticleVideo(
             setMediaItem(MediaItem.fromUri(mediaUri))
             volume = 0f
             repeatMode = Player.REPEAT_MODE_ONE
-            playWhenReady = true
+            playWhenReady = false
             prepare()
+        }
+    }
+
+    LaunchedEffect(exoPlayer, isScreenResumed) {
+        if (isScreenResumed) {
+            exoPlayer.playWhenReady = true
+            exoPlayer.play()
+        } else {
+            exoPlayer.pause()
+            exoPlayer.clearVideoSurface()
         }
     }
 
     DisposableEffect(exoPlayer) {
         onDispose {
+            exoPlayer.pause()
+            exoPlayer.clearVideoSurface()
             exoPlayer.release()
         }
     }
@@ -549,13 +593,27 @@ private fun InlineArticleVideo(
             AndroidView(
                 factory = { viewContext ->
                     PlayerView(viewContext).apply {
-                        player = exoPlayer
+                        player = if (isScreenResumed) exoPlayer else null
                         useController = false
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                        setEnableComposeSurfaceSyncWorkaround(true)
                     }
                 },
                 update = { playerView ->
-                    playerView.player = exoPlayer
+                    if (isScreenResumed) {
+                        playerView.player = exoPlayer
+                        exoPlayer.playWhenReady = true
+                        exoPlayer.play()
+                    } else {
+                        exoPlayer.pause()
+                        playerView.player = null
+                        exoPlayer.clearVideoSurface()
+                    }
+                },
+                onRelease = { playerView ->
+                    exoPlayer.pause()
+                    playerView.player = null
+                    exoPlayer.clearVideoSurface()
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -580,6 +638,7 @@ private fun InlineArticleLottie(
     rawResName: String,
     title: String,
     caption: String? = null,
+    isScreenResumed: Boolean,
 ) {
     val context = LocalContext.current
     val safeRawResName = remember(rawResName) {
@@ -625,6 +684,8 @@ private fun InlineArticleLottie(
                 )
                 val progress by animateLottieCompositionAsState(
                     composition = composition,
+                    isPlaying = isScreenResumed,
+                    restartOnPlay = false,
                     iterations = LottieConstants.IterateForever,
                 )
 
@@ -942,25 +1003,58 @@ private fun RemoteArticleView(
     onReadConfirmed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val trustedArticleUri = remember(articleUrl) {
+        runCatching { Uri.parse(articleUrl) }
+            .getOrNull()
+            ?.takeIf(::isTrustedResetReadArticleUri)
+    }
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AndroidView(
-            factory = { context ->
-                WebView(context).apply {
-                    webViewClient = WebViewClient()
-                    settings.javaScriptEnabled = false
-                    loadUrl(articleUrl)
+        if (trustedArticleUri == null) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(28.dp),
+                tonalElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "This reading is unavailable.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                    )
                 }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .clip(RoundedCornerShape(28.dp)),
-        )
+            }
+        } else {
+            AndroidView(
+                factory = { context ->
+                    WebView(context).apply {
+                        configureResetReadWebView()
+                        webViewClient = ResetReadWebViewClient()
+                        loadUrl(trustedArticleUri.toString())
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(28.dp)),
+            )
+        }
+
         Button(
             onClick = onReadConfirmed,
+            enabled = trustedArticleUri != null,
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -973,6 +1067,57 @@ private fun RemoteArticleView(
             Text("I've read it")
         }
     }
+}
+
+private const val ResetReadTrustedArticleHost = "useimpulsive.com"
+
+private fun WebView.configureResetReadWebView() {
+    settings.javaScriptEnabled = false
+    settings.domStorageEnabled = false
+    settings.databaseEnabled = false
+    settings.allowFileAccess = false
+    settings.allowContentAccess = false
+    settings.allowFileAccessFromFileURLs = false
+    settings.allowUniversalAccessFromFileURLs = false
+    settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+    settings.setSupportMultipleWindows(false)
+    settings.javaScriptCanOpenWindowsAutomatically = false
+
+    isSaveEnabled = false
+    isHapticFeedbackEnabled = false
+}
+
+private class ResetReadWebViewClient : WebViewClient() {
+    override fun shouldOverrideUrlLoading(
+        view: WebView,
+        request: WebResourceRequest,
+    ): Boolean {
+        return !isTrustedResetReadArticleUri(request.url)
+    }
+
+    override fun shouldInterceptRequest(
+        view: WebView,
+        request: WebResourceRequest,
+    ): WebResourceResponse? {
+        return if (isTrustedResetReadArticleUri(request.url)) {
+            super.shouldInterceptRequest(view, request)
+        } else {
+            emptyBlockedWebResponse()
+        }
+    }
+}
+
+private fun isTrustedResetReadArticleUri(uri: Uri): Boolean {
+    return uri.scheme.equals("https", ignoreCase = true) &&
+        uri.host.equals(ResetReadTrustedArticleHost, ignoreCase = true)
+}
+
+private fun emptyBlockedWebResponse(): WebResourceResponse {
+    return WebResourceResponse(
+        "text/plain",
+        "utf-8",
+        ByteArrayInputStream(ByteArray(0)),
+    )
 }
 
 @Composable
@@ -1021,7 +1166,11 @@ private fun ClosingQuestion(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(76.dp)
-                    .clickable { onSelectAnswer(index) },
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onSelectAnswer(index) },
+                    ),
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 18.dp),
@@ -1195,12 +1344,21 @@ private fun ResetReadHelpfulnessRating(
                 }
             }
 
-            Text(
-                text = "1 = not helpful   5 = very helpful",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "1 = not helpful",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Text(
+                    text = "5 = very helpful",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
     }
 }

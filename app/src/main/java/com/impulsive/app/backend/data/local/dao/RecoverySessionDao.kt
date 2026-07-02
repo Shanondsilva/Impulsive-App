@@ -36,4 +36,7 @@ interface RecoverySessionDao {
 
     @Query("SELECT * FROM recovery_sessions ORDER BY completedAt DESC")
     suspend fun getAllSessions(): List<RecoverySessionEntity>
+
+    @Query("DELETE FROM recovery_sessions WHERE startedAt = :startedAt AND completedAt = :completedAt")
+    suspend fun deleteByContentKey(startedAt: Long, completedAt: Long): Int
 }
