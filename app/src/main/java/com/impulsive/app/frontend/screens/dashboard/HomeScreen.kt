@@ -1,7 +1,5 @@
 package com.impulsive.app.frontend.screens.dashboard
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -105,17 +103,23 @@ import com.impulsive.app.frontend.theme.ImpulsivePsychologicalDark
 import com.impulsive.app.frontend.theme.ImpulsiveSpiritual
 import com.impulsive.app.frontend.theme.ImpulsiveText
 import com.impulsive.app.frontend.theme.ImpulsiveTextDark
+import java.text.BreakIterator
 import java.time.Duration
 import java.time.LocalDateTime
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 private const val DAY_COUNT = 1
 
 private val HomeLavenderGlow = Color(0xFFD0C3F1)
-private val HomeShowcaseSmallCardMinHeight = 184.dp
-private val HomeShowcaseTitleSlotHeight = 48.dp
+private val HomeShowcaseSmallCardHeight = 190.dp
+private val HomeShowcaseTitleSlotHeight = 50.dp
 private val HomeShowcaseSubtitleSlotHeight = 22.dp
-private const val HOME_SHOWCASE_FADE_MS = 140
+private const val HOME_SHOWCASE_ROTATION_DELAY_MS = 3800L
+private const val HOME_SHOWCASE_TYPE_START_GAP_MS = 70L
+private const val HOME_SHOWCASE_TITLE_TYPE_DURATION_MS = 820L
+private const val HOME_SHOWCASE_SUBTITLE_TYPE_DURATION_MS = 500L
+private const val HOME_SHOWCASE_SUBTITLE_START_DELAY_MS = 210L
 private val HomeGreenGlow = Color(0xFFD0C3F1)
 private val HomeYellowGlow = Color(0xFFFEF1AB)
 private data class HomeReadablePalette(
@@ -1470,6 +1474,64 @@ private fun WebsiteProtectionStatusHomeCard(
     }
 }
 
+private fun revealFramesForText(text: String): List<String> {
+    if (text.isEmpty()) return emptyList()
+
+    val iterator = BreakIterator.getCharacterInstance(Locale.getDefault())
+    iterator.setText(text)
+
+    val frames = mutableListOf<String>()
+    var end = iterator.next()
+
+    while (end != BreakIterator.DONE) {
+        frames.add(text.substring(0, end))
+        end = iterator.next()
+    }
+
+    return frames.ifEmpty { listOf(text) }
+}
+
+@Composable
+private fun HomeShowcaseTypingTextTransition(
+    targetText: String,
+    modifier: Modifier,
+    startDelayMs: Long,
+    totalTypeDurationMs: Long,
+    content: @Composable (String) -> Unit,
+) {
+    var shownText by remember { mutableStateOf("") }
+
+    LaunchedEffect(targetText) {
+        val frames = revealFramesForText(targetText)
+
+        shownText = ""
+        delay(startDelayMs)
+
+        if (frames.isEmpty()) {
+            shownText = targetText
+            return@LaunchedEffect
+        }
+
+        val stepDelayMs =
+            (totalTypeDurationMs / frames.size)
+                .coerceIn(38L, 115L)
+
+        frames.forEach { frame ->
+            shownText = frame
+            delay(stepDelayMs)
+        }
+
+        shownText = targetText
+    }
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.TopStart,
+    ) {
+        content(shownText)
+    }
+}
+
 @Composable
 private fun SmallActionCard(
     modifier: Modifier,
@@ -1496,7 +1558,7 @@ private fun SmallActionCard(
         LaunchedEffect(animatedTitles, animatedSubtitles) {
             showcaseIndex = 0
             while (true) {
-                delay(2800)
+                delay(HOME_SHOWCASE_ROTATION_DELAY_MS)
                 showcaseIndex = (showcaseIndex + 1) % showcaseCount
             }
         }
@@ -1516,7 +1578,7 @@ private fun SmallActionCard(
 
     val stableCardHeightModifier =
         if (hasShowcase) {
-            Modifier.heightIn(min = HomeShowcaseSmallCardMinHeight)
+            Modifier.height(HomeShowcaseSmallCardHeight)
         } else {
             Modifier.heightIn(min = 138.dp)
         }
@@ -1580,10 +1642,11 @@ private fun SmallActionCard(
                         .height(HomeShowcaseTitleSlotHeight),
                     contentAlignment = Alignment.TopStart,
                 ) {
-                    Crossfade(
-                        targetState = currentTitle,
-                        animationSpec = tween(durationMillis = HOME_SHOWCASE_FADE_MS),
-                        label = "homeCardTitle",
+                    HomeShowcaseTypingTextTransition(
+                        targetText = currentTitle,
+                        modifier = Modifier.fillMaxSize(),
+                        startDelayMs = HOME_SHOWCASE_TYPE_START_GAP_MS,
+                        totalTypeDurationMs = HOME_SHOWCASE_TITLE_TYPE_DURATION_MS,
                     ) { line ->
                         Text(
                             text = line,
@@ -1615,10 +1678,11 @@ private fun SmallActionCard(
                         .height(HomeShowcaseSubtitleSlotHeight),
                     contentAlignment = Alignment.TopStart,
                 ) {
-                    Crossfade(
-                        targetState = currentSubtitle,
-                        animationSpec = tween(durationMillis = HOME_SHOWCASE_FADE_MS),
-                        label = "homeCardSubtitle",
+                    HomeShowcaseTypingTextTransition(
+                        targetText = currentSubtitle,
+                        modifier = Modifier.fillMaxSize(),
+                        startDelayMs = HOME_SHOWCASE_SUBTITLE_START_DELAY_MS,
+                        totalTypeDurationMs = HOME_SHOWCASE_SUBTITLE_TYPE_DURATION_MS,
                     ) { line ->
                         Text(
                             text = line,
