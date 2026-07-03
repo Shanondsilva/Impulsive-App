@@ -1,7 +1,7 @@
 package com.impulsive.app.frontend.screens.dashboard
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -11,11 +11,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -114,6 +112,10 @@ import kotlinx.coroutines.delay
 private const val DAY_COUNT = 1
 
 private val HomeLavenderGlow = Color(0xFFD0C3F1)
+private val HomeShowcaseSmallCardMinHeight = 184.dp
+private val HomeShowcaseTitleSlotHeight = 48.dp
+private val HomeShowcaseSubtitleSlotHeight = 22.dp
+private const val HOME_SHOWCASE_FADE_MS = 140
 private val HomeGreenGlow = Color(0xFFD0C3F1)
 private val HomeYellowGlow = Color(0xFFFEF1AB)
 private data class HomeReadablePalette(
@@ -1082,15 +1084,12 @@ private fun DashboardCards(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             SmallActionCard(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -1125,9 +1124,7 @@ private fun DashboardCards(
             )
 
             DiagonalNotesCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
+                modifier = Modifier.weight(1f),
                 onOpenJournal = onOpenJournal,
                 palette = palette,
             )
@@ -1491,6 +1488,38 @@ private fun SmallActionCard(
         MaterialTheme.colorScheme.surface else palette.cardSurface
     val isDark = palette.cardSurface != Color.Unspecified
     val cardShape = RoundedCornerShape(24.dp)
+    val hasShowcase = !animatedTitles.isNullOrEmpty() || !animatedSubtitles.isNullOrEmpty()
+    val showcaseCount = maxOf(animatedTitles?.size ?: 0, animatedSubtitles?.size ?: 0)
+    var showcaseIndex by remember { mutableIntStateOf(0) }
+
+    if (hasShowcase && showcaseCount > 0) {
+        LaunchedEffect(animatedTitles, animatedSubtitles) {
+            showcaseIndex = 0
+            while (true) {
+                delay(2800)
+                showcaseIndex = (showcaseIndex + 1) % showcaseCount
+            }
+        }
+    }
+
+    val currentTitle =
+        animatedTitles
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { titles -> titles[showcaseIndex % titles.size] }
+            ?: title
+
+    val currentSubtitle =
+        animatedSubtitles
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { subtitles -> subtitles[showcaseIndex % subtitles.size] }
+            ?: subtext
+
+    val stableCardHeightModifier =
+        if (hasShowcase) {
+            Modifier.heightIn(min = HomeShowcaseSmallCardMinHeight)
+        } else {
+            Modifier.heightIn(min = 138.dp)
+        }
 
     Surface(
         color = surfaceColor,
@@ -1501,7 +1530,7 @@ private fun SmallActionCard(
             fallbackColor = palette.subtleBorder,
         ),
         modifier = modifier
-            .heightIn(min = 138.dp)
+            .then(stableCardHeightModifier)
             .shadow(
                 elevation = 6.dp,
                 shape = cardShape,
@@ -1531,7 +1560,9 @@ private fun SmallActionCard(
                 ) {
                     icon()
                 }
+
                 Spacer(modifier = Modifier.width(10.dp))
+
                 Text(
                     text = label,
                     color = palette.mutedText,
@@ -1542,115 +1573,69 @@ private fun SmallActionCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            val hasShowcase = !animatedTitles.isNullOrEmpty() || !animatedSubtitles.isNullOrEmpty()
-            var showcaseIndex by remember { mutableIntStateOf(0) }
             if (hasShowcase) {
-                LaunchedEffect(animatedTitles, animatedSubtitles) {
-                    while (true) {
-                        delay(2800)
-                        val count = maxOf(animatedTitles?.size ?: 1, animatedSubtitles?.size ?: 1)
-                        showcaseIndex = (showcaseIndex + 1) % count
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(HomeShowcaseTitleSlotHeight),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    Crossfade(
+                        targetState = currentTitle,
+                        animationSpec = tween(durationMillis = HOME_SHOWCASE_FADE_MS),
+                        label = "homeCardTitle",
+                    ) { line ->
+                        Text(
+                            text = line,
+                            color = palette.primaryText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
-            }
-
-            if (animatedTitles.isNullOrEmpty()) {
+            } else {
                 Text(
                     text = title,
                     color = palette.primaryText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
-            } else {
-                androidx.compose.animation.AnimatedContent(
-                    targetState =
-                        animatedTitles[
-                            showcaseIndex %
-                                animatedTitles.size
-                        ],
-                    modifier =
-                        Modifier.fillMaxWidth(),
-                    contentAlignment =
-                        Alignment.TopStart,
-                    transitionSpec = {
-                        androidx.compose.animation
-                            .fadeIn(
-                                animationSpec =
-                                    tween(600),
-                            ) togetherWith
-                            androidx.compose.animation
-                                .fadeOut(
-                                    animationSpec =
-                                        tween(600),
-                                )
-                    },
-                    label = "homeCardTitle",
-                ) { line ->
-                    Text(
-                        text = line,
-                        color = palette.primaryText,
-                        style =
-                            MaterialTheme
-                                .typography
-                                .titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier =
-                            Modifier.fillMaxWidth(),
-                        minLines = 2,
-                        maxLines = 2,
-                        overflow =
-                            TextOverflow.Ellipsis,
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            if (animatedSubtitles.isNullOrEmpty()) {
+            if (hasShowcase) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(HomeShowcaseSubtitleSlotHeight),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    Crossfade(
+                        targetState = currentSubtitle,
+                        animationSpec = tween(durationMillis = HOME_SHOWCASE_FADE_MS),
+                        label = "homeCardSubtitle",
+                    ) { line ->
+                        Text(
+                            text = line,
+                            color = palette.mutedText,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            } else {
                 Text(
                     text = subtext,
                     color = palette.mutedText,
                     style = MaterialTheme.typography.bodySmall,
                 )
-            } else {
-                androidx.compose.animation.AnimatedContent(
-                    targetState =
-                        animatedSubtitles[
-                            showcaseIndex %
-                                animatedSubtitles.size
-                        ],
-                    modifier =
-                        Modifier.fillMaxWidth(),
-                    contentAlignment =
-                        Alignment.TopStart,
-                    transitionSpec = {
-                        androidx.compose.animation
-                            .fadeIn(
-                                animationSpec =
-                                    tween(600),
-                            ) togetherWith
-                            androidx.compose.animation
-                                .fadeOut(
-                                    animationSpec =
-                                        tween(600),
-                                )
-                    },
-                    label = "homeCardSubtitle",
-                ) { line ->
-                    Text(
-                        text = line,
-                        color = palette.mutedText,
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodySmall,
-                        modifier =
-                            Modifier.fillMaxWidth(),
-                        maxLines = 1,
-                        overflow =
-                            TextOverflow.Ellipsis,
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
