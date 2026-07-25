@@ -1,5 +1,8 @@
 package com.impulsive.app.backend.data.restore.cloud
 
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+
 import kotlinx.coroutines.CancellationException
 
 internal enum class CloudRecoveryTransportKind {
@@ -126,3 +129,45 @@ private object DriveFileNotFoundException : IllegalStateException()
 private fun String?.requireDriveAccessToken(): String =
     this?.takeIf(String::isNotBlank)
         ?: throw IllegalStateException("Drive transport requires an access token.")
+internal class DefaultCloudRecoveryTransportProvider :
+    CloudRecoveryUploadTransportProvider {
+    private val driveTransport by lazy {
+        DriveCloudRecoveryTransport()
+    }
+
+    private val firebaseStorageTransport by lazy {
+        FirebaseStorageCloudRecoveryTransport()
+    }
+
+    override fun transportFor(
+        kind: CloudRecoveryTransportKind,
+    ): CloudRecoveryTransport =
+        when (kind) {
+            CloudRecoveryTransportKind.DriveAppData ->
+                driveTransport
+
+            CloudRecoveryTransportKind.FirebaseStorage ->
+                firebaseStorageTransport
+        }
+}
+internal fun currentCloudRecoveryTransportRequiresDriveAuthorization(): Boolean {
+    val user =
+        FirebaseAuth
+            .getInstance()
+            .currentUser
+            ?: return false
+
+    if (user.isAnonymous) {
+        return false
+    }
+
+    return DefaultCloudRecoveryTransportProvider()
+        .transportFor(
+            cloudRecoveryTransportKind(
+                user.providerData.any { info ->
+                    info.providerId == GoogleAuthProvider.PROVIDER_ID
+                },
+            ),
+        )
+        .requiresDriveAuthorization
+}

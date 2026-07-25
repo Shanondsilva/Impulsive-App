@@ -2,6 +2,7 @@ package com.impulsive.app.backend.data.restore.cloud
 
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.impulsive.app.backend.data.account.resolveGoogleAccountIdentity
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryPreferencesDataSource
 import com.impulsive.app.backend.data.restore.RestoreBundleImporter
@@ -17,8 +18,8 @@ public class CloudRecoveryRestoreCoordinator(
     private val appContext =
         context.applicationContext
 
-    private val driveClient =
-        DriveAppDataClient()
+    private val transportProvider =
+        DefaultCloudRecoveryTransportProvider()
 
     private val crypto =
         CloudRecoveryCrypto()
@@ -43,8 +44,30 @@ public class CloudRecoveryRestoreCoordinator(
             appContext,
         )
 
+    public fun requiresDriveAuthorization(): Boolean {
+        val user =
+            FirebaseAuth
+                .getInstance()
+                .currentUser
+                ?: return false
+
+        if (user.isAnonymous) {
+            return false
+        }
+
+        return transportProvider
+            .transportFor(
+                cloudRecoveryTransportKind(
+                    user.providerData.any { info ->
+                        info.providerId == GoogleAuthProvider.PROVIDER_ID
+                    },
+                ),
+            )
+            .requiresDriveAuthorization
+    }
+
     public suspend fun discover(
-        accessToken: String,
+        driveAccessToken: String?,
     ): CloudRecoveryRestoreDiscovery {
         return try {
             val user =
@@ -61,41 +84,40 @@ public class CloudRecoveryRestoreCoordinator(
                         .GuestNotSupported
             }
 
-            val files =
-                driveClient.findByName(
-                    accessToken =
-                        accessToken,
-
-                    fileName =
-                        CloudRecoveryDriveFileName,
-                )
-
-            if (
-                files.isEmpty()
+            when (
+                val outcome =
+                    downloadCloudRecoveryEnvelope(
+                        hasGoogleProvider =
+                            user.providerData.any { info ->
+                                info.providerId == GoogleAuthProvider.PROVIDER_ID
+                            },
+                        driveAccessToken = driveAccessToken,
+                        transportProvider = transportProvider,
+                    )
             ) {
-                return CloudRecoveryRestoreDiscovery
-                        .NoBackupFound
+                is CloudRecoveryTransportOutcome.Success ->
+                    CloudRecoveryRestoreDiscovery.Downloaded(
+                        bytes = outcome.value,
+                        requiresReplacementConfirmation =
+                            importer.hasExistingUserData(),
+                    )
+
+                CloudRecoveryTransportOutcome.NotFound ->
+                    CloudRecoveryRestoreDiscovery.NoBackupFound
+
+                CloudRecoveryTransportOutcome.AuthorizationRequired ->
+                    CloudRecoveryRestoreDiscovery.AuthorizationRequired
+
+                is CloudRecoveryTransportOutcome.RetryableFailure ->
+                    CloudRecoveryRestoreDiscovery.TemporarilyUnavailable
+
+                is CloudRecoveryTransportOutcome.PermanentFailure ->
+                    if (outcome.cause is IllegalArgumentException) {
+                        CloudRecoveryRestoreDiscovery.InvalidBackup
+                    } else {
+                        CloudRecoveryRestoreDiscovery.Failed
+                    }
             }
-
-            val bytes =
-                driveClient.download(
-                    accessToken =
-                        accessToken,
-
-                    fileId =
-                        files.first().id,
-
-                    maxBytes =
-                        CloudRecoveryMaxEnvelopeBytes,
-                )
-
-            CloudRecoveryRestoreDiscovery.Downloaded(
-                bytes =
-                    bytes,
-
-                requiresReplacementConfirmation =
-                    importer.hasExistingUserData(),
-            )
         } catch (
             cancellation:
                 CancellationException,
@@ -105,53 +127,44 @@ public class CloudRecoveryRestoreCoordinator(
             error:
                 DriveAppDataHttpException.Unauthorized,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .AuthorizationRequired
+            CloudRecoveryRestoreDiscovery.AuthorizationRequired
         } catch (
             error:
                 DriveAppDataHttpException.Forbidden,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .AuthorizationRequired
+            CloudRecoveryRestoreDiscovery.AuthorizationRequired
         } catch (
             error:
                 DriveAppDataHttpException.NotFound,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .NoBackupFound
+            CloudRecoveryRestoreDiscovery.NoBackupFound
         } catch (
             error:
                 DriveAppDataHttpException.RateLimited,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .TemporarilyUnavailable
+            CloudRecoveryRestoreDiscovery.TemporarilyUnavailable
         } catch (
             error:
                 DriveAppDataHttpException.RetryableServerError,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .TemporarilyUnavailable
+            CloudRecoveryRestoreDiscovery.TemporarilyUnavailable
         } catch (
             error:
                 IOException,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .TemporarilyUnavailable
+            CloudRecoveryRestoreDiscovery.TemporarilyUnavailable
         } catch (
             error:
                 IllegalArgumentException,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .InvalidBackup
+            CloudRecoveryRestoreDiscovery.InvalidBackup
         } catch (
             error:
                 Throwable,
         ) {
-            CloudRecoveryRestoreDiscovery
-                .Failed
+            CloudRecoveryRestoreDiscovery.Failed
         }
     }
-
     public suspend fun restore(
         downloadedEnvelope: ByteArray,
         password: CharArray,
@@ -316,6 +329,41 @@ rawDek =
     }
 }
 
+internal suspend fun downloadCloudRecoveryEnvelope(
+    hasGoogleProvider: Boolean,
+    driveAccessToken: String?,
+    transportProvider: CloudRecoveryUploadTransportProvider,
+): CloudRecoveryTransportOutcome<ByteArray> {
+    val primaryTransport =
+        transportProvider.transportFor(
+            cloudRecoveryTransportKind(
+                hasGoogleProvider,
+            ),
+        )
+
+    val primaryOutcome =
+        primaryTransport.download(
+            if (primaryTransport.requiresDriveAuthorization) {
+                driveAccessToken
+            } else {
+                null
+            },
+        )
+
+    if (
+        hasGoogleProvider &&
+            primaryOutcome == CloudRecoveryTransportOutcome.NotFound
+    ) {
+        val storageTransport =
+            transportProvider.transportFor(
+                CloudRecoveryTransportKind.FirebaseStorage,
+            )
+
+        return storageTransport.download(null)
+    }
+
+    return primaryOutcome
+}
 internal interface CloudRecoveryRestoreKeyStore {
     fun store(rawDek: ByteArray)
     fun clear()

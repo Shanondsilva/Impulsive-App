@@ -71,7 +71,7 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                     context.applicationContext,
                 ),
             ),
-        transportProvider = DefaultCloudRecoveryUploadTransportProvider(),
+        transportProvider = DefaultCloudRecoveryTransportProvider(),
 
         envelopeEncryptor =
             CryptoCloudRecoveryUploadEnvelopeEncryptor(
@@ -251,7 +251,12 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                     val outcome = transport.upload(envelopeBytes, accessToken)
                 ) {
                     is CloudRecoveryTransportOutcome.Success -> Unit
-                    CloudRecoveryTransportOutcome.NotFound,
+                    CloudRecoveryTransportOutcome.NotFound ->
+                        return CloudRecoveryUploadResult.PermanentFailure(
+                            IllegalStateException(
+                                "Cloud recovery upload returned no matching backup.",
+                            ),
+                        )
                     CloudRecoveryTransportOutcome.AuthorizationRequired ->
                         return CloudRecoveryUploadResult.AuthorizationRequired
                     is CloudRecoveryTransportOutcome.RetryableFailure ->
@@ -583,25 +588,6 @@ private class IdentityCloudRecoveryUploadAuthorizationProvider(
         authorization.requestAuthorization()
 }
 
-private class DefaultCloudRecoveryUploadTransportProvider :
-    CloudRecoveryUploadTransportProvider {
-    private val driveTransport =
-        DriveCloudRecoveryTransport()
-
-    private val firebaseStorageTransport =
-        FirebaseStorageCloudRecoveryTransport()
-
-    override fun transportFor(
-        kind: CloudRecoveryTransportKind,
-    ): CloudRecoveryTransport =
-        when (kind) {
-            CloudRecoveryTransportKind.DriveAppData ->
-                driveTransport
-
-            CloudRecoveryTransportKind.FirebaseStorage ->
-                firebaseStorageTransport
-        }
-}
 private class CryptoCloudRecoveryUploadEnvelopeEncryptor(
     private val crypto:
         CloudRecoveryCrypto,

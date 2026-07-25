@@ -1872,7 +1872,7 @@ private fun CloudRestoreDialog(
 
     fun discover(
         accessToken:
-            String,
+            String?,
     ) {
         scope.launch {
             when (
@@ -1987,6 +1987,11 @@ private fun CloudRestoreDialog(
             TextButton(
                 onClick = {
                     scope.launch {
+                        if (!coordinator.requiresDriveAuthorization()) {
+                            discover(null)
+                            return@launch
+                        }
+
                         when (
                             val auth =
                                 authorization

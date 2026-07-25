@@ -141,6 +141,7 @@ import com.impulsive.app.backend.data.restore.cloud.DriveAppDataAuthorization
 import com.impulsive.app.backend.data.restore.cloud.DriveAuthorizationResult
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryDeletionCoordinator
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryDeletionResult
+import com.impulsive.app.backend.data.restore.cloud.currentCloudRecoveryTransportRequiresDriveAuthorization
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryUploadScheduler
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -416,7 +417,7 @@ fun SettingsScreen(
     }
 
     suspend fun deleteDriveRecoveryThenStartAccountDeletion(
-        accessToken: String,
+        accessToken: String?,
         currentActivity: Activity,
     ) {
         try {
@@ -535,6 +536,14 @@ fun SettingsScreen(
                  */
 
                 CloudRecoveryUploadScheduler.cancelAndAwait(context)
+
+                if (!cloudRecoveryDeletionCoordinator.requiresDriveAuthorization()) {
+                    deleteDriveRecoveryThenStartAccountDeletion(
+                        accessToken = null,
+                        currentActivity = currentActivity,
+                    )
+                    return@launch
+                }
 
                 when (
                     val authorizationResult =
@@ -893,6 +902,12 @@ fun SettingsScreen(
 
                                 backupScope.launch {
                                     try {
+                                        if (!currentCloudRecoveryTransportRequiresDriveAuthorization()) {
+                                            cloudRecoverySetupInProgress =
+                                                false
+
+                                            showCloudRecoveryPasswordDialog = true
+                                        } else {
                                         when (
                                             val result =
                                                 driveAppDataAuthorization
@@ -926,6 +941,7 @@ fun SettingsScreen(
                                                     result,
                                                 )
                                             }
+                                        }
                                         }
                                     } catch (
                                         cancellation:
