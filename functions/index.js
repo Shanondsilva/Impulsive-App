@@ -173,6 +173,8 @@ exports.eraseUserData = onCall(
 
       try {
         const deleted = await eraseFirestoreDataForUser(uid);
+        const cloudRecoveryFilesDeleted =
+          await eraseCloudRecoveryForUser(uid);
         let authUserDeleted = false;
 
         try {
@@ -196,11 +198,13 @@ exports.eraseUserData = onCall(
           syncTombstones: deleted.syncTombstones,
           playPurchaseTokens: deleted.playPurchaseTokens,
           userDocument: deleted.userDocument,
+          cloudRecoveryFilesDeleted,
         });
 
         return {
           success: true,
           deleted,
+          cloudRecoveryFilesDeleted,
           authUserDeleted,
         };
       } catch (error) {
@@ -362,7 +366,11 @@ exports.eraseUserByEmail = onRequest(
         } catch (error) {
           if (error && error.code === "auth/user-not-found") {
             // Idempotent + non-enumerating: report success even if no account.
-            res.status(200).json({success: true, deleted: false});
+            res.status(200).json({
+              success: true,
+              deleted: false,
+              cloudRecoveryFilesDeleted: 0,
+            });
             return;
           }
           throw error;
@@ -370,6 +378,8 @@ exports.eraseUserByEmail = onRequest(
 
         const uid = userRecord.uid;
         const deleted = await eraseFirestoreDataForUser(uid);
+        const cloudRecoveryFilesDeleted =
+          await eraseCloudRecoveryForUser(uid);
         try {
           await admin.auth().deleteUser(uid);
         } catch (error) {
@@ -378,8 +388,16 @@ exports.eraseUserByEmail = onRequest(
           }
         }
 
-        logger.info("User erased via website deletion.", {uid, deleted});
-        res.status(200).json({success: true, deleted: true});
+        logger.info("User erased via website deletion.", {
+          uid,
+          deleted,
+          cloudRecoveryFilesDeleted,
+        });
+        res.status(200).json({
+          success: true,
+          deleted: true,
+          cloudRecoveryFilesDeleted,
+        });
       } catch (error) {
         logger.error("eraseUserByEmail failed.", {
           message: error && error.message,
@@ -995,6 +1013,20 @@ async function eraseFirestoreDataForUser(uid) {
   await userRef.delete();
 
   return deleted;
+}
+
+
+/**
+ * Deletes Storage recovery files owned by one Firebase Auth user.
+ *
+ * @param {string} uid Firebase Authentication user ID.
+ * @return {Promise<number>} Deleted Storage object count.
+ */
+async function eraseCloudRecoveryForUser(uid) {
+  const prefix = `cloud_recovery/${uid}/`;
+  const [files] = await admin.storage().bucket().getFiles({prefix});
+  await Promise.all(files.map((file) => file.delete({ignoreNotFound: true})));
+  return files.length;
 }
 
 /**
