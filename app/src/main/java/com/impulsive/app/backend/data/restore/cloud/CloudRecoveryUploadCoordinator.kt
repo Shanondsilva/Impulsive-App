@@ -150,11 +150,7 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                 return CloudRecoveryUploadResult
                         .GuestNotApplicable
             }
-
             val googleSubjectHash = account.googleSubjectHash
-                ?: return CloudRecoveryUploadResult.PermanentFailure(
-                    IllegalStateException("Cloud recovery upload requires a linked Google identity."),
-                )
 
             val isCompleted =
                 ownerStateDataSource

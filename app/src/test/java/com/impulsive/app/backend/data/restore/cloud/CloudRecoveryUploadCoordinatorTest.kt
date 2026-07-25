@@ -12,7 +12,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CloudRecoveryUploadCoordinatorTest {
-    @Test
+        @Test
+    fun `account without Google subject hash reaches normal upload path`() =
+        runBlocking {
+            val authorization = RecordingAuthorizationProvider()
+
+            val result = coordinator(
+                account = CloudRecoveryUploadAccount(
+                    uid = "user-a",
+                    isAnonymous = false,
+                    googleSubjectHash = null,
+                ),
+                authorization = authorization,
+            ).uploadCurrentRecovery()
+
+            assertEquals(CloudRecoveryUploadResult.Uploaded, result)
+            assertEquals(1, authorization.requests)
+        }
+@Test
     fun `disabled cloud recovery does not inspect account keys or Drive`() =
         runBlocking {
             val keySource =
