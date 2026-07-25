@@ -127,14 +127,18 @@ internal fun buildCloudRecoveryEnvelopeJson(
 
 internal fun buildCloudRecoveryPayloadJson(
     ownerUid: String,
+    ownerGoogleSubjectHash: String?,
     payloadJson: String,
     createdAtMillis: Long,
 ): String = buildJsonObject(
-    "cloudPayloadVersion" to CloudRecoveryPayloadVersion,
-    "ownerUid" to ownerUid,
-    "schemaVersion" to CloudRecoverySchemaVersion,
-    "createdAtMillis" to createdAtMillis,
-    "payloadJson" to payloadJson,
+    *listOfNotNull(
+        "cloudPayloadVersion" to CloudRecoveryPayloadVersion,
+        "ownerUid" to ownerUid,
+        ownerGoogleSubjectHash?.let { hash -> "ownerGoogleSubjectHash" to hash },
+        "schemaVersion" to CloudRecoverySchemaVersion,
+        "createdAtMillis" to createdAtMillis,
+        "payloadJson" to payloadJson,
+    ).toTypedArray(),
 )
 
 internal fun parseCloudRecoveryEnvelope(bytes: ByteArray): CloudRecoveryEnvelopeParseResult {

@@ -218,6 +218,45 @@ class CloudRecoveryCryptoTest {
         assertArrayEquals(recovery.rawDek, recovery.wrappedKeyMetadata.let { recovery.rawDek })
     }
 
+    @Test
+    fun `google subject hash round trips in encrypted payload`() {
+        val hash = "a".repeat(64)
+        val recovery = crypto.createNewRecovery(
+            ownerUid = OwnerUid,
+            ownerGoogleSubjectHash = hash,
+            payloadJson = PayloadJson,
+            recoveryPassword = Password.copyOf(),
+        )
+
+        val result = crypto.decryptForRestore(recovery.envelopeBytes, Password.copyOf())
+
+        assertTrue(result is CloudRecoveryRestoreDecryptResult.Success)
+        assertEquals(hash, (result as CloudRecoveryRestoreDecryptResult.Success).restoredRecovery.recovery.ownerGoogleSubjectHash)
+    }
+
+    @Test
+    fun `null google subject hash is omitted and remains legacy compatible`() {
+        val payloadJson = buildCloudRecoveryPayloadJson(
+            ownerUid = OwnerUid,
+            ownerGoogleSubjectHash = null,
+            payloadJson = PayloadJson,
+            createdAtMillis = 1L,
+        )
+        assertFalse(payloadJson.contains("ownerGoogleSubjectHash"))
+
+        val parsed = parseCloudRecoveryPlainPayload(payloadJson.toByteArray(Charsets.UTF_8))
+        assertEquals(null, parsed?.ownerGoogleSubjectHash)
+        assertEquals(
+            CloudRecoveryOwnerVerdict.LegacyEnvelope,
+            cloudRecoveryOwnerVerdict(
+                ownerUid = OwnerUid,
+                ownerGoogleSubjectHash = parsed?.ownerGoogleSubjectHash,
+                currentFirebaseUid = "new-firebase-uid",
+                currentGoogleSubjectHash = "a".repeat(64),
+            ),
+        )
+    }
+
     private fun newRecovery(): NewCloudRecovery = crypto.createNewRecovery(
         ownerUid = OwnerUid,
         payloadJson = PayloadJson,

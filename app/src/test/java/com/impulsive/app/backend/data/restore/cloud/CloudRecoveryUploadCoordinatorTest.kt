@@ -1295,6 +1295,7 @@ class CloudRecoveryUploadCoordinatorTest {
 
         override fun encrypt(
             ownerUid: String,
+            ownerGoogleSubjectHash: String?,
             payloadJson: String,
             dek: ByteArray,
             wrappedKeyMetadata:

@@ -1,5 +1,7 @@
 package com.impulsive.app.backend.data.restore.cloud
 
+import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
+
 import java.security.SecureRandom
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
@@ -130,8 +132,10 @@ public fun createNewRecovery(
         require(existingWrappedKeyMetadata.wrappedDekIv.size == CloudRecoveryIvBytes)
         require(existingWrappedKeyMetadata.wrappedDekCipherText.size >= CloudRecoveryGcmTagBytes)
 
+        val normalizedSubjectHash = ownerGoogleSubjectHash?.takeIf(::isValidGoogleSubjectHash)
         val plainPayload = buildCloudRecoveryPayloadJson(
             ownerUid = normalizedOwnerUid,
+            ownerGoogleSubjectHash = normalizedSubjectHash,
             payloadJson = payloadJson,
             createdAtMillis = System.currentTimeMillis(),
         ).toByteArray(Charsets.UTF_8)

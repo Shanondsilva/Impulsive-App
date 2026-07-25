@@ -231,6 +231,9 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                         ownerUid =
                             account.uid,
 
+                        ownerGoogleSubjectHash =
+                            googleSubjectHash,
+
                         payloadJson =
                             payloadJson,
 
@@ -479,6 +482,7 @@ internal interface CloudRecoveryUploadDriveGateway {
 internal fun interface CloudRecoveryUploadEnvelopeEncryptor {
     fun encrypt(
         ownerUid: String,
+        ownerGoogleSubjectHash: String?,
         payloadJson: String,
         dek: ByteArray,
         wrappedKeyMetadata:
@@ -685,6 +689,7 @@ private class CryptoCloudRecoveryUploadEnvelopeEncryptor(
 ) : CloudRecoveryUploadEnvelopeEncryptor {
     override fun encrypt(
         ownerUid: String,
+        ownerGoogleSubjectHash: String?,
         payloadJson: String,
         dek: ByteArray,
         wrappedKeyMetadata:
@@ -693,6 +698,9 @@ private class CryptoCloudRecoveryUploadEnvelopeEncryptor(
         crypto.encryptPayloadWithExistingDek(
             ownerUid =
                 ownerUid,
+
+            ownerGoogleSubjectHash =
+                ownerGoogleSubjectHash,
 
             payloadJson =
                 payloadJson,
