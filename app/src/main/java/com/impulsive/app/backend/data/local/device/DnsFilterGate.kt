@@ -1,6 +1,9 @@
 package com.impulsive.app.backend.data.local.device
 
 import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import com.impulsive.app.backend.data.local.preferences.VpnDiagnosticPreferencesDataSource
 import com.impulsive.app.backend.domain.model.protection.DnsFilterGateEvaluator
 import com.impulsive.app.backend.service.protection.ImpulsiveVpnService
 
@@ -15,11 +18,13 @@ class DnsFilterGate(
 ) {
     private val privateDnsChecker = PrivateDnsChecker(context)
     private val activeVpnChecker = ActiveVpnChecker(context)
+    private val vpnDiagnostics = VpnDiagnosticPreferencesDataSource(context)
 
     fun evaluate(): DnsFilterGateEvaluator.GateResult =
         DnsFilterGateEvaluator.evaluate(
             privateDnsBypassesFilter = privateDnsChecker.bypassesLocalDnsFilter(),
             anotherVpnActive = activeVpnChecker.isAnotherVpnActive() && !ImpulsiveVpnService.isRunning,
+            lockdownModeActive = vpnDiagnostics.isLockdownModeActive(),
         )
 
     fun isProtectionOn(): Boolean = ImpulsiveVpnService.isRunning
@@ -27,4 +32,16 @@ class DnsFilterGate(
     fun privateDnsState(): PrivateDnsChecker.State = privateDnsChecker.read()
 
     fun privateDnsSettingsIntent() = privateDnsChecker.createPrivateDnsSettingsIntent()
+
+    fun vpnSettingsIntent(): Intent {
+        val vpnIntent = Intent(Settings.ACTION_VPN_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (vpnIntent.resolveActivity(context.packageManager) != null) {
+            return vpnIntent
+        }
+        return Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
 }

@@ -2,6 +2,7 @@ package com.impulsive.app.frontend.screens.premium
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +38,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -43,6 +52,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.impulsive.app.backend.data.repository.AuthResult
+import com.impulsive.app.backend.domain.model.auth.PurchaseAccountGatePhase
+import com.impulsive.app.backend.domain.model.premium.BillingPeriod
+import com.impulsive.app.backend.service.billing.BillingRestoreState
+import com.impulsive.app.backend.service.billing.BillingUiState
+import com.impulsive.app.backend.service.billing.SubscriptionCatalogState
+import com.impulsive.app.backend.service.billing.allowsPurchaseAction
+import com.impulsive.app.backend.service.billing.subscriptionPlanDisclosure
+import com.impulsive.app.backend.service.billing.subscriptionPlanTitle
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 
@@ -50,9 +68,25 @@ import com.impulsive.app.frontend.theme.ImpulsivePsychological
 fun WebsiteProtectionPlusScreen(
     onBack: () -> Unit,
     onOpenDnsFilterCheck: () -> Unit,
+    onChooseWebsiteProtectionApps: () -> Unit,
     isPlus: Boolean,
-    priceLabel: String?,
-    onPurchase: () -> Unit,
+    subscriptionCatalogState: SubscriptionCatalogState,
+    billingUiState: BillingUiState,
+    purchaseAccountGatePhase: PurchaseAccountGatePhase,
+    pendingAccountConflict: AuthResult.AccountConflict?,
+    authErrorMessage: String?,
+    onLinkGoogleForPurchase: () -> Unit,
+    onLinkFacebookForPurchase: () -> Unit,
+    onLinkEmailForPurchase: (String, String) -> Unit,
+    onConfirmAccountSwitchForPurchase: () -> Unit,
+    onDismissAccountSwitch: () -> Unit,
+    onDismissAuthError: () -> Unit,
+    onRetryBilling: () -> Unit,
+    onPurchase: (BillingPeriod) -> Unit,
+    canManageSubscription: Boolean,
+    onManageSubscription: () -> Unit,
+    billingRestoreState: BillingRestoreState,
+    onRestorePurchases: () -> Unit,
     isWebsiteProtectionEnabled: Boolean,
     isWebsiteProtectionAlwaysOn: Boolean,
     isReleaseWindowActive: Boolean,
@@ -66,6 +100,20 @@ fun WebsiteProtectionPlusScreen(
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val surface = MaterialTheme.colorScheme.surface
     val accent = ImpulsivePsychological
+    var showPurchaseAccountGate by rememberSaveable { mutableStateOf(false) }
+    val onProtectedPurchase: (BillingPeriod) -> Unit = { period ->
+        if (purchaseAccountGatePhase == PurchaseAccountGatePhase.Ready) {
+            onPurchase(period)
+        } else {
+            showPurchaseAccountGate = true
+        }
+    }
+
+    LaunchedEffect(purchaseAccountGatePhase) {
+        if (purchaseAccountGatePhase == PurchaseAccountGatePhase.Ready) {
+            showPurchaseAccountGate = false
+        }
+    }
 
     Box(
         modifier = modifier
@@ -113,6 +161,7 @@ fun WebsiteProtectionPlusScreen(
                     alwaysOn = isWebsiteProtectionAlwaysOn,
                     releaseWindowActive = isReleaseWindowActive,
                     releaseWindowEndsAt = releaseWindowEndsAt,
+                    onChooseApps = onChooseWebsiteProtectionApps,
                     onTurnOn = onOpenDnsFilterCheck,
                     onTurnOff = onTurnWebsiteProtectionOff,
                     onAlwaysOnChanged = onAlwaysOnChanged,
@@ -131,8 +180,10 @@ fun WebsiteProtectionPlusScreen(
                     text = text,
                     muted = muted,
                     isPlus = isPlus,
-                    priceLabel = priceLabel,
-                    onPurchase = onPurchase,
+                    subscriptionCatalogState = subscriptionCatalogState,
+                    billingUiState = billingUiState,
+                    onRetryBilling = onRetryBilling,
+                    onPurchase = onProtectedPurchase,
                 )
 
                 PlusIncludedCard(
@@ -162,6 +213,17 @@ fun WebsiteProtectionPlusScreen(
                     muted = muted,
                 )
             }
+
+            SubscriptionActionsCard(
+                canManageSubscription = canManageSubscription,
+                onManageSubscription = onManageSubscription,
+                restoreState = billingRestoreState,
+                onRestorePurchases = onRestorePurchases,
+                surface = surface,
+                text = text,
+                muted = muted,
+            )
+
             Text(
                 text = "Impulsive Core stays free. Plus adds stronger website protection.",
                 color = muted,
@@ -171,6 +233,93 @@ fun WebsiteProtectionPlusScreen(
             )
         }
     }
+
+    if (showPurchaseAccountGate) {
+        PurchaseAccountGateDialog(
+            phase = purchaseAccountGatePhase,
+            authErrorMessage = authErrorMessage,
+            pendingConflict = pendingAccountConflict,
+            onLinkGoogle = onLinkGoogleForPurchase,
+            onLinkFacebook = onLinkFacebookForPurchase,
+            onLinkEmail = onLinkEmailForPurchase,
+            onConfirmAccountSwitch = onConfirmAccountSwitchForPurchase,
+            onDismissAccountSwitch = onDismissAccountSwitch,
+            onDismissAuthError = onDismissAuthError,
+            onDismiss = { showPurchaseAccountGate = false },
+        )
+    }
+}
+
+@Composable
+private fun SubscriptionActionsCard(
+    canManageSubscription: Boolean,
+    onManageSubscription: () -> Unit,
+    restoreState: BillingRestoreState,
+    onRestorePurchases: () -> Unit,
+    surface: Color,
+    text: Color,
+    muted: Color,
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = surface.copy(alpha = 0.9f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "Subscription",
+                color = text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+
+            if (canManageSubscription) {
+                OutlinedButton(
+                    onClick = onManageSubscription,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Manage subscription")
+                }
+            }
+
+            OutlinedButton(
+                onClick = onRestorePurchases,
+                enabled = restoreState != BillingRestoreState.Loading,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (restoreState == BillingRestoreState.Loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Checking Google Play…")
+                } else {
+                    Text("Restore purchases")
+                }
+            }
+
+            val statusText = when (restoreState) {
+                BillingRestoreState.Idle -> null
+                BillingRestoreState.Loading -> "Checking Google Play…"
+                BillingRestoreState.Success -> "Your Plus subscription has been restored."
+                BillingRestoreState.NoPurchase -> "No active Plus subscription was found."
+                BillingRestoreState.Error -> "Restore failed. Check your connection and try again."
+            }
+
+            if (statusText != null) {
+                Text(
+                    text = statusText,
+                    color = muted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+
 }
 
 @Composable
@@ -183,6 +332,7 @@ private fun WebsiteProtectionManagementCard(
     alwaysOn: Boolean,
     releaseWindowActive: Boolean,
     releaseWindowEndsAt: String?,
+    onChooseApps: () -> Unit,
     onTurnOn: () -> Unit,
     onTurnOff: () -> Unit,
     onAlwaysOnChanged: (Boolean) -> Unit,
@@ -229,6 +379,15 @@ private fun WebsiteProtectionManagementCard(
                 color = muted,
                 style = MaterialTheme.typography.bodyMedium,
             )
+
+            OutlinedButton(
+                onClick = onChooseApps,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+            ) {
+                Text("Choose apps for Website Protection")
+            }
 
             if (enabled) {
                 OutlinedButton(
@@ -340,9 +499,67 @@ private fun PlusHeroCard(
     text: Color,
     muted: Color,
     isPlus: Boolean,
-    priceLabel: String?,
-    onPurchase: () -> Unit,
+    subscriptionCatalogState: SubscriptionCatalogState,
+    billingUiState: BillingUiState,
+    onRetryBilling: () -> Unit,
+    onPurchase: (BillingPeriod) -> Unit,
 ) {
+    var selectedPeriod by remember { mutableStateOf(BillingPeriod.Monthly) }
+    val readyCatalog = subscriptionCatalogState as? SubscriptionCatalogState.Ready
+    val monthlyPlan = readyCatalog?.monthly
+    val yearlyPlan = readyCatalog?.yearly
+
+    LaunchedEffect(monthlyPlan, yearlyPlan) {
+        val selectedAvailable = when (selectedPeriod) {
+            BillingPeriod.Monthly -> monthlyPlan != null
+            BillingPeriod.Yearly -> yearlyPlan != null
+        }
+
+        if (!selectedAvailable) {
+            selectedPeriod = when {
+                monthlyPlan != null -> BillingPeriod.Monthly
+                yearlyPlan != null -> BillingPeriod.Yearly
+                else -> BillingPeriod.Monthly
+            }
+        }
+    }
+
+    val selectedPlan = when (selectedPeriod) {
+        BillingPeriod.Monthly -> monthlyPlan
+        BillingPeriod.Yearly -> yearlyPlan
+    }
+    val purchaseEnabled =
+        selectedPlan != null && billingUiState.allowsPurchaseAction()
+    val billingStatusText = when (billingUiState) {
+        BillingUiState.Connecting -> "Connecting to Google Play…"
+        BillingUiState.Ready -> null
+        BillingUiState.ProductUnavailable -> "This subscription is currently unavailable."
+        is BillingUiState.PurchaseLaunching -> "Opening Google Play…"
+        BillingUiState.Pending ->
+            "Payment is pending. Plus will unlock only after Google Play confirms payment."
+        BillingUiState.PurchasedAndVerifying ->
+            "Purchase received. Verifying your Plus access…"
+        BillingUiState.VerificationDeferred ->
+            "Purchase received. Verification will resume when sign-in is ready."
+        BillingUiState.UserCancelled ->
+            "Purchase cancelled. No subscription change was made."
+        BillingUiState.AlreadyOwned ->
+            "Google Play says this subscription is already owned. Checking your access…"
+        is BillingUiState.NetworkOrServiceUnavailable ->
+            "Google Play billing is temporarily unavailable."
+        BillingUiState.VerificationFailed ->
+            "We couldn't verify this purchase. Try Restore purchases or try again later."
+        BillingUiState.Restored,
+        BillingUiState.NoPurchaseFound,
+        -> null
+        is BillingUiState.Error ->
+            "Google Play couldn't complete the billing request."
+    }
+    val showBillingRetry =
+        billingUiState == BillingUiState.ProductUnavailable ||
+            billingUiState is BillingUiState.NetworkOrServiceUnavailable ||
+            (billingUiState is BillingUiState.Error && billingUiState.retryable)
+
     Surface(
         color = surface,
         shape = RoundedCornerShape(28.dp),
@@ -411,24 +628,75 @@ private fun PlusHeroCard(
                     modifier = Modifier.padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = if (priceLabel != null) "$priceLabel/month" else "£2.99/month",
-                        color = text,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    when (subscriptionCatalogState) {
+                        SubscriptionCatalogState.Loading -> {
+                            Text(
+                                text = "Loading current Google Play pricing…",
+                                color = muted,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+
+                        SubscriptionCatalogState.Unavailable -> {
+                            Text(
+                                text = "Google Play billing is temporarily unavailable.\n" +
+                                    "Check your connection and try again.",
+                                color = muted,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            OutlinedButton(
+                                onClick = onRetryBilling,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Retry")
+                            }
+                        }
+
+                        is SubscriptionCatalogState.Ready -> {
+                            if (!isPlus && monthlyPlan != null) {
+                                PlanOptionRow(
+                                    title = subscriptionPlanTitle(monthlyPlan),
+                                    note = subscriptionPlanDisclosure(monthlyPlan),
+                                    selected = selectedPeriod == BillingPeriod.Monthly,
+                                    onSelect = { selectedPeriod = BillingPeriod.Monthly },
+                                    accent = accent,
+                                    text = text,
+                                    muted = muted,
+                                )
+                            }
+
+                            if (!isPlus && yearlyPlan != null) {
+                                PlanOptionRow(
+                                    title = subscriptionPlanTitle(yearlyPlan),
+                                    note = subscriptionPlanDisclosure(yearlyPlan),
+                                    selected = selectedPeriod == BillingPeriod.Yearly,
+                                    onSelect = { selectedPeriod = BillingPeriod.Yearly },
+                                    accent = accent,
+                                    text = text,
+                                    muted = muted,
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = if (isPlus) {
                             "Your Plus subscription is active."
                         } else {
-                            "Monthly subscription through Google Play."
+                            "Subscription through Google Play."
                         },
                         color = muted,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     if (!isPlus) {
                         Button(
-                            onClick = onPurchase,
+                            onClick = {
+                                if (purchaseEnabled) {
+                                    selectedPlan?.let { plan ->
+                                        onPurchase(plan.period)
+                                    }
+                                }
+                            },
+                            enabled = purchaseEnabled,
                             shape = RoundedCornerShape(18.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = accent,
@@ -440,9 +708,66 @@ private fun PlusHeroCard(
                         ) {
                             Text("Subscribe")
                         }
+
+                        billingStatusText?.let { statusText ->
+                            Text(
+                                text = statusText,
+                                color = muted,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+
+                        if (showBillingRetry) {
+                            OutlinedButton(
+                                onClick = onRetryBilling,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Retry billing")
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PlanOptionRow(
+    title: String,
+    note: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    accent: Color,
+    text: Color,
+    muted: Color,
+) {
+    Surface(
+        color = if (selected) accent.copy(alpha = 0.30f) else Color.Transparent,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(
+            1.dp,
+            if (selected) accent else muted.copy(alpha = 0.35f),
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                color = text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = note,
+                color = muted,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

@@ -15,6 +15,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.impulsive.app.MainActivity
 import com.impulsive.app.R
+import com.impulsive.app.backend.service.protection.ProtectionNotificationGate
 
 class JournalReminderWorker(
     appContext: Context,
@@ -33,7 +34,7 @@ class JournalReminderWorker(
         }
 
         val noteId = inputData.getLong(KeyNoteId, 0L)
-        val notificationId = (noteId and Int.MAX_VALUE.toLong()).toInt().coerceAtLeast(1)
+        val notificationId = notificationId(noteId)
         val rawTitle = inputData.getString(KeyTitle).orEmpty()
         val rawPreview = inputData.getString(KeyPreview).orEmpty()
         val title = rawTitle.ifBlank { "Journal reminder" }
@@ -61,7 +62,13 @@ class JournalReminderWorker(
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
-        NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
+        val notificationContext = applicationContext
+        ProtectionNotificationGate.submit(notificationId) {
+            NotificationManagerCompat.from(notificationContext).notify(
+                notificationId,
+                notification,
+            )
+        }
         return Result.success()
     }
 
@@ -79,6 +86,9 @@ class JournalReminderWorker(
     }
 
     companion object {
+        internal fun notificationId(noteId: Long): Int =
+            (noteId and Int.MAX_VALUE.toLong()).toInt().coerceAtLeast(1)
+
         const val ChannelId = "journal_reminders"
         const val KeyNoteId = "note_id"
         const val KeyTitle = "title"

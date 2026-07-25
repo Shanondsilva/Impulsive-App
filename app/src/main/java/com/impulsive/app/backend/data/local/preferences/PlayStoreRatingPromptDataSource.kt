@@ -30,16 +30,42 @@ data class PlayStoreRatingPromptState(
         Long? = null,
     val neverShowAgain: Boolean = false,
     val ratedOnPlayStore: Boolean = false,
+    val lastInAppReviewRequestEpochDay:
+        Long? = null,
 ) {
     val isPermanentlySuppressed: Boolean
         get() =
             neverShowAgain ||
                 ratedOnPlayStore
 
+    fun isRequestCoolingDownOn(
+        epochDay: Long,
+    ): Boolean {
+        val lastRequest =
+            lastInAppReviewRequestEpochDay
+                ?: return false
+
+        if (epochDay < lastRequest) {
+            return true
+        }
+
+        return epochDay - lastRequest <
+            PlayStoreRatingPromptPolicy
+                .MinimumDaysBetweenRequests
+    }
+
     fun isEligibleOn(
         epochDay: Long,
     ): Boolean {
+        val snoozed =
+            snoozedUntilEpochDay
+                ?.let { snoozedUntil ->
+                    epochDay < snoozedUntil
+                } == true
+
         return !isPermanentlySuppressed &&
+            !snoozed &&
+            !isRequestCoolingDownOn(epochDay) &&
             eligiblePromptEpochDay ==
                 epochDay
     }
@@ -52,8 +78,8 @@ object PlayStoreRatingPromptPolicy {
     const val EligibilityChancePercent =
         20
 
-    const val SnoozeDays =
-        7L
+    const val MinimumDaysBetweenRequests =
+        90L
 
     fun recordUse(
         previous:
@@ -109,6 +135,14 @@ object PlayStoreRatingPromptPolicy {
         }
 
         if (
+            base.isRequestCoolingDownOn(
+                currentEpochDay,
+            )
+        ) {
+            return base
+        }
+
+        if (
             consecutiveUseDays <
             RequiredConsecutiveUseDays
         ) {
@@ -144,39 +178,18 @@ object PlayStoreRatingPromptPolicy {
         )
     }
 
-    fun showLater(
-        previous:
-            PlayStoreRatingPromptState,
+    fun consumeInAppReviewEligibility(
+        previous: PlayStoreRatingPromptState,
         currentEpochDay: Long,
-    ): PlayStoreRatingPromptState {
-        return previous.copy(
-            eligiblePromptEpochDay =
-                null,
-            snoozedUntilEpochDay =
-                currentEpochDay +
-                    SnoozeDays,
-        )
-    }
+    ): PlayStoreRatingPromptState? {
+        if (!previous.isEligibleOn(currentEpochDay)) {
+            return null
+        }
 
-    fun neverShowAgain(
-        previous:
-            PlayStoreRatingPromptState,
-    ): PlayStoreRatingPromptState {
         return previous.copy(
-            eligiblePromptEpochDay =
-                null,
-            neverShowAgain = true,
-        )
-    }
-
-    fun ratedOnPlayStore(
-        previous:
-            PlayStoreRatingPromptState,
-    ): PlayStoreRatingPromptState {
-        return previous.copy(
-            eligiblePromptEpochDay =
-                null,
-            ratedOnPlayStore = true,
+            eligiblePromptEpochDay = null,
+            lastInAppReviewRequestEpochDay =
+                currentEpochDay,
         )
     }
 }
@@ -234,68 +247,40 @@ class PlayStoreRatingPromptDataSource(
         }
     }
 
-    suspend fun showLater(
+    suspend fun consumeInAppReviewEligibility(
         nowMillis: Long =
             System.currentTimeMillis(),
         zone: ZoneId =
             ZoneId.systemDefault(),
-    ) {
+    ): Boolean {
         val currentEpochDay =
             nowMillis.toEpochDay(zone)
 
+        var consumed = false
+
         dataStore.edit {
                 preferences ->
 
+            val previous =
+                preferences.toState()
+
             val updated =
                 PlayStoreRatingPromptPolicy
-                    .showLater(
-                        previous =
-                            preferences
-                                .toState(),
+                    .consumeInAppReviewEligibility(
+                        previous = previous,
                         currentEpochDay =
                             currentEpochDay,
                     )
+                    ?: return@edit
 
             preferences.writeState(
                 updated,
             )
+
+            consumed = true
         }
-    }
 
-    suspend fun neverShowAgain() {
-        dataStore.edit {
-                preferences ->
-
-            val updated =
-                PlayStoreRatingPromptPolicy
-                    .neverShowAgain(
-                        previous =
-                            preferences
-                                .toState(),
-                    )
-
-            preferences.writeState(
-                updated,
-            )
-        }
-    }
-
-    suspend fun markRatedOnPlayStore() {
-        dataStore.edit {
-                preferences ->
-
-            val updated =
-                PlayStoreRatingPromptPolicy
-                    .ratedOnPlayStore(
-                        previous =
-                            preferences
-                                .toState(),
-                    )
-
-            preferences.writeState(
-                updated,
-            )
-        }
+        return consumed
     }
 
     private fun Preferences.toState():
@@ -327,6 +312,10 @@ class PlayStoreRatingPromptDataSource(
                 this[
                     RatedOnPlayStoreKey
                 ] ?: false,
+            lastInAppReviewRequestEpochDay =
+                this[
+                    LastInAppReviewRequestEpochDayKey
+                ],
         )
     }
 
@@ -373,6 +362,14 @@ class PlayStoreRatingPromptDataSource(
 
         this[RatedOnPlayStoreKey] =
             state.ratedOnPlayStore
+
+        setOrRemove(
+            key =
+                LastInAppReviewRequestEpochDayKey,
+            value =
+                state
+                    .lastInAppReviewRequestEpochDay,
+        )
     }
 
     private fun MutablePreferences
@@ -431,6 +428,11 @@ class PlayStoreRatingPromptDataSource(
         val RatedOnPlayStoreKey =
             booleanPreferencesKey(
                 "rated_on_play_store",
+            )
+
+        val LastInAppReviewRequestEpochDayKey =
+            longPreferencesKey(
+                "last_in_app_review_request_epoch_day",
             )
     }
 }

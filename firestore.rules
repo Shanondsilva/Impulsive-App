@@ -2,63 +2,21 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(uid) {
-      return isSignedIn() && request.auth.uid == uid;
-    }
-
     /*
-     * Root user documents may contain server-written entitlement fields such as:
-     * users/{uid}.plus
+     * All Firestore access is server-only. Cloud Functions use the Firebase
+     * Admin SDK, which bypasses these rules by design. The Android client
+     * has no direct Firestore access:
      *
-     * Client apps may read and delete their own root document, but must not create
-     * or update it. Plus entitlement writes must remain server-only through
-     * Firebase Admin SDK / Cloud Functions.
-     */
-    match /users/{uid} {
-      allow get: if isOwner(uid);
-      allow delete: if isOwner(uid);
-      allow list, create, update: if false;
-
-      match /journalNotes/{noteId} {
-        allow read, write: if isOwner(uid);
-
-        match /checklistItems/{itemId} {
-          allow read, write: if isOwner(uid);
-        }
-      }
-
-      match /recoverySessions/{sessionId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      match /syncTombstones/{tombstoneId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      /*
-       * Any future or accidental client-side subcollection under users/{uid}
-       * stays denied until explicitly reviewed and added.
-       */
-      match /{document=**} {
-        allow read, write: if false;
-      }
-    }
-
-    /*
-     * Purchase tokens are sensitive server-owned records. They are written by
-     * Cloud Functions with the Firebase Admin SDK and must not be accessible
-     * from Android clients.
-     */
-    match /playPurchaseTokens/{tokenHash} {
-      allow read, write: if false;
-    }
-
-    /*
-     * Global fallback. Anything not explicitly allowed above is denied.
+     * - Plus entitlement is verified through the verifyPlusSubscription
+     *   callable function and cached locally on the device.
+     * - Account deletion runs through the eraseUserData callable function,
+     *   which removes the user document, journalNotes and their
+     *   checklistItems, recoverySessions, syncTombstones, and
+     *   playPurchaseTokens records server-side.
+     * - Recovery progress and behavioural data are never written to
+     *   Firestore. They live only on the user's device.
+     *
+     * Every client read and write is therefore denied.
      */
     match /{document=**} {
       allow read, write: if false;

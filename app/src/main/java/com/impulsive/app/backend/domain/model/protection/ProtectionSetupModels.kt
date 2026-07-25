@@ -27,11 +27,7 @@ enum class ProtectionSetupItem(
         title = "Allow protection notifications",
         isCoreProtection = true,
     ),
-    UninstallProtection(
-        storageValue = "uninstall_protection",
-        title = "Enable uninstall protection",
-        isCoreProtection = true,
-    ),
+
     InterruptionPermission(
         storageValue = "interruption_permission",
         title = "Allow Impulsive to step in",
@@ -58,11 +54,12 @@ data class ProtectionSetupState(
     val isLoaded: Boolean = false,
     val usageAccessEnabled: Boolean = false,
     val selectedBlockedAppPackageNames: Set<String> = emptySet(),
+    val websiteProtectedAppPackageNames: Set<String> = emptySet(),
+    val appProtectionMonitorEnabled: Boolean = true,
     val websiteProtectionEnabled: Boolean = false,
     val websiteProtectionAlwaysOn: Boolean = false,
     val interruptionPermissionEnabled: Boolean = false,
     val backgroundActivityEnabled: Boolean = false,
-    val uninstallProtectionEnabled: Boolean = false,
     val notificationPermissionEnabled: Boolean = false,
     val skippedSetupItems: Set<ProtectionSetupItem> = emptySet(),
 ) {
@@ -76,7 +73,6 @@ data class ProtectionSetupState(
             if (!interruptionPermissionEnabled) add(ProtectionSetupItem.InterruptionPermission)
             if (!backgroundActivityEnabled) add(ProtectionSetupItem.BackgroundActivity)
             if (!notificationPermissionEnabled) add(ProtectionSetupItem.Notifications)
-            if (!uninstallProtectionEnabled) add(ProtectionSetupItem.UninstallProtection)
         }
 
     val skippedCoreProtectionItems: List<ProtectionSetupItem>
@@ -92,7 +88,6 @@ data class ProtectionSetupState(
         ProtectionSetupItem.BlockedApps -> blockedAppsSelected
         ProtectionSetupItem.UsageAccess -> usageAccessEnabled
         ProtectionSetupItem.Notifications -> notificationPermissionEnabled
-        ProtectionSetupItem.UninstallProtection -> uninstallProtectionEnabled
         ProtectionSetupItem.InterruptionPermission -> interruptionPermissionEnabled
         ProtectionSetupItem.BackgroundActivity -> backgroundActivityEnabled
         ProtectionSetupItem.WebsiteProtection -> websiteProtectionEnabled

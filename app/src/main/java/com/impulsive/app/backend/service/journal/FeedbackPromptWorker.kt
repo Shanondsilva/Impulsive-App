@@ -15,6 +15,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.impulsive.app.MainActivity
 import com.impulsive.app.R
+import com.impulsive.app.backend.service.protection.ProtectionNotificationGate
 import com.impulsive.app.backend.data.repository.FeedbackResponseRepository
 import com.impulsive.app.backend.domain.model.journal.FeedbackPrompt
 import java.time.LocalDate
@@ -162,7 +163,21 @@ class FeedbackPromptWorker(
             )
             .build()
 
-        NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
+        val notificationContext = applicationContext
+        ProtectionNotificationGate.submit(notificationId) {
+            val canPost = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(
+                    notificationContext,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
+
+            if (canPost) {
+                NotificationManagerCompat.from(notificationContext).notify(
+                    notificationId,
+                    notification,
+                )
+            }
+        }
     }
 
     private fun answerPendingIntent(

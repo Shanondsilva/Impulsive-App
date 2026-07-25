@@ -7,7 +7,13 @@ import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.service.protection.ImpulsiveVpnController
+import com.impulsive.app.backend.service.protection.InterruptionNotificationLimiter
+import com.impulsive.app.backend.service.protection.ProtectionInterruptionOverlay
+import com.impulsive.app.backend.service.protection.ProtectionNotificationHelper
 import com.impulsive.app.backend.service.protection.ProtectionServiceController
+import com.impulsive.app.backend.service.protection.ProtectionServiceOperationalState
+import com.impulsive.app.backend.service.protection.ProtectionServiceOperationalStateStore
+import com.impulsive.app.backend.service.protection.ProtectionServiceStartOrigin
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -24,6 +30,13 @@ class ProtectionSetupViewModel(
         initialValue = ProtectionSetupState(),
     )
 
+    val serviceOperationalState:
+        StateFlow<
+            ProtectionServiceOperationalState
+        > =
+        ProtectionServiceOperationalStateStore
+            .state
+
     fun setUsageAccessEnabled(enabled: Boolean) {
         viewModelScope.launch { repository.setUsageAccessEnabled(enabled) }
     }
@@ -35,14 +48,48 @@ class ProtectionSetupViewModel(
 
             repository.setSelectedBlockedAppPackageNames(packageNames)
 
-            if (!willBeEnabled) {
-                ProtectionServiceController.stop(getApplication())
-                return@launch
+            if (willBeEnabled && state.value.appProtectionMonitorEnabled) {
+                ProtectionServiceController.start(
+                    context = getApplication(),
+                    origin =
+                        ProtectionServiceStartOrigin
+                            .VisibleApp,
+                    showTemporaryNotification = !wasEnabled,
+                )
+            } else {
+                ProtectionServiceController.start(
+                    context = getApplication(),
+                    origin =
+                        ProtectionServiceStartOrigin
+                            .VisibleApp,
+                )
             }
+        }
+    }
 
+    fun setWebsiteProtectedAppPackageNames(packageNames: Set<String>) {
+        viewModelScope.launch {
+            repository.setWebsiteProtectedAppPackageNames(packageNames)
+
+            if (state.value.websiteProtectionEnabled) {
+                ImpulsiveVpnController.refreshAllowedApplications(getApplication())
+            }
+        }
+    }
+
+    fun setAppProtectionMonitorEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setAppProtectionMonitorEnabled(enabled)
+            if (!enabled) {
+                ProtectionInterruptionOverlay.dismissOwned(ProtectionInterruptionOverlay.Owner.AppMonitor)
+                ProtectionNotificationHelper(getApplication()).cancelBlockedAttemptNotification()
+                InterruptionNotificationLimiter.clearAppEncounters()
+            }
             ProtectionServiceController.start(
                 context = getApplication(),
-                showTemporaryNotification = !wasEnabled,
+                origin =
+                    ProtectionServiceStartOrigin
+                        .VisibleApp,
             )
         }
     }
@@ -52,7 +99,12 @@ class ProtectionSetupViewModel(
             repository.setWebsiteProtectionEnabled(enabled)
 
             if (enabled) {
-                ProtectionServiceController.start(getApplication())
+                ProtectionServiceController.start(
+                    context = getApplication(),
+                    origin =
+                        ProtectionServiceStartOrigin
+                            .VisibleApp,
+                )
             } else {
                 ImpulsiveVpnController.stop(getApplication())
             }
@@ -64,7 +116,12 @@ class ProtectionSetupViewModel(
             repository.setWebsiteProtectionAlwaysOn(enabled)
 
             if (state.value.websiteProtectionEnabled) {
-                ProtectionServiceController.start(getApplication())
+                ProtectionServiceController.start(
+                    context = getApplication(),
+                    origin =
+                        ProtectionServiceStartOrigin
+                            .VisibleApp,
+                )
             }
         }
     }
@@ -77,9 +134,7 @@ class ProtectionSetupViewModel(
         viewModelScope.launch { repository.setBackgroundActivityEnabled(enabled) }
     }
 
-    fun setUninstallProtectionEnabled(enabled: Boolean) {
-        viewModelScope.launch { repository.setUninstallProtectionEnabled(enabled) }
-    }
+
 
     fun setNotificationPermissionEnabled(enabled: Boolean) {
         viewModelScope.launch { repository.setNotificationPermissionEnabled(enabled) }

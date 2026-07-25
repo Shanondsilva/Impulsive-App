@@ -14,6 +14,9 @@ interface BlockedDomainDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(domain: BlockedDomainEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertForRestore(domain: BlockedDomainEntity): Long
+
     @Query("SELECT domain FROM blocked_domain")
     suspend fun getAllDomains(): List<String>
 
@@ -23,6 +26,23 @@ interface BlockedDomainDao {
     @Query("SELECT COUNT(*) FROM blocked_domain")
     suspend fun count(): Int
 
+    @Query(
+        """
+        UPDATE blocked_domain
+        SET
+            category = :category,
+            isDefault = 1,
+            addedByUser = 0
+        WHERE domain = :domain
+        """,
+    )
+    suspend fun promoteToDefault(domain: String, category: String): Int
+
+    // Product rule: bundled defaults are mandatory.
+    // Only explicitly user-added custom entries may be removed.
     @Query("DELETE FROM blocked_domain WHERE id = :id AND addedByUser = 1")
     suspend fun deleteUserDomain(id: Long)
+
+    @Query("DELETE FROM blocked_domain WHERE addedByUser = 1")
+    suspend fun clearAllUserDomainsForRestore(): Int
 }

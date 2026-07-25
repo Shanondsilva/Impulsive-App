@@ -5,12 +5,8 @@
 
 package com.impulsive.app.frontend.screens.journal
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -112,6 +108,8 @@ import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.local.preferences.PlayStoreRatingPromptState
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.service.journal.FeedbackPromptScheduler
+import com.impulsive.app.backend.service.review.findHostActivity
+import com.impulsive.app.backend.service.review.launchImpulsiveInAppReview
 import com.impulsive.app.backend.session.tasks.ChecklistDraftItem
 import com.impulsive.app.backend.session.tasks.FeedbackQueueItemUiState
 import com.impulsive.app.backend.session.tasks.JournalViewModel
@@ -362,32 +360,13 @@ fun JournalListScreen(
                     )
                 }
             },
-            onRateOnPlayStore = {
-                val opened =
-                    openImpulsivePlayStoreListing(
-                        context = context,
-                    )
+            onRequestInAppReview = requestReview@{
+                val activity = context.findHostActivity()
+                    ?: return@requestReview
 
-                if (opened) {
-                    viewModel
-                        .markPlayStoreRatingOpened()
-                } else {
-                    Toast
-                        .makeText(
-                            context,
-                            "Google Play could not be opened.",
-                            Toast.LENGTH_SHORT,
-                        )
-                        .show()
+                viewModel.consumeInAppReviewEligibility {
+                    launchImpulsiveInAppReview(activity)
                 }
-            },
-            onShowRatingLater = {
-                viewModel
-                    .showPlayStoreRatingPromptLater()
-            },
-            onNeverShowRatingAgain = {
-                viewModel
-                    .neverShowPlayStoreRatingPromptAgain()
             },
             onToggle = { createMenuExpanded = !createMenuExpanded },
             onCreateText = {
@@ -1206,9 +1185,7 @@ private fun NotesCreateFab(
             responseId: Long,
             answerIndex: Int,
         ) -> Unit,
-    onRateOnPlayStore: () -> Unit,
-    onShowRatingLater: () -> Unit,
-    onNeverShowRatingAgain: () -> Unit,
+    onRequestInAppReview: () -> Unit,
     onToggle: () -> Unit,
     onCreateText: () -> Unit,
     onCreateList: () -> Unit,
@@ -1293,12 +1270,8 @@ private fun NotesCreateFab(
                     answerIndex,
                 )
             },
-            onRateOnPlayStore =
-                onRateOnPlayStore,
-            onShowRatingLater =
-                onShowRatingLater,
-            onNeverShowRatingAgain =
-                onNeverShowRatingAgain,
+            onRequestInAppReview =
+                onRequestInAppReview,
             onClick =
                 onOpenSavedNotifications,
             modifier =
@@ -1581,209 +1554,6 @@ private fun SavedFeedbackSuccessContent(
 }
 
 @Composable
-private fun PlayStoreRatingPromptContent(
-    nextScheduledAtMillis: Long,
-    nowMillis: Long,
-    onRate: () -> Unit,
-    onShowLater: () -> Unit,
-    onNeverShowAgain: () -> Unit,
-) {
-    val nextSchedule =
-        formatRelativeFeedbackSchedule(
-            scheduledAtMillis =
-                nextScheduledAtMillis,
-            nowMillis =
-                nowMillis,
-        )
-
-    Column(
-        modifier =
-            Modifier.fillMaxSize(),
-        verticalArrangement =
-            Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text =
-                "Great work. Impulsive is working.",
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurface,
-            style =
-                MaterialTheme
-                    .typography
-                    .titleSmall,
-            fontWeight =
-                FontWeight.Bold,
-            maxLines = 1,
-            overflow =
-                TextOverflow.Ellipsis,
-        )
-
-        Text(
-            text =
-                "Enjoying Impulsive? Your review helps more people discover the app.",
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant,
-            style =
-                MaterialTheme
-                    .typography
-                    .bodySmall,
-            maxLines = 2,
-            overflow =
-                TextOverflow.Ellipsis,
-        )
-
-        Row(
-            modifier =
-                Modifier.fillMaxWidth(),
-            horizontalArrangement =
-                Arrangement.spacedBy(6.dp),
-        ) {
-            Button(
-                onClick = onRate,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp),
-                shape =
-                    RoundedCornerShape(14.dp),
-                colors =
-                    ButtonDefaults
-                        .buttonColors(
-                            containerColor =
-                                ImpulsivePsychological,
-                            contentColor =
-                                Color(0xFF281D38),
-                        ),
-                contentPadding =
-                    PaddingValues(
-                        horizontal = 4.dp,
-                        vertical = 4.dp,
-                    ),
-            ) {
-                Text(
-                    text =
-                        "Rate on Play Store",
-                    style =
-                        MaterialTheme
-                            .typography
-                            .labelSmall,
-                    fontWeight =
-                        FontWeight.Bold,
-                    maxLines = 2,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                    textAlign =
-                        TextAlign.Center,
-                )
-            }
-
-            OutlinedButton(
-                onClick = onShowLater,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp),
-                shape =
-                    RoundedCornerShape(14.dp),
-                border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color =
-                            ImpulsivePsychological
-                                .copy(
-                                    alpha = 0.52f,
-                                ),
-                    ),
-                contentPadding =
-                    PaddingValues(
-                        horizontal = 4.dp,
-                        vertical = 4.dp,
-                    ),
-            ) {
-                Text(
-                    text = "Show later",
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurface,
-                    style =
-                        MaterialTheme
-                            .typography
-                            .labelSmall,
-                    fontWeight =
-                        FontWeight.SemiBold,
-                    maxLines = 2,
-                    textAlign =
-                        TextAlign.Center,
-                )
-            }
-
-            OutlinedButton(
-                onClick =
-                    onNeverShowAgain,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp),
-                shape =
-                    RoundedCornerShape(14.dp),
-                border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurfaceVariant
-                                .copy(alpha = 0.35f),
-                    ),
-                contentPadding =
-                    PaddingValues(
-                        horizontal = 4.dp,
-                        vertical = 4.dp,
-                    ),
-            ) {
-                Text(
-                    text =
-                        "Never show again",
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant,
-                    style =
-                        MaterialTheme
-                            .typography
-                            .labelSmall,
-                    fontWeight =
-                        FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                    textAlign =
-                        TextAlign.Center,
-                )
-            }
-        }
-
-        Text(
-            text =
-                "Next feedback: $nextSchedule",
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant,
-            style =
-                MaterialTheme
-                    .typography
-                    .labelSmall,
-            maxLines = 1,
-            overflow =
-                TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
 private fun SavedNotificationsEntry(
     pendingResponse:
         FeedbackQueueItemUiState?,
@@ -1793,9 +1563,7 @@ private fun SavedNotificationsEntry(
         PlayStoreRatingPromptState,
     isAnswering: Boolean,
     onAnswer: (Int) -> Unit,
-    onRateOnPlayStore: () -> Unit,
-    onShowRatingLater: () -> Unit,
-    onNeverShowRatingAgain: () -> Unit,
+    onRequestInAppReview: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1864,27 +1632,21 @@ private fun SavedNotificationsEntry(
             .toLocalDate()
             .toEpochDay()
 
-    val ratingPromptSnoozed =
-        playStoreRatingPrompt
-            .snoozedUntilEpochDay
-            ?.let { snoozedUntil ->
-                currentEpochDay <
-                    snoozedUntil
-            } == true
-
-    val productionRatingEligible =
-        answeredToday &&
-            playStoreRatingPrompt
-                .isEligibleOn(
-                    currentEpochDay,
-                )
-
-    val shouldShowRatingPrompt =
+    val shouldRequestInAppReview =
         pendingResponse == null &&
-            !playStoreRatingPrompt
-                .isPermanentlySuppressed &&
-            !ratingPromptSnoozed &&
-            productionRatingEligible
+            answeredToday &&
+            playStoreRatingPrompt.isEligibleOn(
+                currentEpochDay,
+            )
+
+    LaunchedEffect(
+        shouldRequestInAppReview,
+        currentEpochDay,
+    ) {
+        if (shouldRequestInAppReview) {
+            onRequestInAppReview()
+        }
+    }
 
     Surface(
         shape = entryShape,
@@ -1993,25 +1755,6 @@ private fun SavedNotificationsEntry(
                                 isAnswering,
                             onAnswer =
                                 onAnswer,
-                        )
-                    }
-
-                    shouldShowRatingPrompt -> {
-                        PlayStoreRatingPromptContent(
-                            nextScheduledAtMillis =
-                                FeedbackPromptScheduler
-                                    .nextScheduledAtMillis(
-                                        nowMillis =
-                                            nowMillis,
-                                    ),
-                            nowMillis =
-                                nowMillis,
-                            onRate =
-                                onRateOnPlayStore,
-                            onShowLater =
-                                onShowRatingLater,
-                            onNeverShowAgain =
-                                onNeverShowRatingAgain,
                         )
                     }
 
@@ -3465,64 +3208,6 @@ private fun JournalNoteType.smallIcon() = when (this) {
     JournalNoteType.Checklist -> Icons.Outlined.Checklist
     JournalNoteType.Sketch -> Icons.Outlined.Brush
     JournalNoteType.Reminder -> Icons.Outlined.Notifications
-}
-
-private const val
-    ImpulsivePlayStorePackageName =
-    "com.impulsive.app"
-
-private const val
-    GooglePlayPackageName =
-    "com.android.vending"
-
-private fun openImpulsivePlayStoreListing(
-    context: Context,
-): Boolean {
-    val listingUri =
-        Uri.parse(
-            "https://play.google.com/store/apps/details" +
-                "?id=$ImpulsivePlayStorePackageName",
-        )
-
-    val playStoreIntent =
-        Intent(
-            Intent.ACTION_VIEW,
-            listingUri,
-        ).apply {
-            setPackage(
-                GooglePlayPackageName,
-            )
-
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK,
-            )
-        }
-
-    if (
-        runCatching {
-            context.startActivity(
-                playStoreIntent,
-            )
-        }.isSuccess
-    ) {
-        return true
-    }
-
-    val browserIntent =
-        Intent(
-            Intent.ACTION_VIEW,
-            listingUri,
-        ).apply {
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK,
-            )
-        }
-
-    return runCatching {
-        context.startActivity(
-            browserIntent,
-        )
-    }.isSuccess
 }
 
 private const val HighlightPsychology = "PSYCHOLOGY"

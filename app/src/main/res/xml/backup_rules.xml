@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Backup rules for Android 11 and below. Include-only mode: nothing outside
+    this list is backed up. Every include requires client-side encryption, so
+    the backup either travels end-to-end encrypted with the user's lock
+    screen secret (Android 9 and later with a lock screen set) or does not
+    travel at all. The raw SQLCipher database and its passphrase store are
+    never backed up because their keys are bound to the device's Keystore.
+-->
+<full-backup-content>
+    <include domain="file" path="restore/impulsive_restore_bundle_v1.json" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/app_settings_prefs.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/focus_setup.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/game_store_prefs.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/home_guide.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/level_prefs.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/onboarding_state.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/play_store_rating_prompt.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/protection_setup_state.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/reflex_game_history.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/reset_read_progress.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/rhythm_tiles_history.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/score_sessions.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/served_games.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/taper_preferences.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/task_rewards.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/theme_prefs.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/urge_events.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/window_outcomes.preferences_pb" requireFlags="clientSideEncryption" />
+</full-backup-content>

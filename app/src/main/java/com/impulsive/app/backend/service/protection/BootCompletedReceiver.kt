@@ -11,11 +11,30 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+// Restarts protection after device boot and after app updates. The class name
+// predates the second trigger and is kept to avoid manifest churn.
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        if (action != Intent.ACTION_BOOT_COMPLETED) {
-            return
+        // MY_PACKAGE_REPLACED fires after every app update or reinstall, which
+        // kills the monitor process. Without this, protection stays silently off
+        // until the user next opens Impulsive. BOOT_COMPLETED and
+        // MY_PACKAGE_REPLACED are documented background foreground-service
+        // start exemptions. Android can still reject particular foreground-
+        // service types or invalid configurations, so the controller continues
+        // to expose and record the actual start result.
+        val startOrigin =
+            when (action) {
+                Intent.ACTION_BOOT_COMPLETED ->
+                    ProtectionServiceStartOrigin
+                        .BootCompleted
+
+                Intent.ACTION_MY_PACKAGE_REPLACED ->
+                    ProtectionServiceStartOrigin
+                        .PackageReplaced
+
+                else ->
+                    return
         }
 
         val pendingResult = goAsync()
@@ -23,8 +42,15 @@ class BootCompletedReceiver : BroadcastReceiver() {
             try {
                 val appContext = context.applicationContext
                 val setup = ProtectionSetupRepository(appContext).state.first()
-                if (setup.selectedBlockedAppPackageNames.isNotEmpty()) {
-                    ProtectionServiceController.start(appContext)
+                val protectionConfigured =
+                    setup.appProtectionMonitorEnabled && setup.selectedBlockedAppPackageNames.isNotEmpty() ||
+                    setup.websiteProtectionEnabled
+                if (protectionConfigured) {
+                    ProtectionServiceController.start(
+                        context = appContext,
+                        origin = startOrigin,
+                    )
+                    ProtectionWatchdogScheduler.ensureScheduled(appContext)
                 }
                 com.impulsive.app.backend.service.journal.FeedbackPromptScheduler(appContext)
                     .scheduleDailyNudge()

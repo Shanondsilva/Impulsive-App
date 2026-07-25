@@ -2,8 +2,11 @@ package com.impulsive.app.backend.session.settings
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
 import com.impulsive.app.backend.data.UserDataExporter
 import com.impulsive.app.backend.data.UserDataManager
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
@@ -51,6 +54,24 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
             // login screen actually shows instead of auto-advancing on a
             // lingering signed-in user.
             runCatching { AuthRepositoryFactory.create(getApplication()).signOut() }
+            // The sign-out above can fail silently inside runCatching, and it
+            // resolves to a stub that never touches Firebase when Firebase is
+            // not configured. Firebase persists its session outside the
+            // files/datastore directory wiped below, so a surviving session
+            // would auto-skip the login screen after the restart. Verify the
+            // session is really gone and retry directly before proceeding.
+            if (FirebaseApp.getApps(getApplication()).isNotEmpty()) {
+                val firebaseAuth = FirebaseAuth.getInstance()
+                if (firebaseAuth.currentUser != null) {
+                    runCatching { firebaseAuth.signOut() }
+                }
+                if (firebaseAuth.currentUser != null) {
+                    Log.w(
+                        "AppSettingsViewModel",
+                        "Firebase session survived delete-everything sign-out",
+                    )
+                }
+            }
             UserDataManager(getApplication()).deleteAllData()
             onComplete()
         }

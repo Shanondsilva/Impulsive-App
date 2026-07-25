@@ -2,14 +2,13 @@ package com.impulsive.app.backend.data.repository
 
 import com.impulsive.app.backend.data.local.dao.RecoverySessionDao
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
-import com.impulsive.app.backend.data.sync.RecoverySessionCloudSync
-import com.google.firebase.auth.FirebaseAuth
 import java.time.LocalDate
 import java.time.ZoneId
 
 class RecoverySessionRepository(
     private val recoverySessionDao: RecoverySessionDao,
     private val zoneId: ZoneId = ZoneId.systemDefault(),
+    private val onBackupRelevantDataChanged: () -> Unit = {},
 ) {
     suspend fun insertCompletedSession(
         startedAt: Long,
@@ -33,10 +32,7 @@ class RecoverySessionRepository(
                 recoveryType = recoveryType,
             ),
         )
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid != null) {
-            runCatching { RecoverySessionCloudSync().sync(recoverySessionDao, uid) }
-        }
+        onBackupRelevantDataChanged()
         return newId
     }
 

@@ -20,10 +20,6 @@
          Find it in Firebase Console -> Project settings -> General -> SDK setup,
          OR in Google Cloud Console -> APIs & Services -> Credentials. -->
     <string name="default_web_client_id">444957206710-hvmhd1rnmnukhddmkjks1k6pjp8a7ctc.apps.googleusercontent.com</string>
-
-    <string name="uninstall_protection_admin_label">Impulsive uninstall protection</string>
-    <string name="uninstall_protection_admin_description">Adds an extra confirmation step before removing Impulsive during weak moments.</string>
-
     <!-- Notification channels -->
     <string name="notif_channel_monitoring_name">Impulsive protection</string>
     <string name="notif_channel_monitoring_description">Shows that Impulsive is actively checking protected apps.</string>
@@ -41,14 +37,45 @@
     <!-- Blocked attempt / full-screen notifications -->
     <string name="notif_blocked_attempt_title">Impulsive stepped in</string>
     <string name="notif_blocked_attempt_body">%1$s is protected right now. Tap to return to Impulsive.</string>
+    <!-- Blocked attempt: rotating variants (human, non-judgmental, harm-reduction voice).
+         Every _body string MUST keep the %1$s placeholder for the app label. -->
+    <string name="notif_blocked_attempt_title_1">Hey, quick pause</string>
+    <string name="notif_blocked_attempt_body_1">You reached for %1$s out of habit. Want to check in with yourself first?</string>
+    <string name="notif_blocked_attempt_title_2">Still here with you</string>
+    <string name="notif_blocked_attempt_body_2">%1$s can wait a minute. What are you actually after right now?</string>
+    <string name="notif_blocked_attempt_title_3">One breath</string>
+    <string name="notif_blocked_attempt_body_3">The urge to open %1$s will pass either way. Tap to ride it out with Impulsive.</string>
+    <string name="notif_blocked_attempt_title_4">Small moment</string>
+    <string name="notif_blocked_attempt_body_4">You don\'t have to act on this. Want to do something kinder than %1$s?</string>
+    <string name="notif_blocked_attempt_title_5">No judgment</string>
+    <string name="notif_blocked_attempt_body_5">Opening %1$s is just a pattern, not a failing. Let\'s take a beat.</string>
+    <string name="notif_blocked_attempt_title_6">Hey you</string>
+    <string name="notif_blocked_attempt_body_6">The pull toward %1$s is real, and so is your choice. Tap to sit with it.</string>
+    <string name="notif_blocked_attempt_title_7">Quick gut-check</string>
+    <string name="notif_blocked_attempt_body_7">Is %1$s the thing you meant to open, or the thing habit opened?</string>
+    <string name="notif_blocked_attempt_title_8">Worth a pause</string>
+    <string name="notif_blocked_attempt_body_8">Give %1$s thirty seconds of second-thought. Future-you might thank you.</string>
     <string name="notif_block_fullscreen_title">Pause before %1$s</string>
     <string name="notif_block_fullscreen_body">Tap to take a moment with Impulsive.</string>
+    <string name="notif_action_game">Game</string>
+    <string name="notif_action_reading">Reading</string>
+    <string name="notif_protection_recovery_title">Protection needs attention</string>
+    <string name="notif_protection_recovery_body">Open Impulsive to restore protection.</string>
 
     <!-- Release window notifications -->
     <string name="notif_release_window_open_title">Release window is open</string>
     <string name="notif_release_window_open_body">Protection is paused until %1$s.</string>
     <string name="notif_protection_resumed_title">Protection is back on</string>
     <string name="notif_protection_resumed_body">Protected apps are being checked again.</string>
+    <string name="auth_conflict_title">This %1$s account already has an Impulsive account</string>
+    <string name="auth_conflict_body">If you continue, you\'ll switch to that account and sign out of guest mode. Progress saved as a guest on this device won\'t carry over. To keep your guest progress, link a different %1$s account instead.</string>
+    <string name="auth_conflict_signed_in_as">Signed in as %1$s</string>
+    <string name="auth_conflict_switch">Switch account</string>
+    <string name="auth_conflict_cancel">Cancel</string>
+    <string name="notif_usage_access_lost_title">Protection is not working</string>
+    <string name="notif_usage_access_lost_body">Usage access was turned off, so protected apps cannot be blocked. Tap to turn it back on for Impulsive.</string>
+    <string name="notif_vpn_consent_lost_title">Website protection is not working</string>
+    <string name="notif_vpn_consent_lost_body">VPN permission was removed, usually by another VPN app. Tap to allow Impulsive again.</string>
 
     <!-- Block screen -->
     <string name="block_screen_headline_protected">You are protected right now</string>

@@ -5,6 +5,7 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.impulsive.app.backend.service.protection.ProtectionNotificationGate
 import java.util.concurrent.TimeUnit
 
 class JournalReminderScheduler(context: Context) {
@@ -48,6 +49,9 @@ class JournalReminderScheduler(context: Context) {
 
     fun cancel(noteId: Long) {
         if (noteId <= 0L) return
+        ProtectionNotificationGate.cancelQueued(
+            JournalReminderWorker.notificationId(noteId),
+        )
         workManager.cancelUniqueWork(uniqueWorkName(noteId))
     }
 

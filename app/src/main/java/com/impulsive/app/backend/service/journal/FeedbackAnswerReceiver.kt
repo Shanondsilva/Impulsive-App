@@ -7,6 +7,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.impulsive.app.backend.data.repository.FeedbackResponseRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.domain.model.journal.FeedbackPrompt
+import com.impulsive.app.backend.service.protection.ProtectionNotificationGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,6 +80,7 @@ class FeedbackAnswerReceiver : BroadcastReceiver() {
                     )
                 }
 
+                ProtectionNotificationGate.cancelQueued(notificationId)
                 NotificationManagerCompat
                     .from(appContext)
                     .cancel(notificationId)

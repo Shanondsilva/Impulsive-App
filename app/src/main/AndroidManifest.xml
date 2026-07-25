@@ -5,7 +5,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission
@@ -13,6 +12,11 @@
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Impulsive does not use the Google Play services Advertising ID.
+         Remove any transitive SDK declaration from the final merged manifest. -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
 
     <queries>
         <intent>
@@ -26,9 +30,12 @@
 
     <application
         android:name=".ImpulsiveApplication"
-        android:allowBackup="false"
-        android:fullBackupContent="false"
+        android:allowBackup="true"
+        android:backupAgent=".backend.data.restore.ImpulsiveBackupAgent"
+        android:fullBackupOnly="true"
+        android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Impulsive"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -87,6 +94,7 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
@@ -94,20 +102,6 @@
             android:name=".backend.service.journal.FeedbackAnswerReceiver"
             android:enabled="true"
             android:exported="false" />
-
-        <receiver
-            android:name=".security.antibypass.ImpulsiveDeviceAdminReceiver"
-            android:label="@string/uninstall_protection_admin_label"
-            android:description="@string/uninstall_protection_admin_description"
-            android:permission="android.permission.BIND_DEVICE_ADMIN"
-            android:exported="true">
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/impulsive_device_admin" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-            </intent-filter>
-        </receiver>
 
         <!-- ===== Facebook Login SDK ===== -->
         <!-- Facebook Login SDK config is loaded from strings.xml.
@@ -119,6 +113,14 @@
         <meta-data
             android:name="com.facebook.sdk.ClientToken"
             android:value="@string/facebook_client_token" />
+        <!-- Impulsive uses Facebook SDK for authentication only.
+             Disable automatic Facebook App Events and advertiser-ID collection. -->
+        <meta-data
+            android:name="com.facebook.sdk.AutoLogAppEventsEnabled"
+            android:value="false" />
+        <meta-data
+            android:name="com.facebook.sdk.AdvertiserIDCollectionEnabled"
+            android:value="false" />
 
         <activity
             android:name="com.facebook.FacebookActivity"

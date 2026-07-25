@@ -16,15 +16,16 @@ internal object AppCheckInitializer {
 
         appCheck.setTokenAutoRefreshEnabled(true)
 
-        appCheck.getAppCheckToken(true)
-            .addOnSuccessListener { token ->
-                Log.d(
-                    TAG,
-                    "App Check token exchange SUCCESS. tokenLength=${token.token.length} expireTimeMillis=${token.expireTimeMillis}",
-                )
+        appCheck.getAppCheckToken(false)
+            .addOnSuccessListener {
+                Log.d(TAG, "App Check token exchange SUCCESS.")
             }
             .addOnFailureListener { error ->
-                Log.e(TAG, "App Check token exchange FAILED.", error)
+                Log.e(
+                    TAG,
+                    "App Check token exchange FAILED " +
+                        "(exception=${error.javaClass.simpleName}).",
+                )
             }
     }
 }

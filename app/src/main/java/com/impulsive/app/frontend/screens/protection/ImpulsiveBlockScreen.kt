@@ -14,15 +14,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,6 +35,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -111,6 +117,14 @@ fun ImpulsiveBlockScreen(
                     .padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                Image(
+                    painter = painterResource(R.drawable.impulsive_logo),
+                    contentDescription = "Impulsive logo",
+                    modifier = Modifier
+                        .size(56.dp)
+                        .align(Alignment.CenterHorizontally),
+                    contentScale = ContentScale.Fit,
+                )
                 Text(
                     text = if (windowSnapshot.isProtectionPaused) {
                         stringResource(R.string.block_screen_headline_paused)
@@ -176,6 +190,10 @@ fun ImpulsiveBlockScreen(
                             Button(
                                 onClick = onStartControlTask,
                                 modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFD0C3F1),
+                                    contentColor = Color(0xFF2F2637),
+                                ),
                             ) {
                                 Text(stringResource(R.string.block_screen_btn_start_task))
                             }
@@ -183,6 +201,10 @@ fun ImpulsiveBlockScreen(
                             Button(
                                 onClick = onStartReadingTask,
                                 modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFD0C3F1),
+                                    contentColor = Color(0xFF2F2637),
+                                ),
                             ) {
                                 Text(stringResource(R.string.block_screen_btn_start_reading_task))
                             }

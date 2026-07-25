@@ -15,6 +15,7 @@ import com.impulsive.app.backend.data.repository.MoveDirection
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.service.journal.FeedbackAnswerReceiver
+import com.impulsive.app.backend.service.protection.ProtectionNotificationGate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -536,6 +537,9 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
                             .FeedbackAnswerPoints,
                     )
 
+                ProtectionNotificationGate.cancelQueued(
+                    FeedbackAnswerReceiver.FeedbackNotificationId,
+                )
                 NotificationManagerCompat
                     .from(
                         getApplication<Application>(),
@@ -550,24 +554,18 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun showPlayStoreRatingPromptLater() {
+    fun consumeInAppReviewEligibility(
+        onConsumed: () -> Unit,
+    ) {
         viewModelScope.launch {
-            playStoreRatingPromptDataSource
-                .showLater()
-        }
-    }
+            val consumed = runCatching {
+                playStoreRatingPromptDataSource
+                    .consumeInAppReviewEligibility()
+            }.getOrDefault(false)
 
-    fun neverShowPlayStoreRatingPromptAgain() {
-        viewModelScope.launch {
-            playStoreRatingPromptDataSource
-                .neverShowAgain()
-        }
-    }
-
-    fun markPlayStoreRatingOpened() {
-        viewModelScope.launch {
-            playStoreRatingPromptDataSource
-                .markRatedOnPlayStore()
+            if (consumed) {
+                onConsumed()
+            }
         }
     }
 

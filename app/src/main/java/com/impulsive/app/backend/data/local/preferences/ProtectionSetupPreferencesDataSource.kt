@@ -25,11 +25,13 @@ class ProtectionSetupPreferencesDataSource(
             usageAccessEnabled = preferences[UsageAccessEnabledKey] ?: false,
             selectedBlockedAppPackageNames =
                 preferences[SelectedBlockedAppPackageNamesKey].toStringSet(),
+            websiteProtectedAppPackageNames =
+                preferences[WebsiteProtectedAppPackageNamesKey].toStringSet(),
+            appProtectionMonitorEnabled = preferences[AppProtectionMonitorEnabledKey] ?: true,
             websiteProtectionEnabled = preferences[WebsiteProtectionEnabledKey] ?: false,
             websiteProtectionAlwaysOn = preferences[WebsiteProtectionAlwaysOnKey] ?: false,
             interruptionPermissionEnabled = preferences[InterruptionPermissionEnabledKey] ?: false,
             backgroundActivityEnabled = preferences[BackgroundActivityEnabledKey] ?: false,
-            uninstallProtectionEnabled = preferences[UninstallProtectionEnabledKey] ?: false,
             notificationPermissionEnabled = preferences[NotificationPermissionEnabledKey] ?: false,
             skippedSetupItems = preferences[SkippedSetupItemsKey].toProtectionSetupItemSet(),
         )
@@ -54,6 +56,27 @@ class ProtectionSetupPreferencesDataSource(
                 preferences[SelectedBlockedAppPackageNamesKey] = cleanedPackageNames.toStoredValue()
                 preferences.removeSkippedItem(ProtectionSetupItem.BlockedApps)
             }
+        }
+    }
+
+    suspend fun setWebsiteProtectedAppPackageNames(packageNames: Set<String>) {
+        dataStore.edit { preferences ->
+            val cleaned = packageNames
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .toSortedSet()
+
+            if (cleaned.isEmpty()) {
+                preferences.remove(WebsiteProtectedAppPackageNamesKey)
+            } else {
+                preferences[WebsiteProtectedAppPackageNamesKey] = cleaned.toStoredValue()
+            }
+        }
+    }
+
+    suspend fun setAppProtectionMonitorEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[AppProtectionMonitorEnabledKey] = enabled
         }
     }
 
@@ -84,12 +107,7 @@ class ProtectionSetupPreferencesDataSource(
         }
     }
 
-    suspend fun setUninstallProtectionEnabled(enabled: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[UninstallProtectionEnabledKey] = enabled
-            if (enabled) preferences.removeSkippedItem(ProtectionSetupItem.UninstallProtection)
-        }
-    }
+
 
     suspend fun setNotificationPermissionEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
@@ -155,11 +173,13 @@ class ProtectionSetupPreferencesDataSource(
         val UsageAccessEnabledKey = booleanPreferencesKey("usage_access_enabled")
         val SelectedBlockedAppPackageNamesKey =
             stringPreferencesKey("selected_blocked_app_package_names")
+        val WebsiteProtectedAppPackageNamesKey =
+            stringPreferencesKey("website_protected_app_package_names")
+        val AppProtectionMonitorEnabledKey = booleanPreferencesKey("app_protection_monitor_enabled")
         val WebsiteProtectionEnabledKey = booleanPreferencesKey("website_protection_enabled")
         val WebsiteProtectionAlwaysOnKey = booleanPreferencesKey("website_protection_always_on")
         val InterruptionPermissionEnabledKey = booleanPreferencesKey("interruption_permission_enabled")
         val BackgroundActivityEnabledKey = booleanPreferencesKey("background_activity_enabled")
-        val UninstallProtectionEnabledKey = booleanPreferencesKey("uninstall_protection_enabled")
         val NotificationPermissionEnabledKey = booleanPreferencesKey("notification_permission_enabled")
         val SkippedSetupItemsKey = stringPreferencesKey("skipped_setup_items")
     }

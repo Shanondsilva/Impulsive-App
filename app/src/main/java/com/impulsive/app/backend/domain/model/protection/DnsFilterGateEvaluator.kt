@@ -11,6 +11,7 @@ object DnsFilterGateEvaluator {
     enum class Blocker {
         PrivateDnsActive,
         AnotherVpnActive,
+        LockdownModeActive,
     }
 
     data class GateResult(
@@ -22,10 +23,12 @@ object DnsFilterGateEvaluator {
     fun evaluate(
         privateDnsBypassesFilter: Boolean,
         anotherVpnActive: Boolean,
+        lockdownModeActive: Boolean = false,
     ): GateResult {
         val blockers = buildList {
             if (privateDnsBypassesFilter) add(Blocker.PrivateDnsActive)
             if (anotherVpnActive) add(Blocker.AnotherVpnActive)
+            if (lockdownModeActive) add(Blocker.LockdownModeActive)
         }
         return GateResult(blockers)
     }

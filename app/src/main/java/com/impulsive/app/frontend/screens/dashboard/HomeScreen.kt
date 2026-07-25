@@ -183,9 +183,9 @@ fun HomeScreen(
 ) {
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
-    val websiteProtectionPlusUnlocked by remember(premiumViewModel) {
-        premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
-    }.collectAsStateWithLifecycle()
+    val websiteProtectionPlusUnlocked by premiumViewModel
+        .hasFeature(PremiumFeature.VpnWebsiteBlocker)
+        .collectAsStateWithLifecycle()
     val displayName = state.answers.name.takeIf { it.isNotBlank() } ?: "friend"
     val avatar = AvatarStyle.fromId(state.answers.avatarId)
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -225,17 +225,21 @@ fun HomeScreen(
     var bodyModeSheetVisible by remember { mutableStateOf(false) }
     var soulModeSheetVisible by remember { mutableStateOf(false) }
     var websiteProtectionCardDismissedThisSession by rememberSaveable { mutableStateOf(false) }
-    val shouldShowWebsiteProtectionHomeCard =
-        protectionSetupState.isLoaded &&
+    // A paid user should always see their website-protection control once
+    // settings have loaded, whether or not they also set up app blocking:
+    // it is the entry point to turning the purchased feature on and off.
+    // The free upsell card keeps the original prerequisites so it only
+    // appears in the app-blocking context, and only until dismissed or
+    // enabled.
+    val shouldShowWebsiteProtectionHomeCard = protectionSetupState.isLoaded &&
+        if (websiteProtectionPlusUnlocked) {
+            true
+        } else {
             protectionSetupState.usageAccessEnabled &&
-            protectionSetupState.blockedAppsSelected &&
-            (
-                websiteProtectionPlusUnlocked ||
-                    (
-                        !protectionSetupState.websiteProtectionEnabled &&
-                            !websiteProtectionCardDismissedThisSession
-                    )
-            )
+                protectionSetupState.blockedAppsSelected &&
+                !protectionSetupState.websiteProtectionEnabled &&
+                !websiteProtectionCardDismissedThisSession
+        }
     val bottomNavReservedSpace = 104.dp
     val startRecommendedMindTask = {
         when (recommendedMindTaskType) {
@@ -1319,7 +1323,7 @@ private fun WebsiteProtectionHomeCard(
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = "Plus · £2.99/month",
+                    text = "Plus · from £4.99/month",
                     color = palette.actionText,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,

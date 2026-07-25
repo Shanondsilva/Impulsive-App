@@ -39,4 +39,7 @@ interface RecoverySessionDao {
 
     @Query("DELETE FROM recovery_sessions WHERE startedAt = :startedAt AND completedAt = :completedAt")
     suspend fun deleteByContentKey(startedAt: Long, completedAt: Long): Int
+
+    @Query("DELETE FROM recovery_sessions")
+    suspend fun clearAllForRestore(): Int
 }

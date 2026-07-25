@@ -27,19 +27,49 @@ import com.google.firebase.auth.FacebookAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
 import com.impulsive.app.R
-import com.impulsive.app.backend.data.sync.UserCloudDataEraser
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.auth.AuthUser
+import com.impulsive.app.backend.service.firebase.AppCheckGatedCallResult
+import com.impulsive.app.backend.service.firebase.runAfterAppCheckReadiness
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
+
+internal fun linkedAuthProviders(
+    providerIds: Iterable<String>,
+    isAnonymous: Boolean,
+    forced: AuthProvider? = null,
+): Set<AuthProvider> = buildSet {
+    providerIds.forEach { providerId ->
+        when (providerId) {
+            GoogleAuthProvider.PROVIDER_ID -> add(AuthProvider.Google)
+            EmailAuthProvider.PROVIDER_ID -> add(AuthProvider.Email)
+            FacebookAuthProvider.PROVIDER_ID -> add(AuthProvider.Facebook)
+        }
+    }
+    if (isAnonymous) add(AuthProvider.Guest)
+    if (forced != null) add(forced)
+}
+
+internal fun requireSuccessfulAccountDeletionResponse(data: Any?) {
+    val payload = data as? Map<*, *>
+        ?: throw IllegalStateException("The deletion service returned an invalid response.")
+    if (payload["success"] != true || payload["authUserDeleted"] != true) {
+        throw IllegalStateException("The deletion service did not finish deleting the account.")
+    }
+}
 
 /**
  * Firebase Authentication implementation of [AuthRepository].
@@ -54,11 +84,25 @@ class FirebaseAuthRepository(
 ) : AuthRepository {
 
     private val credentialManager: CredentialManager = CredentialManager.create(appContext)
-    private val facebookCallbackManager: CallbackManager = CallbackManager.Factory.create()
 
     override val currentUser: Flow<AuthUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth ->
-            trySend(auth.currentUser?.verifiedAuthUserOrNull())
+            val observedUser = auth.currentUser
+            if (observedUser == null) {
+                trySend(null)
+            } else {
+                launch {
+                    // A restored Firebase session can notify before providerData has
+                    // been hydrated. Reload before publishing the domain model so a
+                    // federated provider is present after process death as well as
+                    // immediately after an interactive sign-in.
+                    runCatching { observedUser.reload().await() }
+                    val refreshedUser = firebaseAuth.currentUser
+                    if (refreshedUser?.uid == observedUser.uid) {
+                        trySend(refreshedUser.verifiedAuthUserOrNull())
+                    }
+                }
+            }
         }
         firebaseAuth.addAuthStateListener(listener)
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
@@ -183,6 +227,55 @@ class FirebaseAuthRepository(
         e.toAuthError(providerName = "Email")
     }
 
+    override suspend fun linkEmailAccount(email: String, password: String): AuthResult {
+        firebaseAuth.currentUser
+            ?: return AuthResult.Error("Sign in before connecting an email account.")
+
+        val normalizedEmail = email.trim()
+
+        if (normalizedEmail.isBlank()) {
+            return AuthResult.Error("Enter your email address.")
+        }
+
+        if (password.isBlank()) {
+            return AuthResult.Error("Enter your password.")
+        }
+
+        val credential = EmailAuthProvider.getCredential(normalizedEmail, password)
+
+        return when (
+            val result = linkOrSignInWithCredential(
+                provider = AuthProvider.Email,
+                providerId = EmailAuthProvider.PROVIDER_ID,
+                credential = credential,
+            )
+        ) {
+            is AuthResult.Success -> {
+                val linkedUser = firebaseAuth.currentUser
+                    ?: return AuthResult.Error("Email account linking returned no user.")
+
+                if (linkedUser.hasEmailProvider() && !linkedUser.isEmailVerified) {
+                    runCatching {
+                        linkedUser.sendEmailVerification(
+                            emailVerificationActionCodeSettings(),
+                        ).await()
+                    }.getOrElse { error ->
+                        val exception = error as? Exception ?: Exception(error)
+                        return exception.toAuthError(providerName = "Email")
+                    }
+
+                    AuthResult.EmailVerificationPending(
+                        linkedUser.email ?: normalizedEmail,
+                    )
+                } else {
+                    result
+                }
+            }
+
+            else -> result
+        }
+    }
+
     override suspend fun signInWithEmail(email: String, password: String): AuthResult {
         return try {
             val result = firebaseAuth.signInWithEmailAndPassword(email.trim(), password).await()
@@ -223,7 +316,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun signInWithFacebook(activity: Activity): AuthResult {
-        return when (val result = getFacebookFirebaseCredential(activity)) {
+        return when (val result = getFacebookFirebaseCredential(activity, reuseExistingSession = true)) {
             ProviderCredentialResult.Cancelled -> AuthResult.Cancelled
             is ProviderCredentialResult.Error -> result.result
             is ProviderCredentialResult.Success -> try {
@@ -238,7 +331,7 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun linkFacebookAccount(activity: Activity): AuthResult {
-        return when (val result = getFacebookFirebaseCredential(activity)) {
+        return when (val result = getFacebookFirebaseCredential(activity, reuseExistingSession = true)) {
             ProviderCredentialResult.Cancelled -> AuthResult.Cancelled
             is ProviderCredentialResult.Error -> result.result
             is ProviderCredentialResult.Success -> linkOrSignInWithCredential(
@@ -272,58 +365,63 @@ class FirebaseAuthRepository(
             }
         }
 
-        val loginOutcome = suspendCancellableCoroutine<FacebookLoginOutcome> { cont ->
-            val loginManager = LoginManager.getInstance()
+        val loginOutcome = withTimeoutOrNull(FacebookLoginTimeoutMillis) {
+            suspendCancellableCoroutine<FacebookLoginOutcome> { cont ->
+                val loginManager = LoginManager.getInstance()
 
-            loginManager.registerCallback(
-                facebookCallbackManager,
-                object : FacebookCallback<LoginResult> {
-                    override fun onSuccess(result: LoginResult) {
-                        loginManager.unregisterCallback(facebookCallbackManager)
-                        if (cont.isActive) {
-                            cont.resume(FacebookLoginOutcome.Success(result.accessToken))
+                loginManager.registerCallback(
+                    facebookCallbackManager,
+                    object : FacebookCallback<LoginResult> {
+                        override fun onSuccess(result: LoginResult) {
+                            loginManager.unregisterCallback(facebookCallbackManager)
+                            if (cont.isActive) {
+                                cont.resume(FacebookLoginOutcome.Success(result.accessToken))
+                            }
                         }
-                    }
 
-                    override fun onCancel() {
-                        loginManager.unregisterCallback(facebookCallbackManager)
-                        if (cont.isActive) {
-                            cont.resume(FacebookLoginOutcome.Cancelled)
+                        override fun onCancel() {
+                            loginManager.unregisterCallback(facebookCallbackManager)
+                            if (cont.isActive) {
+                                cont.resume(FacebookLoginOutcome.Cancelled)
+                            }
                         }
-                    }
 
-                    override fun onError(error: FacebookException) {
-                        loginManager.unregisterCallback(facebookCallbackManager)
-                        if (cont.isActive) {
-                            cont.resume(
-                                FacebookLoginOutcome.Error(
-                                    message = error.localizedMessage ?: "Facebook sign-in failed.",
-                                    cause = error,
-                                ),
-                            )
+                        override fun onError(error: FacebookException) {
+                            loginManager.unregisterCallback(facebookCallbackManager)
+                            if (cont.isActive) {
+                                cont.resume(
+                                    FacebookLoginOutcome.Error(
+                                        message = error.localizedMessage ?: "Facebook sign-in failed.",
+                                        cause = error,
+                                    ),
+                                )
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
 
-            try {
-                loginManager.logInWithReadPermissions(activity, listOf("public_profile"))
-            } catch (e: Exception) {
-                loginManager.unregisterCallback(facebookCallbackManager)
-                if (cont.isActive) {
-                    cont.resume(
-                        FacebookLoginOutcome.Error(
-                            message = e.localizedMessage ?: "Facebook sign-in failed.",
-                            cause = e,
-                        ),
-                    )
+                try {
+                    loginManager.logInWithReadPermissions(activity, listOf("public_profile"))
+                } catch (e: Exception) {
+                    loginManager.unregisterCallback(facebookCallbackManager)
+                    if (cont.isActive) {
+                        cont.resume(
+                            FacebookLoginOutcome.Error(
+                                message = e.localizedMessage ?: "Facebook sign-in failed.",
+                                cause = e,
+                            ),
+                        )
+                    }
+                }
+
+                cont.invokeOnCancellation {
+                    loginManager.unregisterCallback(facebookCallbackManager)
                 }
             }
-
-            cont.invokeOnCancellation {
-                loginManager.unregisterCallback(facebookCallbackManager)
-            }
-        }
+        } ?: FacebookLoginOutcome.Error(
+            message = "Facebook did not return a sign-in result. Please try again.",
+            cause = null,
+        )
 
         val accessToken = when (loginOutcome) {
             FacebookLoginOutcome.Cancelled -> return ProviderCredentialResult.Cancelled
@@ -354,18 +452,128 @@ class FirebaseAuthRepository(
         LoginManager.getInstance().logOut()
     }
 
-    override suspend fun deleteAccount(): AccountDeletionResult {
-        val user = firebaseAuth.currentUser ?: return AccountDeletionResult.Success
+    override suspend fun validateCurrentSession(): SessionValidationResult {
+        val user = firebaseAuth.currentUser
+            ?: return SessionValidationResult.NoSession
+
         return try {
-            UserCloudDataEraser().eraseAll(user.uid)
-            user.delete().await()
+            /*
+             * reload() performs a round-trip to Firebase rather than trusting the
+             * locally cached FirebaseUser.
+             */
+            user.reload().await()
+
+            SessionValidationResult.Valid
+        } catch (error: FirebaseAuthInvalidUserException) {
+            /*
+             * FirebaseAuthInvalidUserException covers several different invalid
+             * account states. Only ERROR_USER_NOT_FOUND proves that the account
+             * itself no longer exists.
+             *
+             * Disabled accounts, expired/revoked credentials, and every other
+             * invalid-user result MUST NOT cause destructive local-data deletion.
+             */
+            if (error.errorCode == "ERROR_USER_NOT_FOUND") {
+                SessionValidationResult.RemotelyDeleted
+            } else {
+                SessionValidationResult.Invalid
+            }
+        } catch (error: Exception) {
+            /*
+             * Network failures and unexpected/transient Firebase failures must
+             * never sign the user out or erase their local data.
+             */
+            SessionValidationResult.TransientFailure
+        }
+    }
+
+    override suspend fun hasValidSession(): Boolean {
+        return when (validateCurrentSession()) {
+            SessionValidationResult.Valid,
+            SessionValidationResult.TransientFailure,
+            -> true
+
+            SessionValidationResult.NoSession -> false
+
+            SessionValidationResult.RemotelyDeleted,
+            SessionValidationResult.Invalid,
+            -> {
+                /*
+                 * Preserve the existing login-screen behavior: a definitively
+                 * invalid persisted session cannot auto-skip the login screen.
+                 *
+                 * This method does NOT delete local application data.
+                 */
+                runCatching { signOut() }
+                false
+            }
+        }
+    }
+
+    private suspend fun deleteAccountThroughBackend() {
+        /*
+         * eraseUserData enforces BOTH Firebase Auth and App Check. If either
+         * token is missing or stale, the backend rejects the call with the raw
+         * code UNAUTHENTICATED before the function body runs - which previously
+         * surfaced to the user as "Could not delete account, unauthenticated".
+         *
+         * 1. Force-refresh the Firebase ID token so request.auth is populated.
+         * 2. Wait for App Check readiness (same gate BillingManager uses).
+         * 3. Translate UNAUTHENTICATED into an actionable message.
+         */
+        firebaseAuth.currentUser?.getIdToken(true)?.await()
+
+        val gatedResult = runAfterAppCheckReadiness {
+            try {
+                FirebaseFunctions.getInstance(FunctionsRegion)
+                    .getHttpsCallable(EraseUserDataFunction)
+                    .call()
+                    .await()
+            } catch (e: FirebaseFunctionsException) {
+                if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED) {
+                    throw IllegalStateException(
+                        "Your sign-in couldn't be verified just now. Check your " +
+                            "internet connection and try again. If it keeps " +
+                            "happening, sign out, sign back in, and retry.",
+                        e,
+                    )
+                }
+                throw e
+            }
+        }
+
+        val response = when (gatedResult) {
+            is AppCheckGatedCallResult.Executed -> gatedResult.value
+            is AppCheckGatedCallResult.TemporarilyUnavailable -> throw IllegalStateException(
+                "Impulsive couldn't verify this device right now. Check your " +
+                    "internet connection and try again in a moment.",
+                gatedResult.cause,
+            )
+        }
+
+        requireSuccessfulAccountDeletionResponse(response.getData())
+    }
+
+    override suspend fun deleteAccount(): AccountDeletionResult {
+        if (firebaseAuth.currentUser == null) {
+            return AccountDeletionResult.Success
+        }
+
+        return try {
+            /*
+             * eraseUserData now deletes both the known Firestore records and the
+             * Firebase Authentication user through the Admin SDK. Server-side
+             * deletion prevents an Auth account from surviving when client-side
+             * FirebaseUser.delete() would require a recent login.
+             */
+            deleteAccountThroughBackend()
+            firebaseAuth.signOut()
             LoginManager.getInstance().logOut()
             AccountDeletionResult.Success
-        } catch (e: FirebaseAuthRecentLoginRequiredException) {
-            AccountDeletionResult.ReauthRequired(inferProvider(user), user.email)
         } catch (e: Exception) {
             AccountDeletionResult.Error(
-                e.localizedMessage?.ifBlank { null } ?: "Could not delete your account.",
+                e.localizedMessage?.ifBlank { null }
+                    ?: "Could not delete your account.",
                 e,
             )
         }
@@ -392,8 +600,9 @@ class FirebaseAuthRepository(
                 // Anonymous users have no reauthentication credential, so attempt a
                 // direct delete and surface any failure.
                 return try {
-                    UserCloudDataEraser().eraseAll(user.uid)
-                    user.delete().await()
+                    deleteAccountThroughBackend()
+                    firebaseAuth.signOut()
+                    LoginManager.getInstance().logOut()
                     AccountDeletionResult.Success
                 } catch (e: Exception) {
                     AccountDeletionResult.Error(
@@ -412,8 +621,8 @@ class FirebaseAuthRepository(
             )
             is ProviderCredentialResult.Success -> try {
                 user.reauthenticate(credentialResult.credential).await()
-                UserCloudDataEraser().eraseAll(user.uid)
-                user.delete().await()
+                deleteAccountThroughBackend()
+                firebaseAuth.signOut()
                 LoginManager.getInstance().logOut()
                 AccountDeletionResult.Success
             } catch (e: Exception) {
@@ -451,7 +660,21 @@ class FirebaseAuthRepository(
             AuthResult.Success(linkedUser.toAuthUser(forced = provider))
         } catch (e: Exception) {
             if (e.isCredentialAlreadyLinkedError()) {
-                AuthResult.Error("This ${provider.displayName()} account is already linked to another Impulsive account.", e)
+                if (currentUser.isAnonymous) {
+                    // Guest hit an account that already exists. Offer a switch
+                    // instead of a dead end. The collision's updatedCredential
+                    // is preferred because Firebase refreshes it for reuse.
+                    val collision = e as? FirebaseAuthUserCollisionException
+                    pendingConflictCredential = collision?.updatedCredential ?: credential
+                    pendingConflictProvider = provider
+                    AuthResult.AccountConflict(
+                        provider = provider,
+                        providerDisplayName = provider.displayName(),
+                        existingAccountEmail = collision?.email,
+                    )
+                } else {
+                    AuthResult.Error("This ${provider.displayName()} account is already linked to another Impulsive account.", e)
+                }
             } else {
                 e.toAuthError(providerName = provider.displayName())
             }
@@ -482,23 +705,19 @@ class FirebaseAuthRepository(
     }
 
     private fun FirebaseUser.linkedAuthProviders(forced: AuthProvider? = null): Set<AuthProvider> {
-        val linked = providerData.mapNotNull { info ->
-            when (info.providerId) {
-                GoogleAuthProvider.PROVIDER_ID -> AuthProvider.Google
-                EmailAuthProvider.PROVIDER_ID -> AuthProvider.Email
-                FacebookAuthProvider.PROVIDER_ID -> AuthProvider.Facebook
-                else -> null
-            }
-        }.toMutableSet()
-
-        if (isAnonymous) linked += AuthProvider.Guest
-        if (forced != null) linked += forced
-
-        return linked
+        return linkedAuthProviders(
+            providerIds = providerData.map { it.providerId },
+            isAnonymous = isAnonymous,
+            forced = forced,
+        )
     }
 
     private fun FirebaseUser.verifiedAuthUserOrNull(): AuthUser? {
-        if (hasEmailProvider() && !isEmailVerified) return null
+        val hasVerifiedFederatedProvider = providerData.any {
+            it.providerId == GoogleAuthProvider.PROVIDER_ID ||
+                it.providerId == FacebookAuthProvider.PROVIDER_ID
+        }
+        if (hasEmailProvider() && !isEmailVerified && !hasVerifiedFederatedProvider) return null
         return toAuthUser()
     }
 
@@ -532,10 +751,75 @@ class FirebaseAuthRepository(
             msg.contains("invalid_client", ignoreCase = true)
     }
 
+    // Captured when linking collides with an existing account. Held here, not
+    // in AuthResult, so Firebase types never cross into UI code per
+    // PROJECT_STRUCTURE.md's separation rule.
+    @Volatile
+    private var pendingConflictCredential: AuthCredential? = null
+
+    @Volatile
+    private var pendingConflictProvider: AuthProvider = AuthProvider.Google
+
+    override suspend fun switchToExistingAccount(): AuthResult {
+        val credential = pendingConflictCredential
+            ?: return AuthResult.Error("Nothing to switch to. Try connecting the account again.")
+        val provider = pendingConflictProvider
+        val expectedProviderId = when (provider) {
+            AuthProvider.Google -> GoogleAuthProvider.PROVIDER_ID
+            AuthProvider.Facebook -> FacebookAuthProvider.PROVIDER_ID
+            AuthProvider.Email -> EmailAuthProvider.PROVIDER_ID
+            AuthProvider.Guest -> return AuthResult.Error(
+                "Guest is not valid for an account-conflict switch.",
+            )
+        }
+        val verificationError =
+            "The account switch did not persist. Please try connecting ${provider.displayName()} again."
+        return try {
+            // signInWithCredential replaces the session only on success, so the
+            // guest user is never signed out or deleted before this succeeds.
+            val signInResult = firebaseAuth.signInWithCredential(credential).await()
+            val signedInUser = signInResult.user
+                ?: return AuthResult.Error("${provider.displayName()} sign-in returned no user.")
+            val expectedUid = signedInUser.uid
+
+            signedInUser.reload().await()
+            val verifiedUser = firebaseAuth.currentUser
+                ?: return AuthResult.Error(verificationError)
+            verifiedUser.getIdToken(true).await()
+
+            if (
+                verifiedUser.uid != expectedUid ||
+                verifiedUser.isAnonymous ||
+                !verifiedUser.hasProvider(expectedProviderId)
+            ) {
+                return AuthResult.Error(verificationError)
+            }
+
+            if (provider == AuthProvider.Email && !verifiedUser.isEmailVerified) {
+                verifiedUser.sendEmailVerification(
+                    emailVerificationActionCodeSettings(),
+                ).await()
+
+                pendingConflictCredential = null
+                return AuthResult.EmailVerificationPending(verifiedUser.email)
+            }
+
+            pendingConflictCredential = null
+            AuthResult.Success(verifiedUser.toAuthUser(forced = provider))
+        } catch (e: Exception) {
+            e.toAuthError(providerName = provider.displayName())
+        }
+    }
+
+    override fun abandonAccountSwitch() {
+        pendingConflictCredential = null
+    }
+
     private fun Exception.isCredentialAlreadyLinkedError(): Boolean {
         val code = (this as? FirebaseAuthException)?.errorCode ?: return false
         return code == "ERROR_CREDENTIAL_ALREADY_IN_USE" ||
-            code == "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL"
+            code == "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" ||
+            code == "ERROR_EMAIL_ALREADY_IN_USE"
     }
 
     private fun AuthProvider.displayName(): String = when (this) {
@@ -574,6 +858,20 @@ class FirebaseAuthRepository(
     }
 
     private companion object {
+        // One CallbackManager for the whole process. MainActivity delivers
+        // Facebook's onActivityResult to the repository owned by the
+        // activity-scoped AuthViewModel, while a login flow may have
+        // registered its callback on a repository owned by a differently
+        // scoped AuthViewModel. With per-instance managers the result never
+        // reaches the registered callback and the Facebook coroutine never
+        // resumes. A single shared manager makes delivery instance
+        // independent. CallbackManager.Factory.create holds no Context, so
+        // this leaks nothing.
+        val facebookCallbackManager: CallbackManager = CallbackManager.Factory.create()
+
+        const val FunctionsRegion = "us-central1"
+        const val EraseUserDataFunction = "eraseUserData"
+        const val FacebookLoginTimeoutMillis = 60_000L
         const val EmailVerificationReturnUrl = "https://useimpulsive.com/auth/verified"
         const val AuthNotConfiguredMessage =
             "Authentication is not configured yet. Continue as guest for now."

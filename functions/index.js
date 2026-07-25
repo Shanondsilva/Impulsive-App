@@ -1,23 +1,39 @@
 const crypto = require("crypto");
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
+const {onRequest} = require("firebase-functions/v2/https");
+const {defineSecret} = require("firebase-functions/params");
+const {onMessagePublished} = require("firebase-functions/v2/pubsub");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const {google} = require("googleapis");
+const {
+  createFirestoreRtdnStore,
+  createRtdnProcessor,
+} = require("./subscriptionRtdn");
 
 admin.initializeApp();
 
 const db = admin.firestore();
 
 const PACKAGE_NAME = "com.impulsive.app";
-const PRODUCT_ID = "impulsive_plus_monthly";
+const MONTHLY_PRODUCT_ID = "impulsive_plus_monthly";
+const YEARLY_PRODUCT_ID = "impulsive_plus_yearly";
+const SUPPORTED_PRODUCT_IDS = new Set([
+  MONTHLY_PRODUCT_ID,
+  YEARLY_PRODUCT_ID,
+]);
 const REGION = "us-central1";
+const WEB_DELETE_SHARED_SECRET = defineSecret("WEB_DELETE_SHARED_SECRET");
+const PLAY_RTDN_TOPIC = "play-rtdn";
 const SERVICE_ACCOUNT =
   "impulsive-play-verifier@useimpulsive.iam.gserviceaccount.com";
 const TOKEN_HASH_ALGORITHM = "sha256";
 const MAX_PRODUCT_ID_LENGTH = 128;
 const MAX_PURCHASE_TOKEN_LENGTH = 4096;
 const DELETE_BATCH_SIZE = 450;
-const ERASE_USER_DATA_TIMEOUT_SECONDS = 120;
+// Journal deletion performs a paged walk of notes and each checklist
+// subcollection. Leave enough headroom for large, long-lived accounts.
+const ERASE_USER_DATA_TIMEOUT_SECONDS = 540;
 
 const ENTITLED_STATES = new Set([
   "SUBSCRIPTION_STATE_ACTIVE",
@@ -36,6 +52,25 @@ const publisher = google.androidpublisher({
   auth,
 });
 
+const rtdnStore = createFirestoreRtdnStore({
+  db,
+  fieldValue: admin.firestore.FieldValue,
+  packageName: PACKAGE_NAME,
+  logger,
+});
+
+const processPlayRtdn = createRtdnProcessor({
+  store: rtdnStore,
+  verifyPurchase: verifyPurchaseWithGoogle,
+  logger,
+  packageName: PACKAGE_NAME,
+  supportedProductIds: SUPPORTED_PRODUCT_IDS,
+  hashToken,
+  isRetryableError: (error) => {
+    return error instanceof HttpsError && error.code === "unavailable";
+  },
+});
+
 /**
  * Verifies a Google Play subscription purchase for the signed-in Firebase user.
  */
@@ -46,7 +81,7 @@ exports.verifyPlusSubscription = onCall(
       enforceAppCheck: true,
       maxInstances: 10,
       timeoutSeconds: 60,
-      memory: "256MiB",
+      memory: "512MiB",
     },
     async (request) => {
       const uid = request.auth && request.auth.uid;
@@ -60,11 +95,15 @@ exports.verifyPlusSubscription = onCall(
 
       const input = parseInput(request.data);
       const purchase = await verifyPurchaseWithGoogle(input.purchaseToken);
-      const entitlement = deriveEntitlement(purchase);
+      const entitlement = deriveEntitlement(
+          purchase,
+          input.productId,
+      );
 
       if (!entitlement.hasMatchingProduct) {
         logger.warn("Verified purchase did not contain Plus product.", {
           uid,
+          productId: entitlement.productId,
           subscriptionState: entitlement.subscriptionState,
         });
 
@@ -77,6 +116,7 @@ exports.verifyPlusSubscription = onCall(
       if (!entitlement.active) {
         logger.info("Verified purchase is not currently entitled.", {
           uid,
+          productId: entitlement.productId,
           subscriptionState: entitlement.subscriptionState,
           expiryTimeMillis: entitlement.expiryTimeMillis,
         });
@@ -87,18 +127,23 @@ exports.verifyPlusSubscription = onCall(
         );
       }
 
-      await acknowledgeIfNeeded(input.purchaseToken, purchase);
+      await acknowledgeIfNeeded(
+          input.purchaseToken,
+          purchase,
+          entitlement.productId,
+      );
       await saveEntitlement(uid, input.purchaseToken, purchase, entitlement);
 
       logger.info("Plus subscription verified.", {
         uid,
+        productId: entitlement.productId,
         subscriptionState: entitlement.subscriptionState,
         expiryTimeMillis: entitlement.expiryTimeMillis,
       });
 
       return {
         active: entitlement.active,
-        productId: PRODUCT_ID,
+        productId: entitlement.productId,
         subscriptionState: entitlement.subscriptionState,
         expiryTimeMillis: entitlement.expiryTimeMillis,
       };
@@ -106,12 +151,11 @@ exports.verifyPlusSubscription = onCall(
 );
 
 /**
- * Deletes all known Firestore data owned by the signed-in user.
+ * Deletes the signed-in user's known Firestore data and Firebase Auth account.
  */
 exports.eraseUserData = onCall(
     {
       region: REGION,
-      serviceAccount: SERVICE_ACCOUNT,
       enforceAppCheck: true,
       maxInstances: 5,
       timeoutSeconds: ERASE_USER_DATA_TIMEOUT_SECONDS,
@@ -129,9 +173,23 @@ exports.eraseUserData = onCall(
 
       try {
         const deleted = await eraseFirestoreDataForUser(uid);
+        let authUserDeleted = false;
 
-        logger.info("User Firestore data erased.", {
+        try {
+          await admin.auth().deleteUser(uid);
+          authUserDeleted = true;
+        } catch (error) {
+          if (!error || error.code !== "auth/user-not-found") {
+            throw error;
+          }
+
+          // Idempotent retry: the Firebase Auth user was already deleted.
+          authUserDeleted = true;
+        }
+
+        logger.info("User data and Firebase Auth account erased.", {
           uid,
+          authUserDeleted,
           checklistItems: deleted.checklistItems,
           journalNotes: deleted.journalNotes,
           recoverySessions: deleted.recoverySessions,
@@ -143,21 +201,385 @@ exports.eraseUserData = onCall(
         return {
           success: true,
           deleted,
+          authUserDeleted,
         };
       } catch (error) {
-        logger.error("Could not erase user Firestore data.", {
+        logger.error("Could not erase user account and data.", {
           uid,
           message: error && error.message,
+          appCheckPresent: Boolean(request.app),
+          appCheckAppId: request.app && request.app.appId,
         });
 
         throw new HttpsError(
             "internal",
-            "User data could not be erased.",
+            "User account and data could not be erased.",
         );
       }
     },
 );
 
+/**
+ * Server-to-server Firebase Authentication existence check for the website
+ * account-deletion request flow.
+ *
+ * This endpoint is never called directly by the browser. The Cloudflare Worker
+ * calls it with the same shared secret used by eraseUserByEmail.
+ *
+ * The Worker must keep the browser response identical whether the account
+ * exists or not, preventing account enumeration.
+ */
+exports.checkUserExistsByEmail = onRequest(
+    {
+      region: REGION,
+      maxInstances: 5,
+      timeoutSeconds: 30,
+      memory: "256MiB",
+      secrets: [WEB_DELETE_SHARED_SECRET],
+      cors: false,
+    },
+    async (req, res) => {
+      if (req.method !== "POST") {
+        res.status(405).json({
+          success: false,
+          error: "method_not_allowed",
+        });
+        return;
+      }
+
+      const authHeader = req.get("authorization") || "";
+      const provided = authHeader.startsWith("Bearer ") ?
+        authHeader.slice("Bearer ".length) :
+        "";
+      const expected = WEB_DELETE_SHARED_SECRET.value();
+
+      const providedBuf = Buffer.from(provided);
+      const expectedBuf = Buffer.from(expected);
+
+      const secretOk =
+        providedBuf.length === expectedBuf.length &&
+        crypto.timingSafeEqual(providedBuf, expectedBuf);
+
+      if (!expected || !secretOk) {
+        res.status(401).json({
+          success: false,
+          error: "unauthorized",
+        });
+        return;
+      }
+
+      const email =
+        req.body && typeof req.body.email === "string" ?
+          req.body.email.trim().toLowerCase() :
+          "";
+
+      if (!email || email.length > 254 || !email.includes("@")) {
+        res.status(400).json({
+          success: false,
+          error: "invalid_email",
+        });
+        return;
+      }
+
+      try {
+        await admin.auth().getUserByEmail(email);
+
+        res.status(200).json({
+          success: true,
+          exists: true,
+        });
+      } catch (error) {
+        if (error && error.code === "auth/user-not-found") {
+          res.status(200).json({
+            success: true,
+            exists: false,
+          });
+          return;
+        }
+
+        logger.error("checkUserExistsByEmail failed.", {
+          message: error && error.message,
+        });
+
+        res.status(500).json({
+          success: false,
+          error: "internal",
+        });
+      }
+    },
+);
+
+/**
+ * Server-to-server account erasure for website-initiated deletion.
+ *
+ * The public website cannot call the App-Check-protected eraseUserData onCall.
+ * Instead, its Cloudflare Worker (after verifying the user owns the email via a
+ * confirmation link) calls THIS endpoint with a shared secret. We look up the
+ * Firebase user by email and erase everything, reusing the same logic as the
+ * in-app delete. Never expose this secret client-side.
+ */
+exports.eraseUserByEmail = onRequest(
+    {
+      region: REGION,
+      maxInstances: 5,
+      timeoutSeconds: 120,
+      memory: "256MiB",
+      secrets: [WEB_DELETE_SHARED_SECRET],
+      cors: false,
+    },
+    async (req, res) => {
+      // Only POST.
+      if (req.method !== "POST") {
+        res.status(405).json({success: false, error: "method_not_allowed"});
+        return;
+      }
+
+      // Constant-time shared-secret check via Authorization: Bearer <secret>.
+      const authHeader = req.get("authorization") || "";
+      const provided = authHeader.startsWith("Bearer ") ?
+        authHeader.slice("Bearer ".length) : "";
+      const expected = WEB_DELETE_SHARED_SECRET.value();
+      const providedBuf = Buffer.from(provided);
+      const expectedBuf = Buffer.from(expected);
+      const secretOk = providedBuf.length === expectedBuf.length &&
+        crypto.timingSafeEqual(providedBuf, expectedBuf);
+      if (!expected || !secretOk) {
+        res.status(401).json({success: false, error: "unauthorized"});
+        return;
+      }
+
+      const email = req.body && typeof req.body.email === "string" ?
+        req.body.email.trim().toLowerCase() : "";
+      if (!email || email.length > 254 || !email.includes("@")) {
+        res.status(400).json({success: false, error: "invalid_email"});
+        return;
+      }
+
+      try {
+        let userRecord;
+        try {
+          userRecord = await admin.auth().getUserByEmail(email);
+        } catch (error) {
+          if (error && error.code === "auth/user-not-found") {
+            // Idempotent + non-enumerating: report success even if no account.
+            res.status(200).json({success: true, deleted: false});
+            return;
+          }
+          throw error;
+        }
+
+        const uid = userRecord.uid;
+        const deleted = await eraseFirestoreDataForUser(uid);
+        try {
+          await admin.auth().deleteUser(uid);
+        } catch (error) {
+          if (!error || error.code !== "auth/user-not-found") {
+            throw error;
+          }
+        }
+
+        logger.info("User erased via website deletion.", {uid, deleted});
+        res.status(200).json({success: true, deleted: true});
+      } catch (error) {
+        logger.error("eraseUserByEmail failed.", {
+          message: error && error.message,
+        });
+        res.status(500).json({success: false, error: "internal"});
+      }
+    },
+);
+
+/**
+ * Consumes Google Play Real-time Developer Notifications and refreshes
+ * the affected user's Plus entitlement from the authoritative Play state.
+ */
+exports.handlePlayRtdn = onMessagePublished(
+    {
+      topic: PLAY_RTDN_TOPIC,
+      region: REGION,
+      serviceAccount: SERVICE_ACCOUNT,
+      maxInstances: 5,
+      memory: "256MiB",
+      retry: true,
+    },
+    async (event) => {
+      return processPlayRtdn(event);
+    },
+);
+
+/**
+ * Returns the server-held Plus entitlement for the signed-in user and
+ * lazily downgrades records whose expiry has already passed.
+ */
+exports.checkPlusEntitlement = onCall(
+    {
+      region: REGION,
+      enforceAppCheck: true,
+      maxInstances: 10,
+      memory: "256MiB",
+    },
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+
+      if (!uid) {
+        throw new HttpsError(
+            "unauthenticated",
+            "You must be signed in to check your subscription.",
+        );
+      }
+
+      const userRef = db.collection("users").doc(uid);
+      const snapshot = await userRef.get();
+      const plus = snapshot.exists ? snapshot.get("plus") : null;
+
+      if (!plus || typeof plus !== "object") {
+        return {active: false};
+      }
+
+      const expiryTimeMillis = Number(plus.expiryTimeMillis) || 0;
+      const storedActive = plus.active === true;
+      const activeNow = storedActive && expiryTimeMillis > Date.now();
+
+      if (storedActive && !activeNow) {
+        await userRef.set(
+            {
+              plus: {
+                active: false,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+            },
+            {merge: true},
+        );
+
+        logger.info("Stale entitlement lazily downgraded.", {uid});
+      }
+
+      return {
+        active: activeNow,
+        productId: plus.productId || null,
+        subscriptionState: plus.subscriptionState ||
+          "SUBSCRIPTION_STATE_UNSPECIFIED",
+        expiryTimeMillis,
+      };
+    },
+);
+
+
+// ---------------------------------------------------------------------------
+// Account-scoped onboarding completion
+// ---------------------------------------------------------------------------
+
+exports.getOnboardingCompletion = onCall(
+    {
+      region: REGION,
+      enforceAppCheck: true,
+      maxInstances: 10,
+      memory: "256MiB",
+    },
+    async (request) => getOnboardingCompletionForRequest(request),
+);
+
+exports.markOnboardingCompleted = onCall(
+    {
+      region: REGION,
+      enforceAppCheck: true,
+      maxInstances: 10,
+      memory: "256MiB",
+    },
+    async (request) => markOnboardingCompletedForRequest(request),
+);
+
+/**
+ * Returns account-scoped onboarding completion for the authenticated user.
+ *
+ * @param {*} request Callable request.
+ * @param {*} firestore Firestore dependency.
+ * @return {Promise<{onboardingCompleted: boolean}>} Completion state.
+ */
+async function getOnboardingCompletionForRequest(request, firestore = db) {
+  const uid = request.auth && request.auth.uid;
+
+  if (!uid) {
+    throw new HttpsError(
+        "unauthenticated",
+        "You must be signed in to check onboarding status.",
+    );
+  }
+
+  assertEmptyCallableData(request.data);
+
+  const snapshot = await firestore.collection("users").doc(uid).get();
+
+  const onboardingCompleted = snapshot.exists &&
+    snapshot.get("account.onboardingCompleted") === true;
+
+  return {
+    onboardingCompleted,
+  };
+}
+
+/**
+ * Marks onboarding complete for the authenticated user.
+ *
+ * @param {*} request Callable request.
+ * @param {*} firestore Firestore dependency.
+ * @param {*} fieldValue Firestore FieldValue dependency.
+ * @return {Promise<{success: boolean, onboardingCompleted: boolean}>} Result.
+ */
+async function markOnboardingCompletedForRequest(
+    request,
+    firestore = db,
+    fieldValue = admin.firestore.FieldValue,
+) {
+  const uid = request.auth && request.auth.uid;
+
+  if (!uid) {
+    throw new HttpsError(
+        "unauthenticated",
+        "You must be signed in to update onboarding status.",
+    );
+  }
+
+  assertEmptyCallableData(request.data);
+
+  await firestore.collection("users").doc(uid).set(
+      {
+        account: {
+          onboardingCompleted: true,
+          onboardingCompletedAt:
+            fieldValue.serverTimestamp(),
+        },
+      },
+      {merge: true},
+  );
+
+  return {
+    success: true,
+    onboardingCompleted: true,
+  };
+}
+
+/**
+ * Rejects all client-controlled callable payload fields.
+ *
+ * @param {*} data Callable request data.
+ */
+function assertEmptyCallableData(data) {
+  if (data == null) {
+    return;
+  }
+
+  if (
+    typeof data !== "object" ||
+    Array.isArray(data) ||
+    Object.keys(data).length !== 0
+  ) {
+    throw new HttpsError(
+        "invalid-argument",
+        "This operation does not accept client data.",
+    );
+  }
+}
 /**
  * Validates and normalizes callable input.
  *
@@ -195,7 +617,7 @@ function parseInput(data) {
     );
   }
 
-  if (productId !== PRODUCT_ID) {
+  if (!SUPPORTED_PRODUCT_IDS.has(productId)) {
     throw new HttpsError(
         "invalid-argument",
         "The subscription product is not supported.",
@@ -261,7 +683,8 @@ async function verifyPurchaseWithGoogle(purchaseToken) {
 
     logger.error("Google Play verification failed.", {
       status,
-      message: error && error.message,
+      code: error && error.code,
+      name: error && error.name,
     });
 
     if (status >= 500 || status === 429) {
@@ -282,15 +705,16 @@ async function verifyPurchaseWithGoogle(purchaseToken) {
  * Derives the current Plus entitlement from a Google subscription purchase.
  *
  * @param {object} purchase Google Play subscription purchase.
+ * @param {string} expectedProductId Allowlisted expected Play product ID.
  * @return {object} Safe entitlement summary.
  */
-function deriveEntitlement(purchase) {
+function deriveEntitlement(purchase, expectedProductId) {
   const lineItems = Array.isArray(purchase.lineItems) ?
     purchase.lineItems :
     [];
 
   const matchingItems = lineItems.filter(
-      (item) => item && item.productId === PRODUCT_ID,
+      (item) => item && item.productId === expectedProductId,
   );
 
   const expiryTimeMillis = getLatestExpiryTimeMillis(matchingItems);
@@ -310,7 +734,7 @@ function deriveEntitlement(purchase) {
   return {
     active,
     hasMatchingProduct: matchingItems.length > 0,
-    productId: PRODUCT_ID,
+    productId: expectedProductId,
     subscriptionState,
     expiryTimeMillis,
   };
@@ -340,9 +764,10 @@ function getLatestExpiryTimeMillis(lineItems) {
  *
  * @param {string} purchaseToken Play purchase token.
  * @param {object} purchase Google Play subscription purchase.
+ * @param {string} productId Server-verified Play product ID.
  * @return {Promise<void>}
  */
-async function acknowledgeIfNeeded(purchaseToken, purchase) {
+async function acknowledgeIfNeeded(purchaseToken, purchase, productId) {
   if (purchase.acknowledgementState !== ACKNOWLEDGEMENT_PENDING) {
     return;
   }
@@ -350,14 +775,15 @@ async function acknowledgeIfNeeded(purchaseToken, purchase) {
   try {
     await publisher.purchases.subscriptions.acknowledge({
       packageName: PACKAGE_NAME,
-      subscriptionId: PRODUCT_ID,
+      subscriptionId: productId,
       token: purchaseToken,
       requestBody: {},
     });
   } catch (error) {
     logger.error("Google Play acknowledgement failed.", {
       status: getErrorStatus(error),
-      message: error && error.message,
+      code: error && error.code,
+      name: error && error.name,
     });
 
     throw new HttpsError(
@@ -408,7 +834,7 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
           {
             uid,
             packageName: PACKAGE_NAME,
-            productId: PRODUCT_ID,
+            productId: entitlement.productId,
             active: entitlement.active,
             subscriptionState: entitlement.subscriptionState,
             expiryTimeMillis: entitlement.expiryTimeMillis,
@@ -422,6 +848,7 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
         transaction.set(
             linkedTokenRef,
             {
+              uid,
               active: false,
               supersededByTokenHash: tokenHash,
               updatedAt,
@@ -435,7 +862,7 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
           {
             plus: {
               active: entitlement.active,
-              productId: PRODUCT_ID,
+              productId: entitlement.productId,
               subscriptionState: entitlement.subscriptionState,
               expiryTimeMillis: entitlement.expiryTimeMillis,
               purchaseTokenHash: tokenHash,
@@ -473,7 +900,9 @@ function assertTokenOwner(snapshot, uid, label) {
     return;
   }
 
-  if (snapshot.get("uid") !== uid) {
+  const existingUid = cleanString(snapshot.get("uid"));
+
+  if (existingUid && existingUid !== uid) {
     logger.warn("Purchase token ownership conflict.", {
       label,
     });
@@ -496,7 +925,9 @@ function assertLinkedTokenOwner(snapshot, uid) {
     return;
   }
 
-  if (snapshot.get("uid") !== uid) {
+  const existingUid = cleanString(snapshot.get("uid"));
+
+  if (existingUid && existingUid !== uid) {
     logger.warn("Linked purchase token ownership conflict.");
 
     throw new HttpsError(
@@ -520,6 +951,13 @@ function getErrorStatus(error) {
   );
 }
 
+if (process.env.NODE_ENV === "test") {
+  exports.__onboardingCompletionTest = {
+    assertEmptyCallableData,
+    getOnboardingCompletionForRequest,
+    markOnboardingCompletedForRequest,
+  };
+}
 /**
  * Deletes all known Firestore records owned by one Firebase Auth user.
  *

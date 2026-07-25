@@ -175,15 +175,35 @@ private val helpFaqCategories = listOf(
         items = listOf(
             HelpFaqItem(
                 question = "What information does Impulsive store?",
-                answer = "Impulsive stores the information needed for your account, preferences, protection setup, task history, rewards, and progress. The exact data available can depend on how you use and sign in to the app.",
+                answer = "Your recovery data stays on your device. Reset sessions, journal notes, difficult moment records, levels, streaks, game history, protection setup, and blocked websites are stored only in encrypted storage on your phone. Impulsive's servers keep only account, subscription, and security records, plus crash reports that help us fix bugs.",
             ),
             HelpFaqItem(
-                question = "How do I export my data?",
-                answer = "Open Settings, go to the privacy and account section, and choose Export data. Android will let you save or share the export file.",
+                question = "Does Impulsive store my recovery progress on its servers?",
+                answer = "No. Impulsive does not store recovery progress or behavioural history on its servers. You can read the full explanation in Settings under How your data is stored.",
+            ),
+            HelpFaqItem(
+                question = "How does backup and restore work?",
+                answer = "If Android backup is enabled on your phone, your device may back up selected Impulsive data through your own Google account, protected with encryption based on your lock screen where your device supports it. When you reinstall Impulsive or move to a new Android phone with the same Google account, your progress is restored automatically. Impulsive cannot see or access this backup.",
+            ),
+            HelpFaqItem(
+                question = "How do I export an encrypted backup?",
+                answer = "Open Settings, go to the privacy and account section, and choose Export my Impulsive backup. You will pick a password and a place to save the file. The file is encrypted with your password and is never uploaded by Impulsive.",
+            ),
+            HelpFaqItem(
+                question = "How do I import a backup on a new phone?",
+                answer = "Install Impulsive, then open Settings and choose Import Impulsive backup before you start using the app. Pick your backup file and enter the password you chose when it was created. Import is only available before you begin using Impulsive on a device, so existing progress is never duplicated or overwritten.",
+            ),
+            HelpFaqItem(
+                question = "What happens if I lose my backup password?",
+                answer = "The backup file cannot be opened without it. Nobody can recover the file, including Impulsive, because the password never leaves your hands. That is a deliberate part of how your privacy is protected.",
+            ),
+            HelpFaqItem(
+                question = "Does Impulsive see my browsing when website protection is on?",
+                answer = "No. Website protection filters requests directly on your device. Your browsing activity and visited websites are not sent to Impulsive and are not stored on our servers.",
             ),
             HelpFaqItem(
                 question = "How do I delete my account and data?",
-                answer = "Open Settings, go to the privacy and account section, and choose the account deletion option. Read the confirmation carefully before continuing.",
+                answer = "Open Settings, go to the privacy and account section, and choose the account deletion option. This deletes your account and subscription records from Impulsive's servers and erases everything stored on this device. If your phone backed up Impulsive through your Google account, you can clear that backup in your device's Google backup settings.",
             ),
             HelpFaqItem(
                 question = "What should I include when reporting a problem?",

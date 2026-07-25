@@ -21,6 +21,14 @@ class ProtectionSetupRepository(
         dataSource.setSelectedBlockedAppPackageNames(packageNames)
     }
 
+    suspend fun setWebsiteProtectedAppPackageNames(packageNames: Set<String>) {
+        dataSource.setWebsiteProtectedAppPackageNames(packageNames)
+    }
+
+    suspend fun setAppProtectionMonitorEnabled(enabled: Boolean) {
+        dataSource.setAppProtectionMonitorEnabled(enabled)
+    }
+
     suspend fun setWebsiteProtectionEnabled(enabled: Boolean) {
         dataSource.setWebsiteProtectionEnabled(enabled)
     }
@@ -37,9 +45,7 @@ class ProtectionSetupRepository(
         dataSource.setBackgroundActivityEnabled(enabled)
     }
 
-    suspend fun setUninstallProtectionEnabled(enabled: Boolean) {
-        dataSource.setUninstallProtectionEnabled(enabled)
-    }
+
 
     suspend fun setNotificationPermissionEnabled(enabled: Boolean) {
         dataSource.setNotificationPermissionEnabled(enabled)

@@ -13,6 +13,7 @@ import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.service.protection.ProtectionServiceController
+import com.impulsive.app.backend.service.protection.ProtectionServiceStartOrigin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -64,7 +65,12 @@ class FocusSessionViewModel(application: Application) : AndroidViewModel(applica
     fun startSession(durationMinutes: Int) {
         viewModelScope.launch {
             repository.startSession(durationMinutes)
-            ProtectionServiceController.start(getApplication())
+            ProtectionServiceController.start(
+                context = getApplication(),
+                origin =
+                    ProtectionServiceStartOrigin
+                        .VisibleApp,
+            )
         }
     }
 

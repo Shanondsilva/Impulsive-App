@@ -21,6 +21,7 @@ data class DnsFilterGateUiState(
     val privateDnsActive: Boolean = false,
     val privateDnsHostname: String? = null,
     val anotherVpnActive: Boolean = false,
+    val lockdownModeActive: Boolean = false,
     val protectionOn: Boolean = false,
 )
 
@@ -41,9 +42,12 @@ class DnsFilterGateViewModel(
             privateDnsActive = result.blockers.contains(DnsFilterGateEvaluator.Blocker.PrivateDnsActive),
             privateDnsHostname = (dnsState as? PrivateDnsChecker.State.Strict)?.hostname,
             anotherVpnActive = result.blockers.contains(DnsFilterGateEvaluator.Blocker.AnotherVpnActive),
+            lockdownModeActive = result.blockers.contains(DnsFilterGateEvaluator.Blocker.LockdownModeActive),
             protectionOn = gate.isProtectionOn(),
         )
     }
 
     fun privateDnsSettingsIntent(): Intent = gate.privateDnsSettingsIntent()
+
+    fun vpnSettingsIntent(): Intent = gate.vpnSettingsIntent()
 }

@@ -5,6 +5,16 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/**
+ * Local deletion marker used by backup/restore merging.
+ *
+ * Cloud sync was removed, but tombstones are still required: JournalNoteDao
+ * writes one whenever a journal note or checklist item is deleted, and the
+ * restore-bundle pipeline (RestoreBundleWriter / RestoreBundleImporter /
+ * ManualBackupManager / UserDataExporter) uses them so that restoring an
+ * older backup does not resurrect entries the user has since deleted.
+ * Do not remove without reworking restore merging.
+ */
 @Entity(
     tableName = "sync_tombstones",
     indices = [

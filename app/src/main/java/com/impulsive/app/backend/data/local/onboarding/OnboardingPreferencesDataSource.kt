@@ -42,6 +42,14 @@ class OnboardingPreferencesDataSource(
         preferences[OnboardingCompletedKey] ?: false
     }
 
+    val completedAccountUid: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[OnboardingCompletedAccountUidKey]
+    }
+
+    val completedGoogleSubjectHash: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[OnboardingCompletedGoogleSubjectHashKey]
+    }
+
     suspend fun setPersonalization(
         name: String,
         avatarId: String,
@@ -104,8 +112,31 @@ class OnboardingPreferencesDataSource(
     }
 
     suspend fun setCompleted(isCompleted: Boolean) {
+        setCompletedForAccount(
+            isCompleted = isCompleted,
+            accountUid = null,
+        )
+    }
+
+    suspend fun setCompletedForAccount(
+        isCompleted: Boolean,
+        accountUid: String?,
+        googleSubjectHash: String? = null,
+    ) {
         dataStore.edit { preferences ->
             preferences[OnboardingCompletedKey] = isCompleted
+
+            if (isCompleted && !accountUid.isNullOrBlank()) {
+                preferences[OnboardingCompletedAccountUidKey] = accountUid
+                if (googleSubjectHash.isNullOrBlank()) {
+                    preferences.remove(OnboardingCompletedGoogleSubjectHashKey)
+                } else {
+                    preferences[OnboardingCompletedGoogleSubjectHashKey] = googleSubjectHash
+                }
+            } else if (!isCompleted) {
+                preferences.remove(OnboardingCompletedAccountUidKey)
+                preferences.remove(OnboardingCompletedGoogleSubjectHashKey)
+            }
         }
     }
 
@@ -143,6 +174,10 @@ class OnboardingPreferencesDataSource(
         val ActiveDayEndMinuteKey = intPreferencesKey("active_day_end_minute")
         val PlannedReleaseWindowMinutesKey = stringPreferencesKey("planned_release_window_minutes")
         val OnboardingCompletedKey = booleanPreferencesKey("onboarding_completed")
+        val OnboardingCompletedAccountUidKey =
+            stringPreferencesKey("onboarding_completed_account_uid")
+        val OnboardingCompletedGoogleSubjectHashKey =
+            stringPreferencesKey("onboarding_completed_google_subject_hash")
         const val DefaultActiveDayStartMinute = 7 * 60
         const val DefaultActiveDayEndMinute = 23 * 60
     }

@@ -12,6 +12,34 @@ if (file("google-services.json").exists()) {
     apply(plugin = "com.google.firebase.crashlytics")
 }
 
+val impulsiveVersionCode =
+    providers
+        .gradleProperty(
+            "impulsiveVersionCode",
+        )
+        .orNull
+        ?.toIntOrNull()
+        ?.takeIf {
+            it > 0
+        }
+        ?: error(
+            "impulsiveVersionCode must be a positive integer in gradle.properties.",
+        )
+
+val impulsiveVersionName =
+    providers
+        .gradleProperty(
+            "impulsiveVersionName",
+        )
+        .orNull
+        ?.trim()
+        ?.takeIf {
+            it.isNotEmpty()
+        }
+        ?: error(
+            "impulsiveVersionName must be defined in gradle.properties.",
+        )
+
 android {
     namespace = "com.impulsive.app"
     compileSdk = 36
@@ -19,9 +47,10 @@ android {
     defaultConfig {
         applicationId = "com.impulsive.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = (project.findProperty("impulsiveVersionCode") as String?)?.toIntOrNull() ?: 1
-        versionName = (project.findProperty("impulsiveVersionName") as String?) ?: "1.0"
+        targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = impulsiveVersionCode
+        versionName = impulsiveVersionName
     }
 
     signingConfigs {
@@ -109,7 +138,6 @@ dependencies {
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
-    implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
     implementation(libs.firebase.crashlytics)
     releaseImplementation(libs.firebase.appcheck.playintegrity)
@@ -121,7 +149,11 @@ dependencies {
     implementation(libs.google.identity.googleid)
     implementation(libs.facebook.login)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.google.play.services.auth)
     implementation(libs.billing.ktx)
+    implementation(libs.play.review)
+    implementation(libs.play.review.ktx)
+    implementation(libs.okhttp)
 
     debugImplementation(libs.compose.ui.tooling)
 

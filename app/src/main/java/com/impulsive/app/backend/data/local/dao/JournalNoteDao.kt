@@ -138,6 +138,8 @@ interface JournalNoteDao {
 
     @Query("DELETE FROM journal_notes WHERE id IN (:noteIds)")
     suspend fun deleteByIds(noteIds: List<Long>)
+    @Query("DELETE FROM journal_notes WHERE noteType != 'FEEDBACK' AND source != 'feedback_notification'")
+    suspend fun clearAllUserNotesForRestore(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertTombstone(tombstone: SyncTombstoneEntity): Long
@@ -187,6 +189,11 @@ interface JournalNoteDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItems(items: List<JournalChecklistItemEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertChecklistItemsForRestore(
+        items: List<JournalChecklistItemEntity>,
+    )
 
     @Query("DELETE FROM journal_checklist_items WHERE noteId = :noteId")
     suspend fun deleteChecklistItemsForNote(noteId: Long)

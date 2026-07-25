@@ -13,6 +13,7 @@ enum class BillingPeriod {
 }
 
 enum class EntitlementSource {
+    None,
     Debug,
     PlayBilling,
 }
@@ -35,5 +36,66 @@ fun PremiumTier.includes(feature: PremiumFeature): Boolean =
 data class PremiumEntitlement(
     val tier: PremiumTier = PremiumTier.Free,
     val period: BillingPeriod? = null,
-    val source: EntitlementSource = EntitlementSource.Debug,
+    val source: EntitlementSource = EntitlementSource.None,
+    val expiryTimeMillis: Long = 0L,
+    val lastVerifiedMillis: Long = 0L,
 )
+
+object PremiumEntitlementPolicy {
+    const val OfflineGraceMillis: Long =
+        3L * 24L * 60L * 60L * 1_000L
+
+    internal const val MaximumClockRecheckMillis: Long =
+        60_000L
+}
+
+fun PremiumEntitlement.playBillingAccessDeadlineMillisOrNull(): Long? {
+    if (
+        source != EntitlementSource.PlayBilling ||
+        expiryTimeMillis <= 0L
+    ) {
+        return null
+    }
+
+    val grace = PremiumEntitlementPolicy.OfflineGraceMillis
+
+    return if (expiryTimeMillis > Long.MAX_VALUE - grace) {
+        Long.MAX_VALUE
+    } else {
+        expiryTimeMillis + grace
+    }
+}
+
+fun PremiumEntitlement.isValidAt(
+    nowMillis: Long,
+    allowDebugEntitlement: Boolean,
+): Boolean {
+    if (tier == PremiumTier.Free) {
+        return false
+    }
+
+    return when (source) {
+        EntitlementSource.None -> false
+
+        EntitlementSource.Debug -> allowDebugEntitlement
+
+        EntitlementSource.PlayBilling -> {
+            val accessDeadline =
+                playBillingAccessDeadlineMillisOrNull() ?: return false
+
+            nowMillis < accessDeadline
+        }
+    }
+}
+
+fun PremiumEntitlement.hasFeatureAt(
+    feature: PremiumFeature,
+    nowMillis: Long,
+    allowDebugEntitlement: Boolean,
+): Boolean {
+    return tier.includes(feature) &&
+        isValidAt(
+            nowMillis = nowMillis,
+            allowDebugEntitlement = allowDebugEntitlement,
+        )
+}

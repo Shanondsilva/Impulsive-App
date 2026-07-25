@@ -10,8 +10,6 @@
 
 -keepattributes Signature, *Annotation*, EnclosingMethod, InnerClasses
 
-# Device Admin receiver is referenced from the manifest by name.
--keep class com.impulsive.app.security.antibypass.ImpulsiveDeviceAdminReceiver { *; }
 
 # Boot receiver is referenced from the manifest by name.
 -keep class com.impulsive.app.backend.service.protection.BootCompletedReceiver { *; }

@@ -1,20 +1,37 @@
 package com.impulsive.app.frontend.navigation
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.os.PowerManager
+import android.widget.Toast
 import android.provider.Settings
 import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.activity.result.IntentSenderRequest
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryRestoreCoordinator
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryRestoreDiscovery
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryRestoreResult
+import com.impulsive.app.backend.data.restore.cloud.DriveAppDataAuthorization
+import com.impulsive.app.backend.data.restore.cloud.DriveAuthorizationResult
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,7 +41,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -42,10 +63,21 @@ import androidx.compose.ui.platform.LocalContext
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
+import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
+import com.impulsive.app.backend.data.local.device.OverlayPermissionSettingsLaunchResult
+import com.impulsive.app.backend.data.local.device.OverlayPermissionSettingsNavigator
+import com.impulsive.app.backend.data.local.device.UsageAccessSettingsLaunchResult
+import com.impulsive.app.backend.data.local.device.BackgroundProtectionSettingsLaunchResult
+import com.impulsive.app.backend.data.local.device.BackgroundProtectionSettingsNavigator
 import com.impulsive.app.backend.session.auth.AuthViewModel
+import com.impulsive.app.backend.session.onboarding.AccountRestoreState
+import com.impulsive.app.backend.session.onboarding.AccountLocalDataResetState
+import com.impulsive.app.backend.session.onboarding.OnboardingAccountResolutionState
+import com.impulsive.app.backend.session.onboarding.OnboardingCompletionState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
+import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.screens.dashboard.HomeScreen
 import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
 import com.impulsive.app.frontend.screens.games.ReflexGameScreen
@@ -63,14 +95,23 @@ import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluat
 import com.impulsive.app.backend.domain.model.protection.toImpulsiveCompactTime
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
+import com.impulsive.app.backend.domain.model.auth.resolvePurchaseAccountGatePhase
+import com.impulsive.app.backend.domain.model.protection.BlockLaunchTarget
 import com.impulsive.app.backend.service.protection.ImpulsiveVpnController
+import com.impulsive.app.backend.service.protection.InterruptionNotificationStatus
 import com.impulsive.app.backend.service.protection.ProtectionNotificationHelper
 import com.impulsive.app.backend.service.protection.ProtectionServiceController
+import com.impulsive.app.backend.service.protection.ProtectionServiceStartOrigin
+import com.impulsive.app.backend.service.protection.ProtectionWatchdogScheduler
+import com.impulsive.app.backend.service.protection.ProtectionLog
+import com.impulsive.app.backend.service.protection.shouldRecoverProtectionService
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.protection.DnsFilterGateViewModel
 import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.service.billing.BillingManager
+import com.impulsive.app.backend.service.billing.activePlaySubscriptionProductId
+import com.impulsive.app.backend.service.billing.openGooglePlaySubscriptionManagement
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.frontend.screens.onboarding.LoginSignupGuestScreen
 import com.impulsive.app.frontend.screens.onboarding.OnboardingDailyRelapseCountScreen
@@ -85,7 +126,6 @@ import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
 import com.impulsive.app.frontend.screens.lock.rememberAppLockGuardController
 import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.frontend.screens.protection.ImpulsiveBlockScreen
-import com.impulsive.app.frontend.screens.protection.UninstallProtectionScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.premium.WebsiteProtectionPlusScreen
 import com.impulsive.app.frontend.screens.protection.DnsFilterGateScreen
@@ -96,9 +136,10 @@ import com.impulsive.app.frontend.screens.settings.sendSupportEmail
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 import com.impulsive.app.backend.session.tasks.ResetReadLaunchMode
-import com.impulsive.app.security.antibypass.UninstallProtectionManager
 import java.time.LocalDateTime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 object OnboardingRoutes {
@@ -114,7 +155,6 @@ object OnboardingRoutes {
     const val QuestionDailyRelapseCount = "question_daily_relapse_count"
     const val ProtectionSetup = "protection_setup"
     const val ProtectionBlockedApps = "protection_blocked_apps"
-    const val UninstallProtection = "onboarding_uninstall_protection"
     const val StartingPoint = "starting_point"
     const val PersonalisingSetup = "personalising_setup"
 }
@@ -129,6 +169,7 @@ object AppRoutes {
     const val Focus = "focus"
     const val FocusRecovery = "focus_recovery"
     const val RecoveryGames = "recovery_games"
+    const val RandomRecoveryGame = "random_recovery_game/{sourcePackageName}"
     const val ReflexGame = "reflex_game"
     const val ReflexGameTask = "reflex_game_task"
     const val BlockCascadeGame = "block_cascade_game"
@@ -141,6 +182,7 @@ object AppRoutes {
     const val ResetReadFallbackTask = "reset_read_fallback_task"
     const val TaskToComplete = "task_to_complete"
     const val WebsiteProtectionPlus = "website_protection_plus"
+    const val WebsiteProtectionApps = "website_protection_apps"
     const val ProtectionSetupGuide = "protection_setup_guide"
     const val ProtectionSetupGuideBlockedApps = "protection_setup_guide_blocked_apps"
     const val DnsFilterGate = "dns_filter_gate"
@@ -150,13 +192,14 @@ object AppRoutes {
         "journal_saved_notifications"
     const val JournalNoteNew = "journal_note_new/{type}"
     const val JournalNoteEdit = "journal_note_edit/{noteId}"
-    const val UninstallProtection = "main_uninstall_protection"
     const val ImpulsiveBlock = "impulsive_block/{sourcePackageName}/{sourceLabel}"
 
     fun journalNoteNew(type: JournalNoteType): String = "journal_note_new/${type.storageValue}"
     fun journalNoteEdit(noteId: Long): String = "journal_note_edit/$noteId"
     fun impulsiveBlock(sourcePackageName: String, sourceLabel: String): String =
         "impulsive_block/${Uri.encode(sourcePackageName)}/${Uri.encode(sourceLabel)}"
+    fun randomRecoveryGame(sourcePackageName: String): String =
+        "random_recovery_game/${Uri.encode(sourcePackageName)}"
 }
 
 @Composable
@@ -165,25 +208,72 @@ fun AppNavHost(
     onboardingViewModel: OnboardingViewModel = viewModel(),
     protectionSetupViewModel: ProtectionSetupViewModel = viewModel(),
     authViewModel: AuthViewModel,
+    billingManager: BillingManager,
     initialBlockRequest: BlockRequest? = null,
     onBlockRequestConsumed: () -> Unit = {},
     initialJournalNoteId: Long? = null,
     onJournalNoteConsumed: () -> Unit = {},
 ) {
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val onboardingAccountResolutionState by
+        onboardingViewModel.accountResolutionState.collectAsStateWithLifecycle()
+    val accountRestoreState by onboardingViewModel.accountRestoreState.collectAsStateWithLifecycle()
+    val accountLocalDataResetState by
+        onboardingViewModel
+            .accountLocalDataResetState
+            .collectAsStateWithLifecycle()
+    val onboardingCompletionState by
+        onboardingViewModel.completionState.collectAsStateWithLifecycle()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
+    val authState by authViewModel.state.collectAsStateWithLifecycle()
+    val billingRestoreState by billingManager.restoreState.collectAsStateWithLifecycle()
+    val billingUiState by billingManager.billingUiState.collectAsStateWithLifecycle()
+    val subscriptionCatalogState by
+        billingManager.subscriptionCatalogState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val usageAccessChecker = remember(context) { UsageAccessPermissionChecker(context) }
+    val overlayPermissionSettingsNavigator =
+        remember(context) { OverlayPermissionSettingsNavigator(context) }
+    val backgroundProtectionSettingsNavigator =
+        remember(context) { BackgroundProtectionSettingsNavigator(context) }
     val protectionNotificationHelper = remember(context) { ProtectionNotificationHelper(context) }
-    val uninstallProtectionManager = remember(context) { UninstallProtectionManager(context) }
     var pendingDailyRelapseCount by remember { mutableStateOf<Int?>(null) }
     val bottomNavIndicatorState = rememberBottomNavIndicatorState()
     val bottomNavCurrentEntry by navController.currentBackStackEntryAsState()
     val bottomNavCurrentRoute = bottomNavCurrentEntry?.destination?.route
+    val latestProtectionSetupState by rememberUpdatedState(protectionSetupState)
+    val startupGraphDecision = chooseStartupGraph(
+        isCompleted = state.isCompleted,
+        completedAccountUid = state.completedAccountUid,
+        authenticatedUid = authState.user?.uid,
+        authenticatedIsGuest =
+            authState.user?.provider == AuthProvider.Guest,
+    )
+    val mainGraphAllowed = startupGraphDecision == StartupGraphDecision.Main
 
-    fun syncUsageAccessPermission() {
-        protectionSetupViewModel.setUsageAccessEnabled(usageAccessChecker.hasUsageAccess())
+    LaunchedEffect(authState.user?.uid, state.isCompleted) {
+        if (state.isCompleted && authState.user != null) {
+            onboardingViewModel.backfillAuthenticatedCompletionIfNeeded()
+        }
+    }
+    LaunchedEffect(authState.accountSwitchCompleted) {
+        if (authState.accountSwitchCompleted) {
+            /*
+             * Consume the one-shot flag before navigation so recomposition cannot
+             * repeat this account-switch route.
+             */
+            authViewModel.consumeAccountSwitchNavigation()
+
+            navController.navigate(
+                OnboardingRoutes.LoginSignupGuest,
+            ) {
+                popUpTo(AppRoutes.Graph) {
+                    inclusive = true
+                }
+                launchSingleTop = true
+            }
+        }
     }
 
     fun syncInterruptionPermission() {
@@ -192,36 +282,137 @@ fun AppNavHost(
         )
     }
 
-    fun openInterruptionPermissionSettings() {
-        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
-            data = Uri.parse("package:${context.packageName}")
+    fun safelyStartSettingsActivity(intent: Intent): Boolean {
+        return try {
+            context.startActivity(intent)
+            true
+        } catch (exception: ActivityNotFoundException) {
+            false
+        } catch (exception: SecurityException) {
+            false
         }
-        runCatching { context.startActivity(intent) }
-            .onFailure { syncInterruptionPermission() }
     }
 
-    fun isIgnoringBatteryOptimizations(): Boolean {
-        val powerManager = context.getSystemService(PowerManager::class.java) ?: return false
-        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    fun openInterruptionPermissionSettings() {
+        when (overlayPermissionSettingsNavigator.open()) {
+            OverlayPermissionSettingsLaunchResult.OverlaySettingsOpened -> {
+                Toast.makeText(
+                    context,
+                    "Find Impulsive and allow Display over other apps.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+
+            OverlayPermissionSettingsLaunchResult.AppDetailsOpened -> {
+                Toast.makeText(
+                    context,
+                    "Open Display over other apps for Impulsive.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+
+            OverlayPermissionSettingsLaunchResult.Failed -> {
+                Toast.makeText(
+                    context,
+                    "Could not open Display over other apps settings. Open Android Settings > Apps > Special access > Display over other apps.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 
     fun syncBackgroundActivityPermission() {
-        protectionSetupViewModel.setBackgroundActivityEnabled(isIgnoringBatteryOptimizations())
+        protectionSetupViewModel.setBackgroundActivityEnabled(
+            backgroundProtectionSettingsNavigator.isAllowed(),
+        )
+    }
+
+    fun showBackgroundProtectionLaunchResult(result: BackgroundProtectionSettingsLaunchResult) {
+        val message = when (result) {
+            BackgroundProtectionSettingsLaunchResult.AppDetailsOpened ->
+                "Open Battery to review or change background protection for Impulsive."
+            BackgroundProtectionSettingsLaunchResult.OptimizationListOpened ->
+                "Find Impulsive to review its battery optimisation setting."
+            BackgroundProtectionSettingsLaunchResult.Failed ->
+                "Could not open Impulsive settings. Open Android Settings > Apps > Impulsive > Battery."
+        }
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
+    fun openBackgroundActivityPermissionSettings() {
+        val result = backgroundProtectionSettingsNavigator.open()
+        syncBackgroundActivityPermission()
+        showBackgroundProtectionLaunchResult(result)
+    }
+
+    fun openUsageAccessPermissionSettings() {
+        when (usageAccessChecker.openUsageAccessSettings()) {
+            UsageAccessSettingsLaunchResult.PackageHintOpened,
+            UsageAccessSettingsLaunchResult.GeneralListOpened -> {
+                Toast.makeText(
+                    context,
+                    "Find Impulsive and turn on Usage Access.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+
+            UsageAccessSettingsLaunchResult.Failed -> {
+                Toast.makeText(
+                    context,
+                    "Could not open Usage Access settings. Open Android Settings and search for Usage Access.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 
     fun syncNotificationPermission() {
-        // areNotificationsEnabled covers both the Android 13 runtime permission
-        // and the per app notification toggle in system settings, so the setup
-        // card reflects the real delivery state on every supported version.
-        val isAllowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
-        protectionSetupViewModel.setNotificationPermissionEnabled(isAllowed)
+        val status = protectionNotificationHelper.interruptionNotificationStatus()
+        protectionSetupViewModel.setNotificationPermissionEnabled(
+            status == InterruptionNotificationStatus.Available,
+        )
     }
 
-    fun openAppNotificationSettings() {
-        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+    fun openAppNotificationSettings(): Boolean {
+        val notificationSettingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         }
-        runCatching { context.startActivity(intent) }
+
+        if (safelyStartSettingsActivity(notificationSettingsIntent)) {
+            return true
+        }
+
+        val appDetailsIntent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${context.packageName}"),
+        )
+
+        if (safelyStartSettingsActivity(appDetailsIntent)) {
+            Toast.makeText(
+                context,
+                "Open Notifications for Impulsive.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return true
+        }
+
+        Toast.makeText(
+            context,
+            "Could not open notification settings. Open Android Settings > Apps > Impulsive > Notifications.",
+            Toast.LENGTH_LONG,
+        ).show()
+        return false
+    }
+
+    fun openInterruptionChannelSettings() {
+        val channelSettingsIntent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, ProtectionNotificationHelper.BlockedAttemptChannelId)
+        }
+
+        if (!safelyStartSettingsActivity(channelSettingsIntent)) {
+            openAppNotificationSettings()
+        }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -245,24 +436,47 @@ fun AppNavHost(
         }
     }
 
-    fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            openAppNotificationSettings()
+    fun manageProtectionNotifications() {
+        when (protectionNotificationHelper.interruptionNotificationStatus()) {
+            InterruptionNotificationStatus.RuntimePermissionMissing ->
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            InterruptionNotificationStatus.AppNotificationsDisabled -> openAppNotificationSettings()
+            InterruptionNotificationStatus.ChannelDisabled,
+            InterruptionNotificationStatus.ChannelNotHighPriority -> openInterruptionChannelSettings()
+            InterruptionNotificationStatus.Available -> openAppNotificationSettings()
         }
     }
 
-    fun syncUninstallProtection() {
-        protectionSetupViewModel.setUninstallProtectionEnabled(uninstallProtectionManager.isActive())
-    }
-
-    fun syncProtectionSetupFromDevice() {
-        syncUsageAccessPermission()
-        syncInterruptionPermission()
+    fun syncProtectionSetupFromDevice(recoverService: Boolean = false) {
+        val usageAccessGranted = usageAccessChecker.hasUsageAccess()
+        val overlayPermissionGranted = Settings.canDrawOverlays(context)
+        protectionSetupViewModel.setUsageAccessEnabled(usageAccessGranted)
+        protectionSetupViewModel.setInterruptionPermissionEnabled(overlayPermissionGranted)
         syncBackgroundActivityPermission()
         syncNotificationPermission()
-        syncUninstallProtection()
+
+        if (!recoverService) return
+
+        val setup = latestProtectionSetupState
+        val shouldRecover = shouldRecoverProtectionService(
+            appProtectionEnabled = setup.appProtectionMonitorEnabled,
+            selectedPackages = setup.selectedBlockedAppPackageNames,
+            usageAccessGranted = usageAccessGranted,
+            websiteProtectionEnabled = setup.websiteProtectionEnabled,
+        )
+        ProtectionLog.debug(
+            "Protection recovery snapshot: enabled=${setup.appProtectionMonitorEnabled}, " +
+                "selected=${setup.selectedBlockedAppPackageNames.size}, " +
+                "usageAccess=$usageAccessGranted, overlay=$overlayPermissionGranted, " +
+                "serviceStartRequested=$shouldRecover",
+        )
+        if (shouldRecover) {
+            ProtectionServiceController.start(
+                context = context,
+                origin = ProtectionServiceStartOrigin.VisibleApp,
+            )
+            ProtectionWatchdogScheduler.ensureScheduled(context)
+        }
     }
 
     DisposableEffect(
@@ -270,12 +484,11 @@ fun AppNavHost(
         lifecycleOwner,
         usageAccessChecker,
         protectionNotificationHelper,
-        uninstallProtectionManager,
     ) {
-        syncProtectionSetupFromDevice()
+        syncProtectionSetupFromDevice(recoverService = true)
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                syncProtectionSetupFromDevice()
+                syncProtectionSetupFromDevice(recoverService = true)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -293,36 +506,57 @@ fun AppNavHost(
     // focus session, or via a manual Settings button, so the block screen,
     // persistent notification, and one-minute timer never appeared on a normal
     // app open. Re-runs when the protected list changes. Start is idempotent.
-    LaunchedEffect(protectionSetupState.selectedBlockedAppPackageNames) {
-        if (protectionSetupState.selectedBlockedAppPackageNames.isNotEmpty()) {
-            ProtectionServiceController.start(context)
+    LaunchedEffect(
+        protectionSetupState.appProtectionMonitorEnabled,
+        protectionSetupState.selectedBlockedAppPackageNames,
+        protectionSetupState.usageAccessEnabled,
+        protectionSetupState.interruptionPermissionEnabled,
+        protectionSetupState.websiteProtectionEnabled,
+    ) {
+        // Website protection depends on the monitor too: the DNS filter tunnel
+        // is only synced from inside AppMonitorService. Gating this start on
+        // blocked apps alone left website-only users with a dead filter after
+        // every reboot, with no recovery on app open.
+        val protectionConfigured = shouldRecoverProtectionService(
+            appProtectionEnabled = protectionSetupState.appProtectionMonitorEnabled,
+            selectedPackages = protectionSetupState.selectedBlockedAppPackageNames,
+            usageAccessGranted = protectionSetupState.usageAccessEnabled,
+            websiteProtectionEnabled = protectionSetupState.websiteProtectionEnabled,
+        )
+        if (protectionConfigured) {
+            ProtectionServiceController.start(
+                context = context,
+                origin =
+                    ProtectionServiceStartOrigin
+                        .VisibleApp,
+            )
+            ProtectionWatchdogScheduler.ensureScheduled(context)
         }
     }
 
-    LaunchedEffect(initialBlockRequest, state.isCompleted) {
+    LaunchedEffect(initialBlockRequest, mainGraphAllowed) {
         val request = initialBlockRequest
-        if (request != null && state.isCompleted) {
-            if (request.isFocusSession) {
-                navController.navigate(AppRoutes.FocusRecovery) {
-                    launchSingleTop = true
-                }
-            } else {
-                navController.navigate(
-                    AppRoutes.impulsiveBlock(
-                        sourcePackageName = request.sourcePackageName,
-                        sourceLabel = request.sourceLabel,
-                    ),
-                ) {
-                    launchSingleTop = true
-                }
+        if (request != null && mainGraphAllowed) {
+            val targetRoute = when (request.launchTarget) {
+                BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
+                BlockLaunchTarget.RandomRecoveryGame ->
+                    AppRoutes.randomRecoveryGame(request.sourcePackageName)
+                BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
+                BlockLaunchTarget.BlockScreen -> AppRoutes.impulsiveBlock(
+                    sourcePackageName = request.sourcePackageName,
+                    sourceLabel = request.sourceLabel,
+                )
+            }
+            navController.navigate(targetRoute) {
+                launchSingleTop = true
             }
             onBlockRequestConsumed()
         }
     }
 
-    LaunchedEffect(initialJournalNoteId, state.isCompleted) {
+    LaunchedEffect(initialJournalNoteId, mainGraphAllowed) {
         val noteId = initialJournalNoteId
-        if (noteId != null && noteId > 0L && state.isCompleted) {
+        if (noteId != null && noteId > 0L && mainGraphAllowed) {
             navController.navigate(AppRoutes.journalNoteEdit(noteId)) {
                 launchSingleTop = true
             }
@@ -355,12 +589,15 @@ fun AppNavHost(
     // When the app was launched by a block, start the main graph directly on the
     // pause screen (or the focus recovery screen) so the dark home background does
     // not flash before the navigation lands on it. Computed once after loading.
-    val mainStartDestination = remember(state.isCompleted) {
+    val mainStartDestination = remember(mainGraphAllowed) {
         val request = initialBlockRequest
         when {
-            !state.isCompleted -> AppRoutes.Home
+            !mainGraphAllowed -> AppRoutes.Home
             request == null -> AppRoutes.Home
-            request.isFocusSession -> AppRoutes.FocusRecovery
+            request.launchTarget == BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
+            request.launchTarget == BlockLaunchTarget.RandomRecoveryGame ->
+                AppRoutes.randomRecoveryGame(request.sourcePackageName)
+            request.launchTarget == BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
             else -> AppRoutes.impulsiveBlock(
                 sourcePackageName = request.sourcePackageName,
                 sourceLabel = request.sourceLabel,
@@ -370,7 +607,7 @@ fun AppNavHost(
 
     NavHost(
         navController = navController,
-        startDestination = if (state.isCompleted) AppRoutes.Graph else OnboardingRoutes.Graph,
+        startDestination = if (mainGraphAllowed) AppRoutes.Graph else OnboardingRoutes.Graph,
         enterTransition = { EnterTransition.None },
         exitTransition = { ExitTransition.None },
         popEnterTransition = { EnterTransition.None },
@@ -395,14 +632,126 @@ fun AppNavHost(
 
             composable(OnboardingRoutes.LoginSignupGuest) {
                 BackHandler { }
-                LoginSignupGuestScreen(
-                    onAuthenticated = {
-                        navController.navigateOnboarding(OnboardingRoutes.WelcomePrivacy)
-                    },
-                    authViewModel = authViewModel,
-                )
-            }
 
+                var pendingAccountDecision by remember {
+                    mutableStateOf<AuthenticatedOnboardingNavigationDecision?>(null)
+                }
+
+                fun navigateHomeAfterAccountRestore() {
+                    onboardingViewModel.restoreAccountDataForAuthenticatedUser {
+                        navController.navigateToMainClearingOnboarding()
+                    }
+                }
+
+                fun resolveOnboardingForAuthenticatedAccount() {
+                    pendingAccountDecision = null
+                    onboardingViewModel.clearAccountRestoreState()
+                    onboardingViewModel.resolveAuthenticatedOnboarding { resolution ->
+                        when (
+                            val decision = authenticatedOnboardingNavigationDecision(
+                                resolution = resolution,
+                                localOnboardingCompleted = state.isCompleted,
+                            )
+                        ) {
+                            AuthenticatedOnboardingNavigationDecision.RestoreBeforeHome -> {
+                                navigateHomeAfterAccountRestore()
+                            }
+
+                            AuthenticatedOnboardingNavigationDecision.OpenHome -> {
+                                navController.navigateToMainClearingOnboarding()
+                            }
+
+                            AuthenticatedOnboardingNavigationDecision.StartSetup -> {
+                                navController.navigateOnboarding(OnboardingRoutes.WelcomePrivacy)
+                            }
+
+                            AuthenticatedOnboardingNavigationDecision.ShowRemoteCompletedWithoutLocalData,
+                            AuthenticatedOnboardingNavigationDecision.ShowAccountMismatch,
+                            AuthenticatedOnboardingNavigationDecision.ShowLegacyUnownedLocalData,
+                            AuthenticatedOnboardingNavigationDecision.ShowRestoredSameGoogleIdentityConfirmation,
+                            AuthenticatedOnboardingNavigationDecision.ShowRestoredLegacyDriveVerification,
+                            -> {
+                                pendingAccountDecision = decision
+                            }
+
+                            AuthenticatedOnboardingNavigationDecision.AwaitRetry -> Unit
+                        }
+                    }
+                }
+                val accountResolutionFailure =
+                    onboardingAccountResolutionState as? OnboardingAccountResolutionState.RetryableFailure
+
+                val suppressUnusableLocalDataDialog =
+                    accountLocalDataResetState !is
+                        AccountLocalDataResetState.Idle
+
+                LoginSignupGuestScreen(
+                    onAuthenticated = ::resolveOnboardingForAuthenticatedAccount,
+                    authViewModel = authViewModel,
+                    accountSetupLoading =
+                        onboardingAccountResolutionState is OnboardingAccountResolutionState.Loading ||
+                            accountRestoreState is AccountRestoreState.Restoring,
+                    accountSetupMessage = accountResolutionFailure?.message,
+                    onRetryAccountSetup = ::resolveOnboardingForAuthenticatedAccount,
+                    onDismissAccountSetupMessage = onboardingViewModel::clearAccountResolutionFailure,
+                )
+
+                AccountRestoreDialog(
+                    state = accountRestoreState,
+                    onRetry = ::navigateHomeAfterAccountRestore,
+                    onUseAnotherAccount = {
+                        onboardingViewModel.cancelEraseUnusableLocalData()
+                        onboardingViewModel.clearAccountRestoreState()
+                        authViewModel.signOut()
+                        navController.navigateOnboarding(
+                            OnboardingRoutes.LoginSignupGuest,
+                        )
+                    },
+                    onEraseSavedData =
+                        onboardingViewModel::requestEraseUnusableLocalData,
+                    suppressUnusableLocalDataDialog =
+                        suppressUnusableLocalDataDialog,
+                    onDismissRetryable =
+                        onboardingViewModel::clearAccountRestoreState,
+                )
+
+
+                AuthenticatedOnboardingDecisionDialog(
+                    decision = pendingAccountDecision,
+                    onTryAgain = ::resolveOnboardingForAuthenticatedAccount,
+                    onSetUpAgain = {
+                        pendingAccountDecision = null
+                        onboardingViewModel.clearAnswers {
+                            navController.navigateOnboarding(
+                                OnboardingRoutes.WelcomePrivacy,
+                            )
+                        }
+                    },
+                    onUseAnotherAccount = {
+                        onboardingViewModel.cancelEraseUnusableLocalData()
+                        pendingAccountDecision = null
+                        authViewModel.signOut()
+                        navController.navigateOnboarding(
+                            OnboardingRoutes.LoginSignupGuest,
+                        )
+                    },
+                    onEraseSavedData =
+                        onboardingViewModel::requestEraseUnusableLocalData,
+                    suppressUnusableLocalDataDialog =
+                        suppressUnusableLocalDataDialog,
+                )
+
+                AccountLocalDataResetDialog(
+                    state = accountLocalDataResetState,
+                    onConfirm =
+                        onboardingViewModel::confirmEraseUnusableLocalData,
+                    onRetry =
+                        onboardingViewModel::confirmEraseUnusableLocalData,
+                    onCancel =
+                        onboardingViewModel::cancelEraseUnusableLocalData,
+                )
+
+            }
             composable(OnboardingRoutes.WelcomePrivacy) {
                 BackHandler { navigateBackOnboardingSafely() }
                 WelcomePrivacyScreen(
@@ -500,21 +849,10 @@ fun AppNavHost(
                     onChooseApps = {
                         navController.navigateOnboarding(OnboardingRoutes.ProtectionBlockedApps)
                     },
-                    onOpenUsageAccessPermission = {
-                        context.startActivity(usageAccessChecker.createUsageAccessSettingsIntent())
-                    },
+                    onOpenUsageAccessPermission = ::openUsageAccessPermissionSettings,
                     onOpenInterruptionPermission = ::openInterruptionPermissionSettings,
-                    onOpenBackgroundActivityPermission = {
-                        runCatching {
-                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                        }
-                    },
-                    onOpenNotificationPermission = ::requestNotificationPermission,
-                    onOpenUninstallProtection = {
-                        navController.navigate(OnboardingRoutes.UninstallProtection) {
-                            launchSingleTop = true
-                        }
-                    },
+                    onOpenBackgroundActivityPermission = ::openBackgroundActivityPermissionSettings,
+                    onOpenNotificationPermission = ::manageProtectionNotifications,
                     onSkipItem = protectionSetupViewModel::markSkipped,
                     onContinue = {
                         protectionSetupState.incompleteCoreProtectionItems.forEach { item ->
@@ -525,42 +863,38 @@ fun AppNavHost(
                 )
             }
 
-            composable(OnboardingRoutes.UninstallProtection) {
-                BackHandler { navigateBackOnboardingSafely() }
-                UninstallProtectionScreen(
-                    state = protectionSetupState,
-                    onBack = { navigateBackOnboardingSafely() },
-                    onEnabledSynced = protectionSetupViewModel::setUninstallProtectionEnabled,
-                    onSkip = {
-                        protectionSetupViewModel.markSkipped(ProtectionSetupItem.UninstallProtection)
-                        navigateBackOnboardingSafely()
-                    },
-                )
-            }
-
             composable(OnboardingRoutes.ProtectionBlockedApps) {
-                BackHandler { navigateBackOnboardingSafely() }
                 BlockedAppsSelectionContent(
                     selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
-                    onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
-                    onDone = { navigateBackOnboardingSafely() },
+                    onSelectedPackageNamesChanged =
+                        protectionSetupViewModel::setSelectedBlockedAppPackageNames,
+                    onDone = { navController.safePopBackStack() },
                     allowShowMoreApps = true,
                     seedRecommendedBrowsers = true,
                 )
             }
 
             composable(OnboardingRoutes.StartingPoint) {
-                BackHandler { navigateBackOnboardingSafely() }
+                BackHandler {
+                    navigateBackOnboardingSafely()
+                }
+
                 OnboardingStartingPointScreen(
                     state = state,
-                    onBack = { navigateBackOnboardingSafely() },
-                    onContinue = { navController.navigate(OnboardingRoutes.PersonalisingSetup) },
+                    onBack = {
+                        navigateBackOnboardingSafely()
+                    },
+                    onContinue = {
+                        navController.navigateOnboarding(
+                            OnboardingRoutes.PersonalisingSetup,
+                        )
+                    },
                 )
             }
+
             composable(OnboardingRoutes.PersonalisingSetup) {
-                // Back is intentionally swallowed: the user has committed to
-                // starting week one and the screen completes on its own.
-                BackHandler { }
+                BackHandler(enabled = true) { }
+
                 PersonalisingSetupScreen(
                     onFinished = {
                         onboardingViewModel.completeOnboarding {
@@ -568,6 +902,39 @@ fun AppNavHost(
                         }
                     },
                 )
+
+                val failure = onboardingCompletionState as? OnboardingCompletionState.RetryableFailure
+                val saving = onboardingCompletionState is OnboardingCompletionState.Saving
+                if (failure != null || saving) {
+                    AlertDialog(
+                        onDismissRequest = { },
+                        title = {
+                            Text(if (saving) "Saving setup" else "Setup not saved")
+                        },
+                        text = {
+                            Text(
+                                if (saving) {
+                                    "Saving your account setup."
+                                } else {
+                                    failure?.message.orEmpty()
+                                },
+                            )
+                        },
+                        confirmButton = {
+                            if (failure != null) {
+                                TextButton(
+                                    onClick = {
+                                        onboardingViewModel.completeOnboarding {
+                                            navController.navigateToMainClearingOnboarding()
+                                        }
+                                    },
+                                ) {
+                                    Text("Try again")
+                                }
+                            }
+                        },
+                    )
+                }
             }
         }
 
@@ -650,6 +1017,47 @@ fun AppNavHost(
                 )
             }
 
+            composable(
+                route = AppRoutes.RandomRecoveryGame,
+                arguments = listOf(
+                    navArgument("sourcePackageName") {
+                        type = NavType.StringType
+                    },
+                ),
+            ) { backStackEntry ->
+                val sourcePackageName =
+                    Uri.decode(
+                        backStackEntry.arguments
+                            ?.getString("sourcePackageName")
+                            .orEmpty(),
+                    )
+
+                LaunchedEffect(sourcePackageName) {
+                    if (sourcePackageName.isBlank()) {
+                        navController.navigateBackToHome()
+                        return@LaunchedEffect
+                    }
+
+                    try {
+                        val chosenGame = selectAndRecordGuidedGame(
+                            context = context,
+                            sourcePackageName = sourcePackageName,
+                        )
+                        navController.navigate(recoveryGameRoute(chosenGame, asTask = true)) {
+                            launchSingleTop = true
+                        }
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (error: Exception) {
+                        ProtectionLog.error(
+                            "Protection recovery game selection failed " +
+                                "(exception=${error.javaClass.simpleName})",
+                        )
+                        navController.navigateBackToHome()
+                    }
+                }
+            }
+
             composable(AppRoutes.Score) {
                 ProgressDashboardScreen(
                     onOpenHome = {
@@ -683,6 +1091,16 @@ fun AppNavHost(
 
             composable(AppRoutes.Settings) {
                 SettingsScreen(
+                    authViewModel = authViewModel,
+                    protectionSetupViewModel = protectionSetupViewModel,
+                    billingRestoreState = billingRestoreState,
+                    onRestorePurchases = {
+                        billingManager.restorePurchases()
+                    },
+                    subscriptionCatalogState = subscriptionCatalogState,
+                    onRetryBilling = {
+                        billingManager.refreshProductDetails()
+                    },
                     onOpenScore = {
                         navController.navigateMainTop(AppRoutes.Score)
                     },
@@ -709,11 +1127,6 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
-                    onOpenUninstallProtection = {
-                        navController.navigate(AppRoutes.UninstallProtection) {
-                            launchSingleTop = true
-                        }
-                    },
                     onOpenWebsiteProtectionPlus = {
                         navController.navigate(AppRoutes.WebsiteProtectionPlus) {
                             launchSingleTop = true
@@ -724,6 +1137,10 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
+                    onOpenUsageAccessPermission = ::openUsageAccessPermissionSettings,
+                    onOpenInterruptionPermission = ::openInterruptionPermissionSettings,
+                    onOpenBackgroundActivityPermission = ::openBackgroundActivityPermissionSettings,
+                    onManageProtectionNotifications = ::manageProtectionNotifications,
                     onBackHome = {
                         val isResumed = navController.currentBackStackEntry
                             ?.lifecycle
@@ -747,23 +1164,14 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
-                    onOpenUsageAccessPermission = {
-                        context.startActivity(usageAccessChecker.createUsageAccessSettingsIntent())
-                    },
+                    onOpenUsageAccessPermission = ::openUsageAccessPermissionSettings,
                     onOpenInterruptionPermission = ::openInterruptionPermissionSettings,
-                    onOpenBackgroundActivityPermission = {
-                        runCatching {
-                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                        }
-                    },
-                    onOpenNotificationPermission = ::requestNotificationPermission,
-                    onOpenUninstallProtection = {
-                        navController.navigate(AppRoutes.UninstallProtection) {
-                            launchSingleTop = true
-                        }
-                    },
+                    onOpenBackgroundActivityPermission = ::openBackgroundActivityPermissionSettings,
+                    onOpenNotificationPermission = ::manageProtectionNotifications,
                     onSkipItem = protectionSetupViewModel::markSkipped,
                     onContinue = { navController.safePopBackStack() },
+                    showMonitorToggle = true,
+                    onMonitorEnabledChange = protectionSetupViewModel::setAppProtectionMonitorEnabled,
                 )
             }
 
@@ -806,9 +1214,11 @@ fun AppNavHost(
             composable(AppRoutes.WebsiteProtectionPlus) {
                 val premiumViewModel: PremiumViewModel = viewModel()
                 val taskRewardViewModel: TaskRewardViewModel = viewModel()
-                val isPlus by remember(premiumViewModel) {
-                    premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
-                }.collectAsStateWithLifecycle()
+                val isPlus by premiumViewModel
+                    .hasFeature(PremiumFeature.VpnWebsiteBlocker)
+                    .collectAsStateWithLifecycle()
+                val premiumEntitlement by premiumViewModel.entitlement
+                    .collectAsStateWithLifecycle()
                 val taskStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
                 val now by produceState(initialValue = LocalDateTime.now().withSecond(0).withNano(0)) {
                     while (true) {
@@ -828,12 +1238,17 @@ fun AppNavHost(
                     adjustedNextReleaseWindow = taskStoreState.adjustedNextReleaseWindow,
                 )
                 val context = LocalContext.current
-                val billingManager = remember { BillingManager(context) }
-                val priceLabel by billingManager.formattedPrice.collectAsStateWithLifecycle()
-                DisposableEffect(billingManager) {
-                    billingManager.connect()
-                    onDispose { billingManager.release() }
-                }
+                val activeSubscriptionProductId = activePlaySubscriptionProductId(
+                    entitlement = premiumEntitlement,
+                    nowMillis = System.currentTimeMillis(),
+                )
+                val purchaseAccountGatePhase = resolvePurchaseAccountGatePhase(
+                    user = authState.user,
+                    inFlightProvider = authState.inFlightProvider,
+                    pendingEmailVerificationAddress =
+                        authState.pendingEmailVerificationAddress,
+                    hasAccountConflict = authState.pendingAccountConflict != null,
+                )
                 WebsiteProtectionPlusScreen(
                     onBack = { navController.safePopBackStack() },
                     onOpenDnsFilterCheck = {
@@ -841,20 +1256,87 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
+                    onChooseWebsiteProtectionApps = {
+                        navController.navigate(AppRoutes.WebsiteProtectionApps) {
+                            launchSingleTop = true
+                        }
+                    },
                     isPlus = isPlus,
-                    priceLabel = priceLabel,
-                    onPurchase = {
-                        (context as? Activity)?.let { billingManager.launchPurchase(it) }
+                    subscriptionCatalogState = subscriptionCatalogState,
+                    billingUiState = billingUiState,
+                    purchaseAccountGatePhase = purchaseAccountGatePhase,
+                    pendingAccountConflict = authState.pendingAccountConflict,
+                    authErrorMessage = authState.errorMessage,
+                    onLinkGoogleForPurchase = {
+                        (context as? Activity)?.let { authViewModel.linkGoogleAccount(it) }
+                    },
+                    onLinkFacebookForPurchase = {
+                        (context as? Activity)?.let { authViewModel.linkFacebookAccount(it) }
+                    },
+                    onLinkEmailForPurchase = { email, password ->
+                        authViewModel.linkEmailAccount(
+                            email = email,
+                            password = password,
+                        )
+                    },
+                    onConfirmAccountSwitchForPurchase = {
+                        authViewModel.confirmAccountSwitchForPurchase()
+                    },
+                    onDismissAccountSwitch = {
+                        authViewModel.dismissAccountSwitch()
+                    },
+                    onDismissAuthError = {
+                        authViewModel.consumeError()
+                    },
+                    onRetryBilling = {
+                        billingManager.refreshProductDetails()
+                    },
+                    onPurchase = { period ->
+                        (context as? Activity)?.let { billingManager.launchPurchase(it, period) }
+                    },
+                    canManageSubscription = activeSubscriptionProductId != null,
+                    onManageSubscription = {
+                        if (activeSubscriptionProductId != null) {
+                            val opened = openGooglePlaySubscriptionManagement(
+                                context = context,
+                                productId = activeSubscriptionProductId,
+                            )
+
+                            if (!opened) {
+                                Toast.makeText(
+                                    context,
+                                    "Google Play subscriptions could not be opened.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    },
+                    billingRestoreState = billingRestoreState,
+                    onRestorePurchases = {
+                        billingManager.restorePurchases()
                     },
                     isWebsiteProtectionEnabled = protectionSetupState.websiteProtectionEnabled,
                     isWebsiteProtectionAlwaysOn = protectionSetupState.websiteProtectionAlwaysOn,
                     isReleaseWindowActive = windowSnapshot.isProtectionPaused,
                     releaseWindowEndsAt = windowSnapshot.pausedWindowEnd?.toImpulsiveCompactTime(),
                     onTurnWebsiteProtectionOff = {
-                        ImpulsiveVpnController.stop(context)
                         protectionSetupViewModel.setWebsiteProtectionEnabled(false)
                     },
                     onAlwaysOnChanged = protectionSetupViewModel::setWebsiteProtectionAlwaysOn,
+                )
+            }
+
+            composable(AppRoutes.WebsiteProtectionApps) {
+                BlockedAppsSelectionContent(
+                    selectedPackageNames = protectionSetupState.websiteProtectedAppPackageNames,
+                    onSelectedPackageNamesChanged =
+                        protectionSetupViewModel::setWebsiteProtectedAppPackageNames,
+                    onDone = { navController.safePopBackStack() },
+                    allowShowMoreApps = true,
+                    seedRecommendedBrowsers = true,
+                    titleOverride = "Choose apps for Website Protection",
+                    subtitleOverride =
+                        "Only selected apps use Website Protection. Other apps use your normal internet connection.",
                 )
             }
 
@@ -888,24 +1370,12 @@ fun AppNavHost(
                         }
                     },
                     onTurnOff = {
-                        ImpulsiveVpnController.stop(context)
                         protectionSetupViewModel.setWebsiteProtectionEnabled(false)
                         navController.safePopBackStack()
                     },
                     onBack = { navController.safePopBackStack() },
                 )
             }
-
-            composable(AppRoutes.UninstallProtection) {
-                UninstallProtectionScreen(
-                    state = protectionSetupState,
-                    onBack = { navController.safePopBackStack() },
-                    onEnabledSynced = protectionSetupViewModel::setUninstallProtectionEnabled,
-                    onSkip = {
-                        protectionSetupViewModel.markSkipped(ProtectionSetupItem.UninstallProtection)
-                        navController.safePopBackStack()
-                    },
-                )
             }
 
             composable(AppRoutes.RecoveryGames) {
@@ -920,7 +1390,7 @@ fun AppNavHost(
 
             composable(AppRoutes.ReflexGame) {
                 ReflexGameScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.ReflexOverride,
@@ -932,7 +1402,7 @@ fun AppNavHost(
 
             composable(AppRoutes.ReflexGameTask) {
                 ReflexGameScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.ReflexOverride,
@@ -944,7 +1414,7 @@ fun AppNavHost(
 
             composable(AppRoutes.BlockCascadeGame) {
                 BlockCascadeScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade,
@@ -956,7 +1426,7 @@ fun AppNavHost(
 
             composable(AppRoutes.BlockCascadeTask) {
                 BlockCascadeScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade,
@@ -968,7 +1438,7 @@ fun AppNavHost(
 
             composable(AppRoutes.SkylineResetGame) {
                 SkylineResetScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset,
@@ -980,7 +1450,7 @@ fun AppNavHost(
 
             composable(AppRoutes.SkylineResetTask) {
                 SkylineResetScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset,
@@ -992,7 +1462,7 @@ fun AppNavHost(
 
             composable(AppRoutes.RhythmTilesGame) {
                 RhythmTilesScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles,
@@ -1004,7 +1474,7 @@ fun AppNavHost(
 
             composable(AppRoutes.RhythmTilesTask) {
                 RhythmTilesScreen(
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles,
@@ -1024,7 +1494,7 @@ fun AppNavHost(
             composable(AppRoutes.ResetReadFallbackTask) {
                 ResetReadScreen(
                     launchMode = ResetReadLaunchMode.Fallback,
-                    onExit = { navController.safePopBackStack() },
+                    onExit = { navController.exitRecoveryFlowSafely() },
                 )
             }
 
@@ -1110,18 +1580,6 @@ fun AppNavHost(
                 val urgeEventRepository = remember(context) {
                     com.impulsive.app.backend.data.repository.UrgeEventRepository(context)
                 }
-                val scoreRepository = remember(context) {
-                    com.impulsive.app.backend.data.repository.ScoreRepository(context)
-                }
-                val servedGamesRepository = remember(context) {
-                    com.impulsive.app.backend.data.repository.ServedGamesRepository(context)
-                }
-                val gameSessions by scoreRepository.sessions
-                    .collectAsStateWithLifecycle(initialValue = emptyList())
-                val urgeEvents by urgeEventRepository.events
-                    .collectAsStateWithLifecycle(initialValue = emptyList())
-                val recentlyServedGames by servedGamesRepository.served
-                    .collectAsStateWithLifecycle(initialValue = emptyList())
                 val blockGuard = rememberAppLockGuardController()
                 val oneMinuteAccessDataSource = remember {
                     com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource(context)
@@ -1148,22 +1606,15 @@ fun AppNavHost(
                     sourceLabel = if (hideSensitive) "a protected app" else sourceLabel.ifBlank { sourcePackageName },
                     onStartControlTask = {
                         blockGuard.run(appLockEnabled) {
-                            val chosenGame = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.selectNextGame(
-                                sessions = gameSessions,
-                                urgeEvents = urgeEvents,
-                                recentlyServed = recentlyServedGames,
-                            )
                             urgeEventScope.launch {
-                                urgeEventRepository.recordEvent(source = "support_task", packageName = sourcePackageName)
-                                servedGamesRepository.recordServed(chosenGame)
+                                val chosenGame = selectAndRecordGuidedGame(
+                                    context = context,
+                                    sourcePackageName = sourcePackageName,
+                                )
+                                navController.navigate(recoveryGameRoute(chosenGame, asTask = true)) {
+                                    launchSingleTop = true
+                                }
                             }
-                            val gameRoute = when (chosenGame) {
-                                com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade -> AppRoutes.BlockCascadeTask
-                                com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset -> AppRoutes.SkylineResetTask
-                                com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles -> AppRoutes.RhythmTilesTask
-                                else -> AppRoutes.ReflexGameTask
-                            }
-                            navController.navigate(gameRoute) { launchSingleTop = true }
                         }
                     },
                     onStartReadingTask = {
@@ -1225,7 +1676,920 @@ fun AppNavHost(
             }
         }
     }
+
+@Composable
+private fun CloudRestoreDialog(
+    onDismiss: () -> Unit,
+    onSuccess: () -> Unit,
+) {
+    val context =
+        LocalContext.current
+
+    val scope =
+        rememberCoroutineScope()
+
+    val coordinator =
+        remember(
+            context,
+        ) {
+            CloudRecoveryRestoreCoordinator(
+                context,
+            )
+        }
+
+    val authorization =
+        remember(
+            context,
+        ) {
+            DriveAppDataAuthorization(
+                context,
+            )
+        }
+
+    var envelope by
+        remember {
+            mutableStateOf<ByteArray?>(
+                null,
+            )
+        }
+
+    var password by
+        remember {
+            mutableStateOf(
+                "",
+            )
+        }
+
+    var requiresReplacement by
+        remember {
+            mutableStateOf(
+                false,
+            )
+        }
+
+    var showPassword by
+        remember {
+            mutableStateOf(
+                false,
+            )
+        }
+
+    var showOwnerMigrationConfirmation by
+        remember {
+            mutableStateOf(false)
+        }
+
+    var ownerMigrationConfirmed by
+        remember {
+            mutableStateOf(false)
+        }
+
+    var showReplace by
+        remember {
+            mutableStateOf(
+                false,
+            )
+        }
+
+    var message by
+        remember {
+            mutableStateOf<String?>(
+                null,
+            )
+        }
+
+    fun clearEnvelope() {
+        envelope?.fill(
+            0,
+        )
+
+        envelope =
+            null
+    }
+
+    fun restore(
+        replace:
+            Boolean,
+        ownerMigrationConfirmed:
+            Boolean = false,
+    ) {
+        val bytes =
+            envelope
+                ?: return
+
+        val passwordChars =
+            password.toCharArray()
+
+        password =
+            ""
+
+        scope.launch {
+            when (
+                coordinator.restore(
+                    downloadedEnvelope =
+                        bytes,
+
+                    password =
+                        passwordChars,
+
+                    replaceExistingData =
+                        replace,
+
+                    ownerMigrationConfirmed =
+                        ownerMigrationConfirmed,
+                )
+            ) {
+                CloudRecoveryRestoreResult.Success -> {
+                    clearEnvelope()
+                    onSuccess()
+                }
+
+                CloudRecoveryRestoreResult.SuccessBackupRefreshPending -> {
+                    clearEnvelope()
+
+                    Toast.makeText(
+                        context,
+                        "Your data was restored and Google Drive recovery backup is on. " +
+                            "A backup refresh will be requested again when your data changes.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+
+                    onSuccess()
+                }
+                CloudRecoveryRestoreResult.RestoredButCloudRecoverySetupFailed -> {
+                    clearEnvelope()
+
+                    Toast.makeText(
+                        context,
+                        "Your recovery data was restored, but automatic " +
+                            "Google Drive backup could not be re-enabled. " +
+                            "Turn it on again in Settings.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+
+                    onSuccess()
+                }
+
+                CloudRecoveryRestoreResult.IncorrectPassword -> {
+                    message =
+                        "Incorrect recovery password."
+                }
+
+                CloudRecoveryRestoreResult.AccountMismatch -> {
+                    message =
+                        "This recovery backup belongs to a different " +
+                            "Impulsive account."
+                }
+
+                is CloudRecoveryRestoreResult.OwnerMigrationConfirmationRequired -> {
+                    showOwnerMigrationConfirmation = true
+                }
+
+                CloudRecoveryRestoreResult.ReplacementConfirmationRequired -> {
+                    showReplace =
+                        true
+                }
+
+                CloudRecoveryRestoreResult.InvalidBackup -> {
+                    message =
+                        "This Google Drive recovery backup is not valid."
+                }
+
+                CloudRecoveryRestoreResult.ImportFailed -> {
+                    message =
+                        "Could not import your recovery data. Your existing " +
+                            "local data was left unchanged."
+                }
+
+                CloudRecoveryRestoreResult.NotSignedIn,
+                CloudRecoveryRestoreResult.GuestNotSupported -> {
+                    message =
+                        "Sign in with the account that created this recovery backup."
+                }
+            }
+        }
+    }
+
+    fun discover(
+        accessToken:
+            String,
+    ) {
+        scope.launch {
+            when (
+                val result =
+                    coordinator.discover(
+                        accessToken,
+                    )
+            ) {
+                is CloudRecoveryRestoreDiscovery.Downloaded -> {
+                    clearEnvelope()
+
+                    envelope =
+                        result.bytes
+
+                    requiresReplacement =
+                        result
+                            .requiresReplacementConfirmation
+
+                    showPassword =
+                        true
+                }
+
+                CloudRecoveryRestoreDiscovery.NoBackupFound -> {
+                    message =
+                        "No Google Drive recovery backup was found for Impulsive."
+                }
+
+                CloudRecoveryRestoreDiscovery.AuthorizationRequired -> {
+                    message =
+                        "Google Drive authorization is required to access your recovery backup."
+                }
+
+                CloudRecoveryRestoreDiscovery.TemporarilyUnavailable -> {
+                    message =
+                        "Google Drive recovery is temporarily unavailable. " +
+                            "Check your connection and try again."
+                }
+
+                CloudRecoveryRestoreDiscovery.InvalidBackup -> {
+                    message =
+                        "The Google Drive recovery backup is not valid."
+                }
+
+                CloudRecoveryRestoreDiscovery.NotSignedIn,
+                CloudRecoveryRestoreDiscovery.GuestNotSupported,
+                CloudRecoveryRestoreDiscovery.Failed -> {
+                    message =
+                        "Could not access Google Drive recovery."
+                }
+            }
+        }
+    }
+
+    val launcher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts
+                .StartIntentSenderForResult(),
+        ) { result ->
+            val data =
+                result.data
+
+            if (
+                data == null
+            ) {
+                message =
+                    "Google Drive recovery backup was not authorized."
+            } else {
+                when (
+                    val authorizationResult =
+                        authorization.resultFromIntent(
+                            data,
+                        )
+                ) {
+                    is DriveAuthorizationResult.Authorized -> {
+                        discover(
+                            authorizationResult.accessToken,
+                        )
+                    }
+
+                    else -> {
+                        message =
+                            "Google Drive recovery backup was not authorized."
+                    }
+                }
+            }
+        }
+
+    AlertDialog(
+        onDismissRequest = {
+            password =
+                ""
+
+            clearEnvelope()
+
+            onDismiss()
+        },
+
+        title = {
+            Text(
+                "Restore from Google Drive",
+            )
+        },
+
+        text = {
+            Text(
+                "Restore an encrypted recovery backup from your private " +
+                    "Google Drive app data.",
+            )
+        },
+
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        when (
+                            val auth =
+                                authorization
+                                    .requestAuthorization()
+                        ) {
+                            is DriveAuthorizationResult.Authorized -> {
+                                discover(
+                                    auth.accessToken,
+                                )
+                            }
+
+                            is DriveAuthorizationResult.NeedsUserResolution -> {
+                                launcher.launch(
+                                    IntentSenderRequest
+                                        .Builder(
+                                            auth
+                                                .pendingIntent
+                                                .intentSender,
+                                        )
+                                        .build(),
+                                )
+                            }
+
+                            else -> {
+                                message =
+                                    "Google Drive recovery backup was not authorized."
+                            }
+                        }
+                    }
+                },
+            ) {
+                Text(
+                    "Continue",
+                )
+            }
+        },
+
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    password =
+                        ""
+
+                    clearEnvelope()
+
+                    onDismiss()
+                },
+            ) {
+                Text(
+                    "Cancel",
+                )
+            }
+        },
+    )
+
+    if (
+        showPassword
+    ) {
+        AlertDialog(
+            onDismissRequest = {
+                showPassword =
+                    false
+
+                password =
+                    ""
+
+                clearEnvelope()
+            },
+
+            title = {
+                Text(
+                    "Enter recovery password",
+                )
+            },
+
+            text = {
+                Column {
+                    Text(
+                        "Enter the password you created when you turned on " +
+                            "Google Drive recovery. Impulsive does not store " +
+                            "this password.",
+                    )
+
+                    OutlinedTextField(
+                        value =
+                            password,
+
+                        onValueChange = {
+                            password =
+                                it
+                        },
+
+                        label = {
+                            Text(
+                                "Recovery password",
+                            )
+                        },
+
+                        visualTransformation =
+                            PasswordVisualTransformation(),
+                    )
+                }
+            },
+
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPassword =
+                            false
+
+                        if (
+                            requiresReplacement
+                        ) {
+                            showReplace =
+                                true
+                        } else {
+                            restore(
+                                replace =
+                                    false,
+                                ownerMigrationConfirmed = ownerMigrationConfirmed,
+                            )
+                        }
+                    },
+                ) {
+                    Text(
+                        "Restore",
+                    )
+                }
+            },
+
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showPassword =
+                            false
+
+                        password =
+                            ""
+
+                        clearEnvelope()
+                    },
+                ) {
+                    Text(
+                        "Cancel",
+                    )
+                }
+            },
+        )
+    }
+
+    if (showOwnerMigrationConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showOwnerMigrationConfirmation = false },
+            title = { Text("Restore saved data?") },
+            text = { Text("The Firebase account identifier changed, but the encrypted recovery copy matches this linked Google identity. Confirm to restore it.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showOwnerMigrationConfirmation = false
+                    ownerMigrationConfirmed = true
+                    showPassword = true
+                }) { Text("Restore data") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOwnerMigrationConfirmation = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (
+        showReplace
+    ) {
+        AlertDialog(
+            onDismissRequest = {
+                showReplace =
+                    false
+
+                password =
+                    ""
+
+                clearEnvelope()
+            },
+
+            title = {
+                Text(
+                    "Replace local recovery data?",
+                )
+            },
+
+            text = {
+                Text(
+                    "Restoring will replace the recovery data currently " +
+                        "stored on this device with your encrypted Google " +
+                        "Drive recovery copy.",
+                )
+            },
+
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showReplace =
+                            false
+
+                        restore(
+                            replace =
+                                true,
+                            ownerMigrationConfirmed = ownerMigrationConfirmed,
+                        )
+                    },
+                ) {
+                    Text(
+                        "Restore",
+                    )
+                }
+            },
+
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showReplace =
+                            false
+
+                        password =
+                            ""
+
+                        clearEnvelope()
+                    },
+                ) {
+                    Text(
+                        "Cancel",
+                    )
+                }
+            },
+        )
+    }
+
+    message?.let { value ->
+        AlertDialog(
+            onDismissRequest = {
+                message =
+                    null
+            },
+
+            title = {
+                Text(
+                    "Google Drive recovery",
+                )
+            },
+
+            text = {
+                Text(
+                    value,
+                )
+            },
+
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        message =
+                            null
+                    },
+                ) {
+                    Text(
+                        "OK",
+                    )
+                }
+            },
+        )
+    }
 }
+@Composable
+private fun AccountRestoreDialog(
+    state: AccountRestoreState,
+    onRetry: () -> Unit,
+    onUseAnotherAccount: () -> Unit,
+    onEraseSavedData: () -> Unit,
+    suppressUnusableLocalDataDialog: Boolean,
+    onDismissRetryable: () -> Unit,
+) {
+    when (state) {
+        AccountRestoreState.Idle -> Unit
+
+        AccountRestoreState.Restoring -> {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Restoring data") },
+                text = {
+                    Text(
+                        "Restoring your saved Impulsive data.",
+                    )
+                },
+                confirmButton = { },
+            )
+        }
+
+        is AccountRestoreState.RetryableFailure -> {
+            AlertDialog(
+                onDismissRequest = onDismissRetryable,
+                title = { Text("Restore unavailable") },
+                text = { Text(state.message) },
+                confirmButton = {
+                    TextButton(onClick = onRetry) {
+                        Text("Try again")
+                    }
+                },
+            )
+        }
+
+        AccountRestoreState.AccountMismatch -> {
+            if (!suppressUnusableLocalDataDialog) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text(
+                            "Saved data belongs to another account",
+                        )
+                    },
+                    text = {
+                        Text(
+                            "This saved Impulsive data belongs to a different account. You can sign in with the account that created it, or permanently erase the saved data from this device and continue with the account currently signed in.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = onUseAnotherAccount,
+                        ) {
+                            Text("Use another account")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = onEraseSavedData,
+                        ) {
+                            Text("Erase saved data")
+                        }
+                    },
+                )
+            }
+        }
+
+        AccountRestoreState.LocalBackupUnavailable -> {
+            if (!suppressUnusableLocalDataDialog) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text("Saved data needs review")
+                    },
+                    text = {
+                        Text(
+                            "Impulsive found saved data from an older version, but it cannot safely confirm which account owns it. You can use another account or permanently erase the saved data from this device.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = onUseAnotherAccount,
+                        ) {
+                            Text("Use another account")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = onEraseSavedData,
+                        ) {
+                            Text("Erase saved data")
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun AuthenticatedOnboardingDecisionDialog(
+    decision: AuthenticatedOnboardingNavigationDecision?,
+    onTryAgain: () -> Unit,
+    onSetUpAgain: () -> Unit,
+    onUseAnotherAccount: () -> Unit,
+    onEraseSavedData: () -> Unit,
+    suppressUnusableLocalDataDialog: Boolean,
+) {
+    when (decision) {
+        null,
+        AuthenticatedOnboardingNavigationDecision.OpenHome,
+        AuthenticatedOnboardingNavigationDecision.RestoreBeforeHome,
+        AuthenticatedOnboardingNavigationDecision.StartSetup,
+        AuthenticatedOnboardingNavigationDecision.AwaitRetry,
+        -> Unit
+
+        AuthenticatedOnboardingNavigationDecision.ShowRemoteCompletedWithoutLocalData -> {
+            var showCloudRestore by remember { mutableStateOf(false) }
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Setup not on this device") },
+                text = {
+                    Column {
+                        Text("Your account was found, but this device doesn't currently have your saved Impulsive setup. You can restore an encrypted Google Drive recovery backup, try Android backup again, or set up this device again.")
+                        TextButton(onClick = onTryAgain) { Text("Try Android backup again") }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from Google Drive") } },
+                dismissButton = { TextButton(onClick = onSetUpAgain) { Text("Set up again") } },
+            )
+            if (showCloudRestore) {
+                CloudRestoreDialog(onDismiss = { showCloudRestore = false }, onSuccess = { showCloudRestore = false; onTryAgain() })
+            }
+        }
+        AuthenticatedOnboardingNavigationDecision.ShowRestoredSameGoogleIdentityConfirmation -> {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Restore saved data?") },
+                text = { Text("Android restored Impulsive data from the same linked Google identity, but the Firebase account identifier changed.") },
+                confirmButton = { TextButton(onClick = onTryAgain) { Text("Restore data") } },
+                dismissButton = { TextButton(onClick = onUseAnotherAccount) { Text("Use another account") } },
+            )
+        }
+        AuthenticatedOnboardingNavigationDecision.ShowRestoredLegacyDriveVerification -> {
+            var showCloudRestore by remember { mutableStateOf(false) }
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Restore saved data?") },
+                text = { Text("This restored local data predates the identity claim. Restore and confirm the encrypted Google Drive recovery copy before claiming it.") },
+                confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from Google Drive") } },
+                dismissButton = { TextButton(onClick = onUseAnotherAccount) { Text("Use another account") } },
+            )
+            if (showCloudRestore) CloudRestoreDialog(onDismiss = { showCloudRestore = false }, onSuccess = { showCloudRestore = false; onTryAgain() })
+        }
+        AuthenticatedOnboardingNavigationDecision.ShowAccountMismatch -> {
+            if (!suppressUnusableLocalDataDialog) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text(
+                            "Saved data belongs to another account",
+                        )
+                    },
+                    text = {
+                        Text(
+                            "This saved Impulsive data belongs to a different account. You can sign in with the account that created it, or permanently erase the saved data from this device and continue with the account currently signed in.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = onUseAnotherAccount,
+                        ) {
+                            Text("Use another account")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = onEraseSavedData,
+                        ) {
+                            Text("Erase saved data")
+                        }
+                    },
+                )
+            }
+        }
+
+        AuthenticatedOnboardingNavigationDecision
+            .ShowLegacyUnownedLocalData -> {
+            if (!suppressUnusableLocalDataDialog) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text("Saved data needs review")
+                    },
+                    text = {
+                        Text(
+                            "Impulsive found saved data from an older version, but it cannot safely confirm which account owns it. You can use another account or permanently erase the saved data from this device.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = onUseAnotherAccount,
+                        ) {
+                            Text("Use another account")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = onEraseSavedData,
+                        ) {
+                            Text("Erase saved data")
+                        }
+                    },
+                )
+            }
+        }
+
+    }
+}
+
+@Composable
+private fun AccountLocalDataResetDialog(
+    state: AccountLocalDataResetState,
+    onConfirm: () -> Unit,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    when (state) {
+        AccountLocalDataResetState.Idle -> Unit
+
+        is AccountLocalDataResetState.Confirming -> {
+            AlertDialog(
+                onDismissRequest = onCancel,
+                title = {
+                    Text(
+                        "Erase saved data from this device?",
+                    )
+                },
+                text = {
+                    Text(
+                        "This permanently removes the previous account's Impulsive setup and all locally saved Impulsive data from this device. It will not transfer that data to the account currently signed in. This cannot be undone.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = onConfirm,
+                    ) {
+                        Text("Erase and continue")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = onCancel,
+                    ) {
+                        Text("Cancel")
+                    }
+                },
+            )
+        }
+
+        is AccountLocalDataResetState.Deleting -> {
+            AlertDialog(
+                onDismissRequest = { },
+                title = {
+                    Text("Erasing saved data")
+                },
+                text = {
+                    Column(
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally,
+                    ) {
+                        CircularProgressIndicator()
+                        Text(
+                            "Removing the previous account's saved Impulsive data from this device.",
+                        )
+                    }
+                },
+                confirmButton = { },
+            )
+        }
+
+        AccountLocalDataResetState.SessionChanged -> {
+            AlertDialog(
+                onDismissRequest = onCancel,
+                title = {
+                    Text("Signed-in account changed")
+                },
+                text = {
+                    Text(
+                        "The signed-in account changed before the erase could begin. No saved data was erased. Continue, then start the erase again from the saved-data warning.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = onCancel,
+                    ) {
+                        Text("Continue")
+                    }
+                },
+            )
+        }
+
+        is AccountLocalDataResetState.Failed -> {
+            AlertDialog(
+                onDismissRequest = onCancel,
+                title = {
+                    Text("Could not finish")
+                },
+                text = {
+                    Text(state.message)
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = onRetry,
+                    ) {
+                        Text("Try again")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = onCancel,
+                    ) {
+                        Text("Cancel")
+                    }
+                },
+            )
+        }
+    }
+}
+
 
 private fun NavHostController.navigateOnboarding(route: String) {
     navigate(route) {
@@ -1241,6 +2605,98 @@ private fun NavHostController.safePopBackStack() {
         ?.isAtLeast(Lifecycle.State.RESUMED) == true
     if (hasPrevious && isResumed) {
         popBackStack()
+    }
+}
+
+private fun NavHostController.exitRecoveryFlowSafely() {
+    val currentEntry =
+        currentBackStackEntry
+            ?: return
+
+    val isResumed =
+        currentEntry
+            .lifecycle
+            .currentState
+            .isAtLeast(
+                Lifecycle.State.RESUMED,
+            )
+
+    if (!isResumed) {
+        return
+    }
+
+    val currentRoute =
+        currentEntry
+            .destination
+            .route
+
+    val previousEntry =
+        previousBackStackEntry
+
+    val previousRoute =
+        previousEntry
+            ?.destination
+            ?.route
+
+    /*
+     * Protection-origin recovery content must never return to an obsolete
+     * protection entry point.
+     */
+    val previousIsProtectionEntryPoint =
+        previousRoute ==
+            AppRoutes.RandomRecoveryGame ||
+            previousRoute ==
+            AppRoutes.ImpulsiveBlock
+
+    /*
+     * ResetReadFallbackTask is itself protection-only.
+     *
+     * On a warm MainActivity, a normal Impulsive destination may still exist
+     * underneath it.
+     *
+     * The presence of previousBackStackEntry must therefore not cause this
+     * fallback flow to pop back to that stale screen.
+     */
+    val currentIsProtectionOnly =
+        currentRoute ==
+            AppRoutes.ResetReadFallbackTask
+
+    /*
+     * Normal recovery content preserves normal back navigation.
+     *
+     * Examples:
+     *
+     * Recovery Games -> Reflex Game -> Done
+     * Task to Complete -> Rhythm Tiles -> Done
+     *
+     * Protection-only reading and protection entry points instead exit Home.
+     */
+    if (
+        previousEntry != null &&
+        !previousIsProtectionEntryPoint &&
+        !currentIsProtectionOnly
+    ) {
+        popBackStack()
+        return
+    }
+
+    /*
+     * No usable previous app destination exists, or this destination belongs
+     * to the protection flow.
+     *
+     * Clear all current destinations inside main_graph and establish Home as
+     * the only visible child destination.
+     */
+    navigate(
+        AppRoutes.Home,
+    ) {
+        popUpTo(
+            AppRoutes.Graph,
+        ) {
+            inclusive = false
+        }
+
+        launchSingleTop = true
     }
 }
 
@@ -1289,6 +2745,26 @@ private fun recoveryGameRoute(
         if (asTask) AppRoutes.RhythmTilesTask else AppRoutes.RhythmTilesGame
     else ->
         if (asTask) AppRoutes.ReflexGameTask else AppRoutes.ReflexGame
+}
+
+private suspend fun selectAndRecordGuidedGame(
+    context: Context,
+    sourcePackageName: String,
+): com.impulsive.app.backend.domain.model.score.ScoreGameType {
+    val scoreRepository = com.impulsive.app.backend.data.repository.ScoreRepository(context)
+    val urgeEventRepository = com.impulsive.app.backend.data.repository.UrgeEventRepository(context)
+    val servedGamesRepository = com.impulsive.app.backend.data.repository.ServedGamesRepository(context)
+    val chosenGame = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.selectNextGame(
+        sessions = scoreRepository.sessions.first(),
+        urgeEvents = urgeEventRepository.events.first(),
+        recentlyServed = servedGamesRepository.served.first(),
+    )
+    urgeEventRepository.recordEvent(
+        source = "support_task",
+        packageName = sourcePackageName,
+    )
+    servedGamesRepository.recordServed(chosenGame)
+    return chosenGame
 }
 
 // Builds a play-another callback that picks a different recovery game, keeps the

@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,9 +51,10 @@ fun ProtectionSetupOnboardingScreen(
     onOpenInterruptionPermission: () -> Unit,
     onOpenBackgroundActivityPermission: () -> Unit,
     onOpenNotificationPermission: () -> Unit,
-    onOpenUninstallProtection: () -> Unit,
     onSkipItem: (ProtectionSetupItem) -> Unit,
     onContinue: () -> Unit,
+    showMonitorToggle: Boolean = false,
+    onMonitorEnabledChange: (Boolean) -> Unit = {},
 ) {
     val missingCoreCount = state.incompleteCoreProtectionItems.size
     val continueLabel = if (missingCoreCount == 0) "Continue" else "Continue and finish later"
@@ -126,6 +129,47 @@ fun ProtectionSetupOnboardingScreen(
 
         Spacer(modifier = Modifier.height(22.dp))
 
+        if (showMonitorToggle) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = ImpulsiveSurface.copy(alpha = 0.94f),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Protection monitor",
+                            color = ProtectionPrimaryText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp,
+                        )
+                        Text(
+                            text = "Checks your selected protected apps and shows the Impulsive pause screen when one opens.",
+                            color = ProtectionMutedText,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = if (state.appProtectionMonitorEnabled) "On" else "Off",
+                            color = ProtectionMutedText,
+                            fontSize = 12.sp,
+                        )
+                        Switch(
+                            checked = state.appProtectionMonitorEnabled,
+                            onCheckedChange = onMonitorEnabledChange,
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -142,8 +186,8 @@ fun ProtectionSetupOnboardingScreen(
             )
             ProtectionSetupCard(
                 badge = "2",
-                title = "Enable app detection",
-                body = "This phone setting lets Impulsive notice protected apps. You can finish it from your profile after onboarding.",
+                title = "App detection",
+                body = "Allows Impulsive to notice when you open a protected app. Android calls this Usage Access.",
                 completed = state.isComplete(ProtectionSetupItem.UsageAccess),
                 skipped = ProtectionSetupItem.UsageAccess in state.skippedSetupItems,
                 actionLabel = "Open settings",
@@ -152,8 +196,8 @@ fun ProtectionSetupOnboardingScreen(
             )
             ProtectionSetupCard(
                 badge = "3",
-                title = "Allow Impulsive to step in",
-                body = "This Android setting lets Impulsive show your pause screen over protected apps.",
+                title = "Let Impulsive step in",
+                body = "Allows the pause screen to appear on top of a protected app. Android calls this Display over other apps.",
                 completed = state.isComplete(ProtectionSetupItem.InterruptionPermission),
                 skipped = ProtectionSetupItem.InterruptionPermission in state.skippedSetupItems,
                 actionLabel = "Allow",
@@ -162,8 +206,8 @@ fun ProtectionSetupOnboardingScreen(
             )
             ProtectionSetupCard(
                 badge = "4",
-                title = "Allow background protection",
-                body = "This helps Impulsive restart after reboot and stay active when phone makers limit background apps.",
+                title = "Background protection",
+                body = "Helps Impulsive keep protection running in the background. Android manages this through Battery optimization.",
                 completed = state.isComplete(ProtectionSetupItem.BackgroundActivity),
                 skipped = ProtectionSetupItem.BackgroundActivity in state.skippedSetupItems,
                 actionLabel = "Allow",
@@ -172,23 +216,13 @@ fun ProtectionSetupOnboardingScreen(
             )
             ProtectionSetupCard(
                 badge = "5",
-                title = "Keep notifications active",
-                body = "Notifications tell you when a planned window opens and when protection turns back on.",
+                title = "Notifications",
+                body = "If the pause screen can't show, Impulsive sends a notification so you can still open your reset.",
                 completed = state.isComplete(ProtectionSetupItem.Notifications),
                 skipped = ProtectionSetupItem.Notifications in state.skippedSetupItems,
                 actionLabel = "Allow",
                 onAction = onOpenNotificationPermission,
                 onSkip = { onSkipItem(ProtectionSetupItem.Notifications) },
-            )
-            ProtectionSetupCard(
-                badge = "6",
-                title = "Add uninstall friction",
-                body = "This adds friction before removing Impulsive during weak moments, while keeping you in control.",
-                completed = state.isComplete(ProtectionSetupItem.UninstallProtection),
-                skipped = ProtectionSetupItem.UninstallProtection in state.skippedSetupItems,
-                actionLabel = "Set up",
-                onAction = onOpenUninstallProtection,
-                onSkip = { onSkipItem(ProtectionSetupItem.UninstallProtection) },
             )
         }
     }

@@ -59,6 +59,8 @@ fun BlockedAppsSelectionContent(
     allowShowMoreApps: Boolean = false,
     seedRecommendedBrowsers: Boolean = false,
     useFocusCopy: Boolean = false,
+    titleOverride: String? = null,
+    subtitleOverride: String? = null,
 ) {
     val context = LocalContext.current
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -72,8 +74,8 @@ fun BlockedAppsSelectionContent(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showMoreApps by rememberSaveable { mutableStateOf(false) }
     var showAppsInfo by rememberSaveable { mutableStateOf(false) }
-    val titleText = if (useFocusCopy) "Choose apps to block during focus" else "Choose apps to protect"
-    val subtitleText = if (useFocusCopy) {
+    val titleText = titleOverride ?: if (useFocusCopy) "Choose apps to block during focus" else "Choose apps to protect"
+    val subtitleText = subtitleOverride ?: if (useFocusCopy) {
         "Pick the apps that usually pull you away while working or studying. This only affects Focus Mode."
     } else {
         "Review the suggested browsers before continuing."

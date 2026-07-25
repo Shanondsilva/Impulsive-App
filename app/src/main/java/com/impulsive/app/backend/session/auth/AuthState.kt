@@ -1,5 +1,6 @@
 package com.impulsive.app.backend.session.auth
 
+import com.impulsive.app.backend.data.repository.AuthResult
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.auth.AuthUser
 
@@ -18,6 +19,8 @@ data class AuthState(
     val inFlightProvider: AuthProvider? = null,
     val errorMessage: String? = null,
     val pendingEmailVerificationAddress: String? = null,
+    val pendingAccountConflict: AuthResult.AccountConflict? = null,
+    val accountSwitchCompleted: Boolean = false,
 ) {
     val isLoading: Boolean get() = inFlightProvider != null
     val isWaitingForEmailVerification: Boolean get() = pendingEmailVerificationAddress != null

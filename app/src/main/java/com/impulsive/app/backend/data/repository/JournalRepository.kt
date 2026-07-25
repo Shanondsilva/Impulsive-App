@@ -4,6 +4,7 @@ import android.content.Context
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
+import com.impulsive.app.backend.data.restore.RestoreSnapshotRefreshScheduler
 import com.impulsive.app.backend.service.journal.JournalReminderScheduler
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -39,6 +40,7 @@ class JournalRepository(context: Context) {
             preview = note.previewForNotification(checklistItems),
             reminderAtMillis = note.reminderAtMillis,
         )
+        RestoreSnapshotRefreshScheduler.request(appContext)
         return savedId
     }
 
@@ -50,6 +52,7 @@ class JournalRepository(context: Context) {
             preview = note.previewForNotification(dao.getChecklistItems(note.id)),
             reminderAtMillis = note.reminderAtMillis,
         )
+        RestoreSnapshotRefreshScheduler.request(appContext)
     }
 
     suspend fun deleteNote(noteId: Long) {
@@ -58,6 +61,7 @@ class JournalRepository(context: Context) {
             noteId = noteId,
             deletedAtMillis = System.currentTimeMillis(),
         )
+        RestoreSnapshotRefreshScheduler.request(appContext)
     }
 
     suspend fun deleteNotes(noteIds: List<Long>) {
@@ -72,6 +76,7 @@ class JournalRepository(context: Context) {
             noteIds = distinctIds,
             deletedAtMillis = System.currentTimeMillis(),
         )
+        RestoreSnapshotRefreshScheduler.request(appContext)
     }
 
     suspend fun purgeObsoleteFeedbackNotes(): Int {
@@ -116,6 +121,7 @@ class JournalRepository(context: Context) {
         val moved = mutable.removeAt(index)
         mutable.add(targetIndex, moved)
         dao.reorder(mutable, movedNoteId = noteId, now = System.currentTimeMillis())
+        RestoreSnapshotRefreshScheduler.request(appContext)
     }
 
     private suspend fun daoSnapshot(source: String): List<JournalNoteEntity> {

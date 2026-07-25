@@ -2,6 +2,7 @@ package com.impulsive.app.backend.data.local.preferences
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,302 +10,230 @@ import org.junit.Test
 class PlayStoreRatingPromptPolicyTest {
     @Test
     fun firstUseDayStartsStreakWithoutEligibility() {
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous =
-                        PlayStoreRatingPromptState(),
-                    currentEpochDay = 100L,
-                    chanceRoll = 0,
-                )
-
-        assertEquals(
-            1,
-            result.consecutiveUseDays,
+        val result = PlayStoreRatingPromptPolicy.recordUse(
+            previous = PlayStoreRatingPromptState(),
+            currentEpochDay = 100L,
+            chanceRoll = 0,
         )
 
-        assertNull(
-            result.eligiblePromptEpochDay,
-        )
+        assertEquals(1, result.consecutiveUseDays)
+        assertNull(result.eligiblePromptEpochDay)
     }
 
     @Test
     fun secondConsecutiveDayDoesNotEvaluate() {
-        val previous =
-            PlayStoreRatingPromptState(
+        val result = PlayStoreRatingPromptPolicy.recordUse(
+            previous = PlayStoreRatingPromptState(
                 lastUseEpochDay = 100L,
                 consecutiveUseDays = 1,
-            )
-
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = previous,
-                    currentEpochDay = 101L,
-                    chanceRoll = 0,
-                )
-
-        assertEquals(
-            2,
-            result.consecutiveUseDays,
+            ),
+            currentEpochDay = 101L,
+            chanceRoll = 0,
         )
 
-        assertNull(
-            result
-                .lastEligibilityCheckEpochDay,
-        )
-
-        assertNull(
-            result.eligiblePromptEpochDay,
-        )
+        assertEquals(2, result.consecutiveUseDays)
+        assertNull(result.lastEligibilityCheckEpochDay)
+        assertNull(result.eligiblePromptEpochDay)
     }
 
     @Test
     fun thirdConsecutiveDayRollBelowTwentyIsEligible() {
-        val previous =
-            PlayStoreRatingPromptState(
+        val result = PlayStoreRatingPromptPolicy.recordUse(
+            previous = PlayStoreRatingPromptState(
                 lastUseEpochDay = 101L,
                 consecutiveUseDays = 2,
-            )
-
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = previous,
-                    currentEpochDay = 102L,
-                    chanceRoll = 19,
-                )
-
-        assertEquals(
-            3,
-            result.consecutiveUseDays,
+            ),
+            currentEpochDay = 102L,
+            chanceRoll = 19,
         )
 
-        assertEquals(
-            102L,
-            result
-                .lastEligibilityCheckEpochDay,
-        )
-
-        assertEquals(
-            102L,
-            result
-                .eligiblePromptEpochDay,
-        )
+        assertEquals(3, result.consecutiveUseDays)
+        assertEquals(102L, result.lastEligibilityCheckEpochDay)
+        assertEquals(102L, result.eligiblePromptEpochDay)
     }
 
     @Test
     fun rollTwentyIsNotEligible() {
-        val previous =
-            PlayStoreRatingPromptState(
+        val result = PlayStoreRatingPromptPolicy.recordUse(
+            previous = PlayStoreRatingPromptState(
                 lastUseEpochDay = 101L,
                 consecutiveUseDays = 2,
-            )
-
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = previous,
-                    currentEpochDay = 102L,
-                    chanceRoll = 20,
-                )
-
-        assertEquals(
-            3,
-            result.consecutiveUseDays,
+            ),
+            currentEpochDay = 102L,
+            chanceRoll = 20,
         )
 
-        assertEquals(
-            102L,
-            result
-                .lastEligibilityCheckEpochDay,
-        )
-
-        assertNull(
-            result.eligiblePromptEpochDay,
-        )
+        assertEquals(3, result.consecutiveUseDays)
+        assertEquals(102L, result.lastEligibilityCheckEpochDay)
+        assertNull(result.eligiblePromptEpochDay)
     }
 
     @Test
     fun repeatedUseOnSameDayDoesNotChangeResult() {
-        val previous =
-            PlayStoreRatingPromptState(
-                lastUseEpochDay = 102L,
-                consecutiveUseDays = 3,
-                lastEligibilityCheckEpochDay =
-                    102L,
-                eligiblePromptEpochDay =
-                    102L,
-            )
-
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = previous,
-                    currentEpochDay = 102L,
-                    chanceRoll = 99,
-                )
+        val previous = PlayStoreRatingPromptState(
+            lastUseEpochDay = 102L,
+            consecutiveUseDays = 3,
+            lastEligibilityCheckEpochDay = 102L,
+            eligiblePromptEpochDay = 102L,
+        )
 
         assertEquals(
             previous,
-            result,
+            PlayStoreRatingPromptPolicy.recordUse(
+                previous = previous,
+                currentEpochDay = 102L,
+                chanceRoll = 99,
+            ),
         )
     }
 
     @Test
     fun missedDayResetsStreak() {
-        val previous =
-            PlayStoreRatingPromptState(
+        val result = PlayStoreRatingPromptPolicy.recordUse(
+            previous = PlayStoreRatingPromptState(
                 lastUseEpochDay = 100L,
                 consecutiveUseDays = 5,
-                eligiblePromptEpochDay =
-                    100L,
-            )
-
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = previous,
-                    currentEpochDay = 102L,
-                    chanceRoll = 0,
-                )
-
-        assertEquals(
-            1,
-            result.consecutiveUseDays,
+                eligiblePromptEpochDay = 100L,
+            ),
+            currentEpochDay = 102L,
+            chanceRoll = 0,
         )
 
+        assertEquals(1, result.consecutiveUseDays)
+        assertNull(result.eligiblePromptEpochDay)
+    }
+
+    @Test
+    fun legacySnoozeRemainsRespected() {
+        val previous = PlayStoreRatingPromptState(
+            lastUseEpochDay = 108L,
+            consecutiveUseDays = 9,
+            snoozedUntilEpochDay = 109L,
+        )
+
+        assertFalse(previous.isEligibleOn(108L))
+        val result = PlayStoreRatingPromptPolicy.recordUse(
+            previous = previous,
+            currentEpochDay = 109L,
+            chanceRoll = 0,
+        )
+        assertEquals(109L, result.eligiblePromptEpochDay)
+    }
+
+    @Test
+    fun legacyNeverShowSettingSuppressesAutomaticReview() {
+        val previous = PlayStoreRatingPromptState(
+            lastUseEpochDay = 101L,
+            consecutiveUseDays = 2,
+            eligiblePromptEpochDay = 102L,
+            neverShowAgain = true,
+        )
+
+        assertTrue(previous.isPermanentlySuppressed)
+        assertFalse(previous.isEligibleOn(102L))
         assertNull(
-            result.eligiblePromptEpochDay,
+            PlayStoreRatingPromptPolicy.recordUse(
+                previous = previous,
+                currentEpochDay = 102L,
+                chanceRoll = 0,
+            ).eligiblePromptEpochDay,
         )
     }
 
     @Test
-    fun showLaterBlocksForSevenDays() {
-        val eligible =
+    fun legacyRatedSettingSuppressesAutomaticReview() {
+        val previous = PlayStoreRatingPromptState(
+            lastUseEpochDay = 101L,
+            consecutiveUseDays = 2,
+            eligiblePromptEpochDay = 102L,
+            ratedOnPlayStore = true,
+        )
+
+        assertTrue(previous.isPermanentlySuppressed)
+        assertFalse(previous.isEligibleOn(102L))
+        assertNull(
+            PlayStoreRatingPromptPolicy.recordUse(
+                previous = previous,
+                currentEpochDay = 102L,
+                chanceRoll = 0,
+            ).eligiblePromptEpochDay,
+        )
+    }
+
+    @Test
+    fun consumingEligibilityRecordsRequestDay() {
+        val result = PlayStoreRatingPromptPolicy.consumeInAppReviewEligibility(
+            previous = PlayStoreRatingPromptState(
+                eligiblePromptEpochDay = 200L,
+            ),
+            currentEpochDay = 200L,
+        )
+
+        assertNotNull(result)
+        assertNull(result?.eligiblePromptEpochDay)
+        assertEquals(200L, result?.lastInAppReviewRequestEpochDay)
+        assertFalse(result?.neverShowAgain ?: true)
+        assertFalse(result?.ratedOnPlayStore ?: true)
+    }
+
+    @Test
+    fun ineligibleStateCannotBeConsumed() {
+        assertNull(
+            PlayStoreRatingPromptPolicy.consumeInAppReviewEligibility(
+                previous = PlayStoreRatingPromptState(
+                    eligiblePromptEpochDay = 200L,
+                ),
+                currentEpochDay = 201L,
+            ),
+        )
+    }
+
+    @Test
+    fun consumedRequestBlocksAnotherRequestDuringCooldown() {
+        val currentEpochDay =
+            200L + PlayStoreRatingPromptPolicy.MinimumDaysBetweenRequests - 1L
+        val previous = PlayStoreRatingPromptState(
+            eligiblePromptEpochDay = currentEpochDay,
+            lastInAppReviewRequestEpochDay = 200L,
+        )
+
+        assertTrue(previous.isRequestCoolingDownOn(currentEpochDay))
+        assertFalse(previous.isEligibleOn(currentEpochDay))
+    }
+
+    @Test
+    fun requestCanBeEvaluatedAtCooldownBoundary() {
+        val currentEpochDay =
+            200L + PlayStoreRatingPromptPolicy.MinimumDaysBetweenRequests
+        val result = PlayStoreRatingPromptPolicy.recordUse(
+            previous = PlayStoreRatingPromptState(
+                lastUseEpochDay = currentEpochDay - 1L,
+                consecutiveUseDays = 20,
+                lastInAppReviewRequestEpochDay = 200L,
+            ),
+            currentEpochDay = currentEpochDay,
+            chanceRoll = 0,
+        )
+
+        assertEquals(currentEpochDay, result.eligiblePromptEpochDay)
+    }
+
+    @Test
+    fun clockRollbackRemainsBlocked() {
+        assertTrue(
             PlayStoreRatingPromptState(
-                lastUseEpochDay = 102L,
-                consecutiveUseDays = 3,
-                eligiblePromptEpochDay =
-                    102L,
-            )
-
-        val snoozed =
-            PlayStoreRatingPromptPolicy
-                .showLater(
-                    previous = eligible,
-                    currentEpochDay = 102L,
-                )
-
-        assertEquals(
-            109L,
-            snoozed
-                .snoozedUntilEpochDay,
-        )
-
-        assertNull(
-            snoozed.eligiblePromptEpochDay,
-        )
-
-        val blocked =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = snoozed,
-                    currentEpochDay = 108L,
-                    chanceRoll = 0,
-                )
-
-        assertNull(
-            blocked.eligiblePromptEpochDay,
+                lastInAppReviewRequestEpochDay = 200L,
+            ).isRequestCoolingDownOn(199L),
         )
     }
 
     @Test
-    fun snoozeAllowsEvaluationOnSeventhDay() {
-        val previous =
-            PlayStoreRatingPromptState(
-                lastUseEpochDay = 108L,
-                consecutiveUseDays = 9,
-                snoozedUntilEpochDay =
-                    109L,
-            )
-
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = previous,
-                    currentEpochDay = 109L,
-                    chanceRoll = 0,
-                )
-
-        assertEquals(
-            109L,
-            result
-                .eligiblePromptEpochDay,
-        )
-    }
-
-    @Test
-    fun neverShowAgainSuppressesEligibility() {
-        val suppressed =
-            PlayStoreRatingPromptPolicy
-                .neverShowAgain(
-                    previous =
-                        PlayStoreRatingPromptState(
-                            lastUseEpochDay =
-                                101L,
-                            consecutiveUseDays =
-                                2,
-                            eligiblePromptEpochDay =
-                                101L,
-                        ),
-                )
-
-        assertTrue(
-            suppressed.neverShowAgain,
-        )
-
-        assertTrue(
-            suppressed
-                .isPermanentlySuppressed,
-        )
-
-        val result =
-            PlayStoreRatingPromptPolicy
-                .recordUse(
-                    previous = suppressed,
-                    currentEpochDay = 102L,
-                    chanceRoll = 0,
-                )
-
-        assertNull(
-            result.eligiblePromptEpochDay,
-        )
-    }
-
-    @Test
-    fun ratedActionSuppressesFutureEligibility() {
-        val rated =
-            PlayStoreRatingPromptPolicy
-                .ratedOnPlayStore(
-                    previous =
-                        PlayStoreRatingPromptState(
-                            eligiblePromptEpochDay =
-                                102L,
-                        ),
-                )
-
-        assertTrue(
-            rated.ratedOnPlayStore,
-        )
-
-        assertTrue(
-            rated
-                .isPermanentlySuppressed,
-        )
-
+    fun eligibilityHelperIncludesCooldown() {
         assertFalse(
-            rated.isEligibleOn(102L),
+            PlayStoreRatingPromptState(
+                eligiblePromptEpochDay = 201L,
+                lastInAppReviewRequestEpochDay = 200L,
+            ).isEligibleOn(201L),
         )
     }
 }

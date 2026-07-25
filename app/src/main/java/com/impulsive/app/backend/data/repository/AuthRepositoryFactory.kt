@@ -67,9 +67,25 @@ private class GuestOnlyAuthRepository : AuthRepository {
         return AuthResult.Success(guest)
     }
 
+    override suspend fun switchToExistingAccount(): AuthResult {
+        return AuthResult.Error(AuthNotConfiguredMessage)
+    }
+
+    override fun abandonAccountSwitch() = Unit
+
     override suspend fun signOut() {
         currentUserState.value = null
     }
+
+    override suspend fun validateCurrentSession(): SessionValidationResult {
+        return if (currentUserState.value != null) {
+            SessionValidationResult.Valid
+        } else {
+            SessionValidationResult.NoSession
+        }
+    }
+
+    override suspend fun hasValidSession(): Boolean = currentUserState.value != null
 
     override suspend fun deleteAccount(): AccountDeletionResult {
         currentUserState.value = null

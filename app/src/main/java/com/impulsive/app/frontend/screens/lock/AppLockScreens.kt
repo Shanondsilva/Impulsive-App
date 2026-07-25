@@ -1,6 +1,7 @@
 package com.impulsive.app.frontend.screens.lock
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,10 +55,13 @@ fun AppLockGateScreen(
 ) {
     BackHandler(enabled = true) {}
 
-    val activity = LocalContext.current as FragmentActivity
-    val dataSource = remember(activity) { AppLockPreferencesDataSource(activity.applicationContext) }
+    val context = LocalContext.current
+    val activity = LocalActivity.current as? FragmentActivity
+    val dataSource = remember(context) { AppLockPreferencesDataSource(context.applicationContext) }
     val scope = rememberCoroutineScope()
-    val biometricAvailable = remember(activity) { BiometricGate.isBiometricAvailable(activity) }
+    val biometricAvailable = remember(activity) {
+        activity?.let(BiometricGate::isBiometricAvailable) == true
+    }
     var showPin by remember { mutableStateOf(!biometricAvailable) }
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -76,8 +80,8 @@ fun AppLockGateScreen(
     val locked = nowMillis < lockedUntilMillis
     val lockoutSecondsLeft = ((lockedUntilMillis - nowMillis + 999L) / 1000L).coerceAtLeast(0L)
 
-    LaunchedEffect(biometricAvailable) {
-        if (biometricAvailable) {
+    LaunchedEffect(biometricAvailable, activity) {
+        if (biometricAvailable && activity != null) {
             BiometricGate.prompt(
                 activity = activity,
                 title = "Unlock Impulsive",

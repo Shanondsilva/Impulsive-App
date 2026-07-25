@@ -1,35 +1,62 @@
-﻿# Prompt-bundling workflow artifacts — duplicate source files used as Codex context
+# Prompt-bundling workflow artifacts — duplicate source files used as Codex context
 .score_bundle/
+.agents/
+skills-lock.json
+*.bak
 
-.gradle/
-build/
-app/build/
-*/build/
+# Local Android/Firebase configuration
 local.properties
-.env
-.env.*
+
+# Firebase Android configuration.
+# Real and backup variants stay local.
+app/google-services*.json
+!app/google-services.json.example
+!app/google-services.json.PLACEHOLDER
+
+# Signing configuration and keys
+keystore.properties
+keystore.properties.*
+!keystore.properties.PLACEHOLDER
+secrets.properties
+secrets.properties.*
 *.jks
 *.keystore
-keystore.properties
-secrets.properties
+*.p12
+*.pfx
+*.pem
+*.key
+release-keystore/
+
+# Common service-account credentials
+**/*firebase-adminsdk*.json
+**/service-account*.json
+**/service_account*.json
+
+# Environment credentials
+.env
+.env.*
+
+# IDE and local build state
+.idea/
+.vscode/
+*.iml
+.gradle/
+.kotlin/
+**/build/
+.externalNativeBuild/
+.cxx/
+captures/
+.DS_Store
+Thumbs.db
+
+# Dependency installations
+**/node_modules/
+
+# Generated archives/binaries
+*.zip
 *.apk
 *.aab
 *.ap_
 *.dex
 *.class
 *.log
-.idea/
-*.iml
-.DS_Store
-Thumbs.db
-captures/
-.externalNativeBuild/
-.cxx/
-.kotlin/
-app/google-services.json
-.agents/
-*.bak
-skills-lock.json
-
-# Local source/archive exports
-*.zip

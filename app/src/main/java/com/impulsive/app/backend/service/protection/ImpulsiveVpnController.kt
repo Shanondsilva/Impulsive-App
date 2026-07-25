@@ -20,8 +20,22 @@ object ImpulsiveVpnController {
     }
 
     fun stop(context: Context) {
+        val stopDelivered =
+            ImpulsiveVpnService.requestStop()
+
+        if (!stopDelivered) {
+            context.stopService(
+                Intent(
+                    context,
+                    ImpulsiveVpnService::class.java,
+                ),
+            )
+        }
+    }
+
+    fun refreshAllowedApplications(context: Context) {
         val intent = Intent(context, ImpulsiveVpnService::class.java)
-            .setAction(ImpulsiveVpnService.ActionStop)
+            .setAction(ImpulsiveVpnService.ActionRefreshAllowedApplications)
         ContextCompat.startForegroundService(context, intent)
     }
 }

@@ -8,7 +8,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -38,17 +40,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -62,6 +67,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.StarRate
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -84,6 +90,8 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -107,9 +115,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -121,17 +131,41 @@ import kotlin.math.sin
 import com.impulsive.app.backend.data.UserDataManager
 import com.impulsive.app.R
 import com.impulsive.app.backend.data.UserDataExporter
+import com.impulsive.app.backend.data.restore.ManualBackupManager
+import com.impulsive.app.backend.data.local.preferences.CloudRecoveryPreferencesDataSource
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryAccountEligibility
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoverySetupCoordinator
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoverySetupResult
+import com.impulsive.app.backend.data.restore.cloud.hasValidCloudRecoveryPassword
+import com.impulsive.app.backend.data.restore.cloud.DriveAppDataAuthorization
+import com.impulsive.app.backend.data.restore.cloud.DriveAuthorizationResult
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryDeletionCoordinator
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryDeletionResult
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryUploadScheduler
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
+import com.impulsive.app.backend.session.settings.CloudRecoveryBackupUiModel
+import com.impulsive.app.backend.session.settings.cloudRecoveryBackupUiModel
+import com.impulsive.app.backend.domain.model.legal.ImpulsiveLegalDestination
+import com.impulsive.app.backend.domain.model.legal.impulsiveLegalUrl
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
+import com.impulsive.app.backend.domain.model.premium.PremiumEntitlement
+import com.impulsive.app.backend.service.billing.BillingRestoreState
+import com.impulsive.app.backend.service.billing.SubscriptionCatalogState
+import com.impulsive.app.backend.service.billing.activePlaySubscriptionProductId
+import com.impulsive.app.backend.service.billing.openGooglePlaySubscriptionManagement
+import com.impulsive.app.backend.service.billing.subscriptionPlanDisclosure
+import com.impulsive.app.backend.service.billing.subscriptionPlanTitle
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
-import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.session.auth.AccountDeletionUiState
 import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
@@ -142,7 +176,7 @@ import com.impulsive.app.backend.session.settings.AppLockViewModel
 import com.impulsive.app.backend.session.settings.AppSettingsViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
-import com.impulsive.app.backend.service.protection.ProtectionServiceController
+import com.impulsive.app.backend.service.review.openImpulsivePlayStoreListing
 import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
 import com.impulsive.app.frontend.screens.lock.SetPinScreen
 import com.impulsive.app.frontend.screens.lock.rememberAppLockGuardController
@@ -168,6 +202,11 @@ import java.time.LocalDateTime
 @Composable
 fun SettingsScreen(
     onBackHome: () -> Unit,
+    // Activity-scoped in the real app so Facebook onActivityResult delivery,
+    // auth state, and dialogs are shared with MainActivity. The default keeps
+    // DemoNavHost compiling; the shared CallbackManager makes even a defaulted
+    // instance safe for Facebook login.
+    authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onOpenHome: () -> Unit = onBackHome,
     onOpenScore: () -> Unit = {},
     onOpenFocus: () -> Unit = {},
@@ -177,12 +216,21 @@ fun SettingsScreen(
     onOpenRhythmTilesTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenHelp: () -> Unit = {},
-    onOpenUninstallProtection: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
     onOpenProtectionSetupGuide: () -> Unit = {},
+    onOpenUsageAccessPermission: () -> Unit = {},
+    onOpenInterruptionPermission: () -> Unit = {},
+    onOpenBackgroundActivityPermission: () -> Unit = {},
+    onManageProtectionNotifications: () -> Unit = {},
+    billingRestoreState: BillingRestoreState = BillingRestoreState.Idle,
+    onRestorePurchases: () -> Unit = {},
+    subscriptionCatalogState: SubscriptionCatalogState = SubscriptionCatalogState.Loading,
+    onRetryBilling: () -> Unit = {},
     indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
     isActive: Boolean = true,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    protectionSetupViewModel: ProtectionSetupViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -209,16 +257,16 @@ fun SettingsScreen(
     val currentLevel = taskRewardStoreState.currentLevel
     val storedMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
     val selectedMode = if (storedMode == ThemeMode.System) ThemeMode.AsPerTime else storedMode
-    val displayName = onboardingState.answers.name.takeIf { it.isNotBlank() } ?: "Shanon"
+    val savedProfileName = onboardingState.answers.name.trim()
+    val displayName = savedProfileName.ifBlank { "Your profile" }
     val avatar = AvatarStyle.fromId(onboardingState.answers.avatarId)
     val context = LocalContext.current
-    val authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val authState by authViewModel.state.collectAsStateWithLifecycle()
     val deletionState by authViewModel.deletionState.collectAsStateWithLifecycle()
     val activity = context as? Activity
-    val protectionSetupViewModel: ProtectionSetupViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val premiumViewModel: PremiumViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val premiumEntitlement by premiumViewModel.entitlement.collectAsStateWithLifecycle()
     val websiteProtectionPlusUnlocked by remember(premiumViewModel) {
         premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
     }.collectAsStateWithLifecycle()
@@ -248,19 +296,479 @@ fun SettingsScreen(
         }
     }
     val appLockGuard = rememberAppLockGuardController()
-    var notificationsAllowed by remember { mutableStateOf(isNotificationPermissionAllowed(context)) }
-    val notificationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) {
-        notificationsAllowed = isNotificationPermissionAllowed(context)
-        protectionSetupViewModel.setNotificationPermissionEnabled(notificationsAllowed)
+    val notificationsAvailable = protectionSetupState.notificationPermissionEnabled
+    val backupScope = rememberCoroutineScope()
+    val manualBackupManager = remember { ManualBackupManager(context) }
+    val cloudRecoveryPreferences = remember(context) {
+        CloudRecoveryPreferencesDataSource(context)
     }
+    val cloudRecoveryCoordinator = remember(context) {
+        CloudRecoverySetupCoordinator(context)
+    }
+    val driveAppDataAuthorization = remember(context) {
+        DriveAppDataAuthorization(context)
+    }
+    val cloudRecoveryDeletionCoordinator =
+        remember(context) {
+            CloudRecoveryDeletionCoordinator(
+                context,
+            )
+        }
+    var cloudRecoveryDeletionInProgress by
+        remember {
+            mutableStateOf(false)
+        }
+    val cloudRecoveryEnabled by cloudRecoveryPreferences.enabled
+        .collectAsStateWithLifecycle(initialValue = false)
+    val cloudRecoveryBackupMetadata by cloudRecoveryPreferences.backupMetadata
+        .collectAsStateWithLifecycle(
+            initialValue = com.impulsive.app.backend.data.local.preferences.CloudRecoveryBackupMetadata(
+                lastAttemptEpochMillis = null,
+                lastSuccessfulBackupEpochMillis = null,
+                latestOutcome =
+                    com.impulsive.app.backend.data.local.preferences.CloudRecoveryStoredUploadOutcome
+                        .NeverAttempted,
+            ),
+        )
+    val cloudRecoveryUploadWorkInfos by remember(context) {
+        WorkManager
+            .getInstance(context.applicationContext)
+            .getWorkInfosForUniqueWorkFlow(
+                CloudRecoveryUploadScheduler.UniqueWorkName,
+            )
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val hasRunningCloudRecoveryUpload =
+        cloudRecoveryUploadWorkInfos.any {
+            it.state == WorkInfo.State.RUNNING
+        }
+    val hasQueuedCloudRecoveryUpload =
+        cloudRecoveryUploadWorkInfos.any {
+            it.state == WorkInfo.State.ENQUEUED ||
+                it.state == WorkInfo.State.BLOCKED
+        }
+    var cloudRecoverySetupInProgress by remember { mutableStateOf(false) }
+    val cloudRecoveryBackupStatusUiModel =
+        cloudRecoveryBackupUiModel(
+            cloudRecoveryEnabled = cloudRecoveryEnabled,
+            cloudRecoverySetupInProgress = cloudRecoverySetupInProgress,
+            hasQueuedUpload = hasQueuedCloudRecoveryUpload,
+            hasRunningUpload = hasRunningCloudRecoveryUpload,
+            metadata = cloudRecoveryBackupMetadata,
+            nowEpochMillis = System.currentTimeMillis(),
+        )
+    var showCloudRecoveryPasswordDialog by remember { mutableStateOf(false) }
+    var cloudRecoveryMessage by remember { mutableStateOf<String?>(null) }
+
+    fun handleDriveAuthorizationResult(result: DriveAuthorizationResult) {
+        cloudRecoverySetupInProgress = false
+        when (result) {
+            is DriveAuthorizationResult.Authorized -> {
+                showCloudRecoveryPasswordDialog = true
+            }
+
+            is DriveAuthorizationResult.NeedsUserResolution -> {
+                cloudRecoveryMessage = "Google Drive needs another confirmation. Please try again."
+            }
+
+            DriveAuthorizationResult.Cancelled -> {
+                cloudRecoveryMessage = "Google Drive recovery backup was not enabled."
+            }
+
+            is DriveAuthorizationResult.Failed -> {
+                cloudRecoveryMessage = "Could not authorize Google Drive recovery backup."
+            }
+        }
+    }
+
+    val driveAuthorizationResolutionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        val data =
+            result.data
+
+        if (
+            data == null
+        ) {
+            cloudRecoverySetupInProgress =
+                false
+
+            cloudRecoveryMessage =
+                "Google Drive recovery backup was not enabled."
+        } else {
+            try {
+                handleDriveAuthorizationResult(
+                    driveAppDataAuthorization
+                        .resultFromIntent(
+                            data,
+                        ),
+                )
+            } catch (
+                error:
+                    Throwable,
+            ) {
+                cloudRecoverySetupInProgress =
+                    false
+
+                cloudRecoveryMessage =
+                    "Could not complete Google Drive authorization."
+            }
+        }
+    }
+
+    suspend fun deleteDriveRecoveryThenStartAccountDeletion(
+        accessToken: String,
+        currentActivity: Activity,
+    ) {
+        try {
+            CloudRecoveryUploadScheduler.cancelAndAwait(context)
+
+            when (
+                val deletionResult =
+                    cloudRecoveryDeletionCoordinator.deleteAllRecoveryFiles(accessToken)
+            ) {
+                is CloudRecoveryDeletionResult.Success -> {
+                    cloudRecoveryDeletionInProgress = false
+                    authViewModel.deleteAccount(currentActivity)
+                }
+
+                CloudRecoveryDeletionResult.AuthorizationRequired -> {
+                    cloudRecoveryDeletionInProgress = false
+                    cloudRecoveryMessage =
+                        "Google Drive authorization expired before your encrypted " +
+                            "recovery backup could be removed. Your Impulsive " +
+                            "account has not been deleted. Please try again."
+                }
+
+                is CloudRecoveryDeletionResult.Failed -> {
+                    cloudRecoveryDeletionInProgress = false
+                    cloudRecoveryMessage =
+                        "Could not remove your encrypted Google Drive recovery " +
+                            "backup. Your Impulsive account has not been deleted " +
+                            "yet. Check your connection and try again."
+                }
+            }
+        } catch (cancellation: CancellationException) {
+            cloudRecoveryDeletionInProgress = false
+            throw cancellation
+        } catch (error: Throwable) {
+            cloudRecoveryDeletionInProgress = false
+            cloudRecoveryMessage =
+                "Could not remove your encrypted Google Drive recovery backup. " +
+                    "Your Impulsive account has not been deleted yet. Check your " +
+                    "connection and try again."
+        }
+    }
+
+    val driveDeletionAuthorizationLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartIntentSenderForResult(),
+        ) { result ->
+            val currentActivity = activity
+            val resultIntent = result.data
+
+            if (currentActivity == null || resultIntent == null) {
+                cloudRecoveryDeletionInProgress = false
+                cloudRecoveryMessage =
+                    "Account deletion was cancelled because your encrypted " +
+                        "Google Drive recovery backup was not removed."
+            } else {
+                when (
+                    val authorizationResult =
+                        cloudRecoveryDeletionCoordinator.resultFromIntent(resultIntent)
+                ) {
+                    is DriveAuthorizationResult.Authorized -> {
+                        backupScope.launch {
+                            deleteDriveRecoveryThenStartAccountDeletion(
+                                accessToken = authorizationResult.accessToken,
+                                currentActivity = currentActivity,
+                            )
+                        }
+                    }
+
+                    is DriveAuthorizationResult.NeedsUserResolution -> {
+                        cloudRecoveryDeletionInProgress = false
+                        cloudRecoveryMessage =
+                            "Google Drive needs another confirmation before your " +
+                                "recovery backup can be removed. Your Impulsive " +
+                                "account has not been deleted. Please try again."
+                    }
+
+                    DriveAuthorizationResult.Cancelled -> {
+                        cloudRecoveryDeletionInProgress = false
+                        cloudRecoveryMessage =
+                            "Account deletion was cancelled because your encrypted " +
+                                "Google Drive recovery backup was not removed."
+                    }
+
+                    is DriveAuthorizationResult.Failed -> {
+                        cloudRecoveryDeletionInProgress = false
+                        cloudRecoveryMessage =
+                            "Could not authorize removal of your encrypted Google " +
+                                "Drive recovery backup. Your Impulsive account has " +
+                                "not been deleted."
+                    }
+                }
+            }
+        }
+
+    fun startCloudAwareAccountDeletion() {
+        val currentActivity = activity ?: return
+
+        if (
+            cloudRecoveryDeletionInProgress ||
+                deletionState == AccountDeletionUiState.InProgress
+        ) {
+            return
+        }
+
+        cloudRecoveryDeletionInProgress = true
+
+        backupScope.launch {
+            try {
+                /*
+                 * Local flags cannot reliably indicate whether an encrypted Drive recovery
+                 * file exists after reinstall. Always perform the narrowly scoped appDataFolder
+                 * search before permanent in-app account deletion.
+                 *
+                 * CloudRecoveryDeletionCoordinator searches only
+                 * CloudRecoveryDriveFileName. Zero files is a successful no-op.
+                 */
+
+                CloudRecoveryUploadScheduler.cancelAndAwait(context)
+
+                when (
+                    val authorizationResult =
+                        cloudRecoveryDeletionCoordinator.requestAuthorization()
+                ) {
+                    is DriveAuthorizationResult.Authorized -> {
+                        deleteDriveRecoveryThenStartAccountDeletion(
+                            accessToken = authorizationResult.accessToken,
+                            currentActivity = currentActivity,
+                        )
+                    }
+
+                    is DriveAuthorizationResult.NeedsUserResolution -> {
+                        driveDeletionAuthorizationLauncher.launch(
+                            IntentSenderRequest.Builder(
+                                authorizationResult.pendingIntent.intentSender,
+                            ).build(),
+                        )
+                    }
+
+                    DriveAuthorizationResult.Cancelled -> {
+                        cloudRecoveryDeletionInProgress = false
+                        cloudRecoveryMessage =
+                            "Account deletion was cancelled because your encrypted " +
+                                "Google Drive recovery backup was not removed."
+                    }
+
+                    is DriveAuthorizationResult.Failed -> {
+                        cloudRecoveryDeletionInProgress = false
+                        cloudRecoveryMessage =
+                            "Could not authorize removal of your encrypted Google " +
+                                "Drive recovery backup. Your Impulsive account has " +
+                                "not been deleted."
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                cloudRecoveryDeletionInProgress = false
+                throw cancellation
+            } catch (error: Throwable) {
+                cloudRecoveryDeletionInProgress = false
+                cloudRecoveryMessage =
+                    "Could not prepare account deletion. Your Impulsive account " +
+                        "has not been deleted. Please try again."
+            }
+        }
+    }
+    var showExportPasswordDialog by remember { mutableStateOf(false) }
+    var pendingExportPassword by remember { mutableStateOf("") }
+    var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
+    var manualBackupMessage by remember { mutableStateOf<String?>(null) }
     val exportDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json"),
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val password = pendingExportPassword
+        pendingExportPassword = ""
+        if (uri != null && password.isNotBlank()) {
+            backupScope.launch {
+                val success = runCatching {
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                        manualBackupManager.exportTo(output, password.toCharArray())
+                        true
+                    } ?: false
+                }.getOrDefault(false)
+                manualBackupMessage = if (success) {
+                    "Backup exported. Keep the file and your password safe. " +
+                        "Impulsive cannot recover the backup if you lose the password."
+                } else {
+                    "Could not export the backup file."
+                }
+            }
+        }
+    }
+    val importDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            appSettingsViewModel.exportData(uri)
+            pendingImportUri = uri
         }
+    }
+    if (showExportPasswordDialog) {
+        ManualBackupPasswordDialog(
+            title = "Choose a backup password",
+            message = "This password encrypts your backup file. Impulsive does not " +
+                "store the file or the password on its servers. If you lose the " +
+                "password, nobody, including Impulsive, can recover the backup.",
+            confirmLabel = "Continue",
+            requireConfirmation = true,
+            onConfirm = { password ->
+                showExportPasswordDialog = false
+                pendingExportPassword = password
+                exportDocumentLauncher.launch(ManualBackupManager.SuggestedFileName)
+            },
+            onDismiss = { showExportPasswordDialog = false },
+        )
+    }
+    pendingImportUri?.let { importUri ->
+        ManualBackupPasswordDialog(
+            title = "Enter your backup password",
+            message = "Enter the password you chose when this backup file was created.",
+            confirmLabel = "Import",
+            requireConfirmation = false,
+            onConfirm = { password ->
+                pendingImportUri = null
+                backupScope.launch {
+                    val result = runCatching {
+                        context.contentResolver.openInputStream(importUri)?.use { input ->
+                            manualBackupManager.importFrom(input, password.toCharArray())
+                        } ?: ManualBackupManager.ImportResult.Error(
+                            "Could not open the backup file.",
+                        )
+                    }.getOrElse { error ->
+                        ManualBackupManager.ImportResult.Error(
+                            error.localizedMessage?.ifBlank { null }
+                                ?: "Could not read the backup file.",
+                        )
+                    }
+                    manualBackupMessage = when (result) {
+                        ManualBackupManager.ImportResult.Success ->
+                            "Backup imported. Your progress has been restored on this device."
+                        ManualBackupManager.ImportResult.WrongPasswordOrCorrupted ->
+                            "Wrong password, or the backup file is damaged."
+                        ManualBackupManager.ImportResult.UnsupportedVersion ->
+                            "This backup file was made with a newer version of Impulsive. " +
+                                "Update the app and try again."
+                        ManualBackupManager.ImportResult.ExistingDataPresent ->
+                            "Import is only available before you start using Impulsive " +
+                                "on this device, so existing progress is never duplicated " +
+                                "or overwritten."
+                        is ManualBackupManager.ImportResult.Error -> result.message
+                    }
+                }
+            },
+            onDismiss = { pendingImportUri = null },
+        )
+    }
+    if (showCloudRecoveryPasswordDialog) {
+        CloudRecoveryPasswordDialog(
+            onConfirm = { password ->
+                showCloudRecoveryPasswordDialog = false
+                cloudRecoverySetupInProgress = true
+                backupScope.launch {
+                    try {
+                        val result =
+                            cloudRecoveryCoordinator
+                                .createCloudRecovery(
+                                    password,
+                                )
+
+                        cloudRecoveryMessage =
+                            when (
+                                result
+                            ) {
+                                CloudRecoverySetupResult.Success ->
+                                    "Backed up successfully. Your encrypted recovery copy is now in Google Drive."
+
+                                CloudRecoverySetupResult.NotSignedIn ->
+                                    "Sign in to a non-guest account to use Google Drive recovery backup."
+
+                                CloudRecoverySetupResult.GuestNotSupported ->
+                                    "Google Drive recovery backup is not available for guest accounts."
+
+                                CloudRecoverySetupResult.PasswordTooShort ->
+                                    "Choose a recovery password with at least 10 characters."
+
+                                is CloudRecoverySetupResult.InitialUploadFailed ->
+                                    "Recovery setup was created, but the Google Drive backup did not finish. Keep Impulsive installed, check your connection, and try again."
+
+                                CloudRecoverySetupResult.UnexpectedFailure ->
+                                    "Google Drive recovery backup could not be fully enabled. Please try again."
+                            }
+                    } catch (
+                        cancellation:
+                            CancellationException,
+                    ) {
+                        throw cancellation
+                    } catch (
+                        error:
+                            Throwable,
+                    ) {
+                        cloudRecoveryMessage =
+                            "Google Drive recovery backup could not be fully enabled. Please try again."
+                    } finally {
+                        cloudRecoverySetupInProgress =
+                            false
+                    }
+                }
+            },
+            onDismiss = { showCloudRecoveryPasswordDialog = false },
+        )
+    }
+    cloudRecoveryMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { cloudRecoveryMessage = null },
+            title = { Text("Google Drive recovery backup") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { cloudRecoveryMessage = null }) { Text("OK") }
+            },
+        )
+    }
+    manualBackupMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { manualBackupMessage = null },
+            title = { Text("Backup") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { manualBackupMessage = null }) { Text("OK") }
+            },
+        )
+    }
+    authState.pendingAccountConflict?.let { conflict ->
+        AlertDialog(
+            onDismissRequest = { authViewModel.dismissAccountSwitch() },
+            title = {
+                Text(stringResource(R.string.auth_conflict_title, conflict.providerDisplayName))
+            },
+            text = {
+                val body = stringResource(R.string.auth_conflict_body, conflict.providerDisplayName)
+                val emailLine = conflict.existingAccountEmail?.let { email ->
+                    "\n\n" + stringResource(R.string.auth_conflict_signed_in_as, email)
+                }.orEmpty()
+                Text(body + emailLine)
+            },
+            confirmButton = {
+                TextButton(onClick = { authViewModel.confirmAccountSwitch() }) {
+                    Text(stringResource(R.string.auth_conflict_switch))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { authViewModel.dismissAccountSwitch() }) {
+                    Text(stringResource(R.string.auth_conflict_cancel))
+                }
+            },
+        )
     }
     LaunchedEffect(Unit) {
         appSettingsViewModel.cleanupLegacyExportFiles()
@@ -285,6 +793,7 @@ fun SettingsScreen(
             SettingsHeader()
             ProfileGroup(
                 displayName = displayName,
+                savedName = savedProfileName,
                 avatar = avatar,
                 currentLevel = currentLevel,
                 answers = onboardingState.answers,
@@ -305,6 +814,11 @@ fun SettingsScreen(
             PlusGroup(
                 haptics = haptics,
                 onViewPlus = onOpenWebsiteProtectionPlus,
+                premiumEntitlement = premiumEntitlement,
+                restoreState = billingRestoreState,
+                onRestorePurchases = onRestorePurchases,
+                subscriptionCatalogState = subscriptionCatalogState,
+                onRetryBilling = onRetryBilling,
             )
             AppearanceGroup(
                 selectedMode = selectedMode,
@@ -329,8 +843,13 @@ fun SettingsScreen(
                 appLockEnabled = appLockEnabled,
                 guard = appLockGuard::run,
                 onOpenBlockedApps = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
-                onOpenUninstallProtection = onOpenUninstallProtection,
+                onOpenProtectionSetupGuide = onOpenProtectionSetupGuide,
+                onOpenUsageAccessPermission = onOpenUsageAccessPermission,
+                onOpenInterruptionPermission = onOpenInterruptionPermission,
+                onOpenBackgroundActivityPermission = onOpenBackgroundActivityPermission,
                 onOpenWebsiteProtectionPlus = onOpenWebsiteProtectionPlus,
+                notificationsAvailable = notificationsAvailable,
+                onManageProtectionNotifications = onManageProtectionNotifications,
                 haptics = haptics,
             )
             PrivacyAccountGroup(
@@ -338,7 +857,110 @@ fun SettingsScreen(
                 onDisableAppLock = appLockViewModel::disable,
                 hideSensitiveNotifications = appSettingsState.hideSensitiveNotifications,
                 onHideSensitiveNotificationsChanged = appSettingsViewModel::setHideSensitiveNotifications,
-                notificationsAllowed = notificationsAllowed,
+                cloudRecoveryBackupUiModel = cloudRecoveryBackupStatusUiModel,
+                cloudRecoveryEnabled = cloudRecoveryEnabled,
+                cloudRecoverySetupInProgress = cloudRecoverySetupInProgress,
+                onCloudRecoveryEnabledChanged = { enabled ->
+                    if (!enabled) {
+                        cloudRecoverySetupInProgress =
+                            true
+
+                        backupScope.launch {
+                            try {
+                                cloudRecoveryCoordinator
+                                    .disableCloudRecovery()
+                            } catch (
+                                cancellation:
+                                    CancellationException,
+                            ) {
+                                throw cancellation
+                            } catch (
+                                error:
+                                    Throwable,
+                            ) {
+                                cloudRecoveryMessage =
+                                    "Google Drive recovery backup could not be turned off. Please try again."
+                            } finally {
+                                cloudRecoverySetupInProgress =
+                                    false
+                            }
+                        }
+                    } else {
+                        when (cloudRecoveryCoordinator.accountEligibility()) {
+                            CloudRecoveryAccountEligibility.Eligible -> {
+                                cloudRecoverySetupInProgress =
+                                    true
+
+                                backupScope.launch {
+                                    try {
+                                        when (
+                                            val result =
+                                                driveAppDataAuthorization
+                                                    .requestAuthorization()
+                                        ) {
+                                            is DriveAuthorizationResult.NeedsUserResolution -> {
+                                                cloudRecoverySetupInProgress =
+                                                    false
+
+                                                try {
+                                                    driveAuthorizationResolutionLauncher.launch(
+                                                        IntentSenderRequest
+                                                            .Builder(
+                                                                result
+                                                                    .pendingIntent
+                                                                    .intentSender,
+                                                            )
+                                                            .build(),
+                                                    )
+                                                } catch (
+                                                    error:
+                                                        Throwable,
+                                                ) {
+                                                    cloudRecoveryMessage =
+                                                        "Could not open Google Drive authorization. Google Drive recovery backup was not enabled."
+                                                }
+                                            }
+
+                                            else -> {
+                                                handleDriveAuthorizationResult(
+                                                    result,
+                                                )
+                                            }
+                                        }
+                                    } catch (
+                                        cancellation:
+                                            CancellationException,
+                                    ) {
+                                        cloudRecoverySetupInProgress =
+                                            false
+
+                                        throw cancellation
+                                    } catch (
+                                        error:
+                                            Throwable,
+                                    ) {
+                                        cloudRecoverySetupInProgress =
+                                            false
+
+                                        cloudRecoveryMessage =
+                                            "Could not authorize Google Drive recovery backup."
+                                    }
+                                }
+                            }
+
+                            CloudRecoveryAccountEligibility.NotSignedIn -> {
+                                cloudRecoveryMessage = "Sign in to a non-guest account to use Google Drive recovery backup."
+                            }
+
+                            CloudRecoveryAccountEligibility.GuestNotSupported -> {
+                                cloudRecoveryMessage = "Google Drive recovery backup is not available for guest accounts."
+                            }
+                        }
+                    }
+                },
+                onCloudRecoveryBackupNow = {
+                    CloudRecoveryUploadScheduler.request(context)
+                },
                 haptics = haptics,
                 linkedProviders = authState.user?.linkedProviders.orEmpty(),
                 authInFlightProvider = authState.inFlightProvider,
@@ -351,15 +973,13 @@ fun SettingsScreen(
                 },
                 onDismissAuthError = authViewModel::consumeError,
                 onExportData = {
-                    exportDocumentLauncher.launch(UserDataExporter.SuggestedExportFileName)
+                    showExportPasswordDialog = true
+                },
+                onImportData = {
+                    importDocumentLauncher.launch(arrayOf("*/*"))
                 },
                 onDeleteAllData = {
-                    activity?.let { authViewModel.deleteAccount(it) }
-                },
-                onRequestNotifications = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
+                    startCloudAwareAccountDeletion()
                 },
             )
             SupportGroup(
@@ -591,15 +1211,13 @@ private fun ProtectionSetupItem.protectionReasonText(): String = when (this) {
     ProtectionSetupItem.UsageAccess ->
         "Allows Impulsive to detect protected apps without reading private content."
     ProtectionSetupItem.Notifications ->
-        "Lets Impulsive tell you when a planned window opens or protection turns back on."
-    ProtectionSetupItem.UninstallProtection ->
-        "Adds friction before uninstalling during weak moments. You stay in control."
+        "Allows Impulsive to show a reset notification, and to report protection status changes."
     ProtectionSetupItem.InterruptionPermission ->
-        "Lets Impulsive open your pause screen the moment a protected app comes to the front."
+        "Allows Impulsive to open your pause screen the moment a protected app comes to the front."
     ProtectionSetupItem.BackgroundActivity ->
         "Helps Impulsive restart after reboot and avoid being stopped by battery optimization."
     ProtectionSetupItem.WebsiteProtection ->
-        "Lets Impulsive protect selected domains when website blocking is added."
+        "Allows Impulsive to protect selected domains when website blocking is added."
 }
 
 @Composable
@@ -698,7 +1316,7 @@ private fun SettingsInfoDialog(
 
                 SettingsInfoItem(
                     title = "Protection & Focus",
-                    body = "Manage protected apps, permissions, website protection, uninstall friction, and Focus-related protection setup.",
+                    body = "Manage protected apps, permissions, website protection, and Focus-related protection setup.",
                 )
 
                 SettingsInfoItem(
@@ -745,6 +1363,7 @@ private fun SettingsInfoItem(
 @Composable
 private fun ProfileGroup(
     displayName: String,
+    savedName: String,
     avatar: AvatarStyle,
     currentLevel: Int,
     answers: OnboardingAnswers,
@@ -752,12 +1371,12 @@ private fun ProfileGroup(
     onSaveProfile: (String, String, () -> Unit) -> Unit,
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
-    var draftName by rememberSaveable(displayName) { mutableStateOf(displayName) }
+    var draftName by rememberSaveable(savedName) { mutableStateOf(savedName) }
     var draftAvatarId by rememberSaveable(avatar.id) { mutableStateOf(avatar.id) }
 
     AccordionGroup(
         title = "Profile",
-        summary = "$displayName • Mind mode ",
+        summary = "$displayName \u2022 Mind mode \u2022 Edit profile",
         icon = Icons.Filled.Person,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(ProfileGlow),
@@ -783,7 +1402,7 @@ private fun ProfileGroup(
             title = "Edit profile",
             subtext = "Name and avatar",
             onClick = {
-                draftName = displayName
+                draftName = savedName
                 draftAvatarId = avatar.id
                 editing = true
             },
@@ -809,7 +1428,7 @@ private fun ProfileGroup(
                     }
                 },
                 onCancel = {
-                    draftName = displayName
+                    draftName = savedName
                     draftAvatarId = AvatarStyle.fromId(answers.avatarId).id
                     editing = false
                 },
@@ -964,7 +1583,7 @@ private fun AppearanceGroup(
 ) {
     AccordionGroup(
         title = "Appearance",
-        summary = "Theme and haptics",
+        summary = "Theme, Haptics, Home guide",
         icon = Icons.Filled.Palette,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(AppearanceGlow),
@@ -1070,13 +1689,11 @@ private fun RecoverySetupGroup(
 
     AccordionGroup(
         title = "Pivot setup",
-        summary = recoverySummary(answers),
+        summary = "Onboarding answers can be updated",
         icon = Icons.Filled.Spa,
         haptics = null,
         glowSpec = SettingsGlowSpec.single(RecoverySetupGlow),
     ) {
-        SettingsRow(title = "Onboarding answers", subtext = "Tap an item below to update it")
-        SettingsDivider()
         SettingsRow(
             title = "Cues",
             value = answerListSummary(answers.triggers, TriggerLabels, "Not configured"),
@@ -1226,8 +1843,13 @@ private fun ProtectionFocusGroup(
     appLockEnabled: Boolean,
     guard: (enabled: Boolean, action: () -> Unit) -> Unit,
     onOpenBlockedApps: () -> Unit,
-    onOpenUninstallProtection: () -> Unit,
+    onOpenProtectionSetupGuide: () -> Unit,
+    onOpenUsageAccessPermission: () -> Unit,
+    onOpenInterruptionPermission: () -> Unit,
+    onOpenBackgroundActivityPermission: () -> Unit,
     onOpenWebsiteProtectionPlus: () -> Unit,
+    notificationsAvailable: Boolean,
+    onManageProtectionNotifications: () -> Unit,
     haptics: ImpulsiveHaptics,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1252,37 +1874,73 @@ private fun ProtectionFocusGroup(
     } else {
         "Tap to review or change protected apps."
     }
+    val notificationValue = if (notificationsAvailable) {
+        "Ready"
+    } else {
+        "Needs attention"
+    }
+    val runtimeNotificationPermissionGranted =
+        isRuntimeNotificationPermissionGranted(context)
 
     AccordionGroup(
         title = "Protection & Focus",
-        summary = "Protected apps, website protection, and focus defaults",
+        summary = "Protected apps, permissions",
         icon = Icons.Filled.Security,
         haptics = null,
         glowSpec = SettingsGlowSpec.split(ProtectionGlow, FocusGlow),
     ) {
         SettingsRow(
-            title = "Protected apps",
+            title = "Choose apps to protect",
             value = monitoredAppsValue,
             subtext = monitoredAppsSubtext,
             onClick = onOpenBlockedApps,
         )
         SettingsDivider()
         SettingsRow(
-            title = "Usage Access",
+            title = "Protection monitor",
+            value = if (protectionState.appProtectionMonitorEnabled) "On" else "Off",
+            subtext = "Open protection settings to turn app monitoring on or off.",
+            onClick = onOpenProtectionSetupGuide,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "App detection",
             value = if (protectionState.usageAccessEnabled) "Enabled" else "Not enabled",
-            subtext = "Lets Impulsive detect when a protected app opens. Required for protection to work.",
-            onClick = {
-                val intent = UsageAccessPermissionChecker(context).createUsageAccessSettingsIntent()
-                runCatching { context.startActivity(intent) }
+            subtext = "Allows Impulsive to notice when you open a protected app.",
+            onClick = onOpenUsageAccessPermission,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Let Impulsive step in",
+            value = if (Settings.canDrawOverlays(context)) "Enabled" else "Not enabled",
+            subtext = "Lets the pause screen show on top of a protected app. Your phone calls this Display over other apps. Without it, Impulsive can only send a notification.",
+            onClick = onOpenInterruptionPermission,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Notifications",
+            subtext = "Allows Impulsive to show a reset notification, and to report protection status changes.",
+            value = notificationValue,
+            onClick = onManageProtectionNotifications,
+            trailing = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !runtimeNotificationPermissionGranted) {
+                {
+                    TextButtonPill(
+                        text = "Allow",
+                        haptics = haptics,
+                        onClick = onManageProtectionNotifications,
+                    )
+                }
+            } else {
+                null
             },
         )
         SettingsDivider()
         SettingsRow(
-            title = "One-minute access",
+            title = "45-second access",
             subtext = if (oneMinuteAccessState.enabled) {
-                "Lets you open a blocked app for 45 seconds, then it locks again."
+                "Lets you continue for 45 seconds, then protection starts again."
             } else {
-                "Off. Blocked apps stay fully blocked at the pause screen."
+                "Off. Protected apps stay at the pause screen."
             },
             trailing = {
                 SettingsSwitch(
@@ -1295,7 +1953,7 @@ private fun ProtectionFocusGroup(
         SettingsDivider()
         if (websiteProtectionPlusUnlocked) {
             SettingsRow(
-                title = "Website Protection",
+                title = "Website Protection, DNS Blocking, ",
                 value = when {
                     !protectionState.websiteProtectionEnabled -> "Off"
                     protectionState.websiteProtectionAlwaysOn -> "Always on"
@@ -1322,42 +1980,11 @@ private fun ProtectionFocusGroup(
         }
         SettingsDivider()
         SettingsRow(
-            title = "Uninstall protection",
-            value = if (protectionState.uninstallProtectionEnabled) "Active" else "Off",
-            subtext = if (protectionState.uninstallProtectionEnabled) {
-                "Extra removal step is active."
-            } else {
-                "Add friction before removing Impulsive during weak moments."
-            },
-            onClick = { guard(appLockEnabled) { onOpenUninstallProtection() } },
-        )
-        SettingsDivider()
-        SettingsRow(
-            title = "Battery optimization",
+            title = "Background protection",
             value = if (protectionState.backgroundActivityEnabled) "Allowed" else "Needs review",
-            subtext = "Helps protection survive reboot and battery optimization.",
-            onClick = {
-                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    .apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                runCatching { context.startActivity(intent) }
-            },
+            subtext = "Keeps Impulsive running after a restart. Your phone calls this Battery optimization.",
+            onClick = onOpenBackgroundActivityPermission,
         )
-        if (protectionState.usageAccessEnabled && protectionState.selectedBlockedAppPackageNames.isNotEmpty()) {
-            SettingsDivider()
-            SettingsRow(
-                title = "Protection monitor",
-                subtext = "Checks protected apps during protected time.",
-                onClick = { ProtectionServiceController.start(context) },
-            )
-            SettingsDivider()
-            SettingsRow(
-                title = "Pause protection monitor",
-                subtext = "Stops the monitor until you start it again.",
-                onClick = { guard(appLockEnabled) { ProtectionServiceController.stop(context) } },
-            )
-        }
     }
 }
 
@@ -1367,7 +1994,11 @@ private fun PrivacyAccountGroup(
     onDisableAppLock: () -> Unit,
     hideSensitiveNotifications: Boolean,
     onHideSensitiveNotificationsChanged: (Boolean) -> Unit,
-    notificationsAllowed: Boolean,
+    cloudRecoveryBackupUiModel: CloudRecoveryBackupUiModel,
+    cloudRecoveryEnabled: Boolean,
+    cloudRecoverySetupInProgress: Boolean,
+    onCloudRecoveryEnabledChanged: (Boolean) -> Unit,
+    onCloudRecoveryBackupNow: () -> Unit,
     haptics: ImpulsiveHaptics,
     linkedProviders: Set<AuthProvider>,
     authInFlightProvider: AuthProvider?,
@@ -1376,22 +2007,17 @@ private fun PrivacyAccountGroup(
     onConnectFacebook: () -> Unit,
     onDismissAuthError: () -> Unit,
     onExportData: () -> Unit,
+    onImportData: () -> Unit,
     onDeleteAllData: () -> Unit,
-    onRequestNotifications: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showSetPin by remember { mutableStateOf(false) }
     val googleConnected = linkedProviders.contains(AuthProvider.Google)
     val facebookConnected = linkedProviders.contains(AuthProvider.Facebook)
-    val notificationValue = when {
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> "Allowed by system"
-        notificationsAllowed -> "Allowed"
-        else -> "Not allowed"
-    }
 
     AccordionGroup(
         title = "Privacy & account",
-        summary = "Permissions, export, and account links",
+        summary = "App lock, Link and Delete Account",
         icon = Icons.Filled.PrivacyTip,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(PrivacyGlow),
@@ -1426,36 +2052,51 @@ private fun PrivacyAccountGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Notifications",
-            value = notificationValue,
-            trailing = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !notificationsAllowed) {
-                {
-                    TextButtonPill(
-                        text = "Allow",
+            title = "Google Drive recovery backup",
+            subtext = cloudRecoveryBackupUiModel.subtext,
+            value = cloudRecoveryBackupUiModel.value,
+            trailing = {
+                if (cloudRecoveryBackupUiModel.showProgress) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    SettingsSwitch(
+                        checked = cloudRecoveryEnabled,
                         haptics = haptics,
-                        onClick = onRequestNotifications,
+                        onCheckedChange = onCloudRecoveryEnabledChanged,
                     )
                 }
-            } else {
-                null
             },
         )
+        if (cloudRecoveryBackupUiModel.showBackupNow) {
+            SettingsDivider()
+            SettingsRow(
+                title = "Back up now",
+                subtext = "Update your encrypted Google Drive recovery copy.",
+                onClick = onCloudRecoveryBackupNow,
+            )
+        }
         SettingsDivider()
         SettingsRow(
-            title = "Export data",
-            subtext = "Save a restorable export file and keep it anywhere",
+            title = "Export my Impulsive backup",
+            subtext = "Save an encrypted backup file protected by a password you choose",
             onClick = onExportData,
         )
         SettingsDivider()
         SettingsRow(
-            title = "Delete data",
-            subtext = "Delete your account and erase everything on this device",
+            title = "Import Impulsive backup",
+            subtext = "Restore progress from an encrypted backup file",
+            onClick = onImportData,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Delete account and data",
+            subtext = "Permanently remove your account and erase this device",
             trailingIcon = Icons.Filled.DeleteOutline,
             onClick = { showDeleteConfirm = true },
         )
         SettingsDivider()
         SettingsRow(
-            title = "Link Google account",
+            title = if (googleConnected) "Google account" else "Link Google account",
             subtext = if (googleConnected) "Connected" else "Not connected",
             trailing = {
                 when {
@@ -1471,7 +2112,7 @@ private fun PrivacyAccountGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Link Facebook account",
+            title = if (facebookConnected) "Facebook account" else "Link Facebook account",
             subtext = if (facebookConnected) "Connected" else "Not connected",
             trailing = {
                 when {
@@ -1508,8 +2149,12 @@ private fun PrivacyAccountGroup(
                 title = { Text("Delete account and data?") },
                 text = {
                     Text(
-                        "This permanently deletes your Impulsive account and erases your notes, " +
-                            "sessions, scores, settings, and everything else stored on this device. " +
+                        "This permanently deletes your Impulsive account, removes your " +
+                            "account and subscription records from Impulsive's servers, " +
+                            "and erases your notes, sessions, scores, settings, and " +
+                            "everything else stored on this device. If your phone has " +
+                            "backed up Impulsive through your Google account, you can " +
+                            "clear that backup in your device's Google backup settings. " +
                             "This cannot be undone, and the app will restart."
                     )
                 },
@@ -1545,10 +2190,18 @@ private fun SupportGroup(
 ) {
     val context = LocalContext.current
     var showAbout by remember { mutableStateOf(false) }
+    var showDataStorageInfo by remember { mutableStateOf(false) }
+    val openLegalLink: (ImpulsiveLegalDestination) -> Unit = { destination ->
+        haptics.light()
+        openWebPageOrShowError(
+            context = context,
+            url = impulsiveLegalUrl(destination),
+        )
+    }
 
     AccordionGroup(
         title = "Support",
-        summary = "Help, feedback, and about",
+        summary = "Help, Terms, Privacy, Contact",
         icon = Icons.Filled.AutoAwesome,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(SupportGlow),
@@ -1587,10 +2240,77 @@ private fun SupportGroup(
         )
         SettingsDivider()
         SettingsRow(
+            title = "Rate Impulsive",
+            subtext = "Open the Impulsive listing on Google Play.",
+            trailingIcon = Icons.Filled.StarRate,
+            onClick = {
+                haptics.light()
+
+                val opened = openImpulsivePlayStoreListing(context)
+
+                if (!opened) {
+                    Toast.makeText(
+                        context,
+                        "Google Play could not be opened.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Privacy policy",
+            trailingIcon = Icons.Filled.PrivacyTip,
+            onClick = { openLegalLink(ImpulsiveLegalDestination.PrivacyPolicy) },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "How your data is stored",
+            subtext = "Where your recovery progress lives and what Impulsive keeps",
+            trailingIcon = Icons.Filled.Info,
+            onClick = { showDataStorageInfo = true },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Terms of Service",
+            subtext = "Read the terms that apply to using Impulsive.",
+            trailingIcon = Icons.AutoMirrored.Filled.OpenInNew,
+            onClick = { openLegalLink(ImpulsiveLegalDestination.TermsOfService) },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Account deletion help",
+            subtext = "Read how to delete your Impulsive account and associated account data.",
+            trailingIcon = Icons.AutoMirrored.Filled.OpenInNew,
+            onClick = { openLegalLink(ImpulsiveLegalDestination.AccountDeletionHelp) },
+        )
+        SettingsDivider()
+        SettingsRow(
             title = "About Impulsive",
             trailingIcon = Icons.Filled.Info,
             onClick = { showAbout = true },
         )
+        if (showDataStorageInfo) {
+            AlertDialog(
+                onDismissRequest = { showDataStorageInfo = false },
+                title = { Text("How your data is stored") },
+                text = {
+                    Text(
+                        "Impulsive stores your recovery progress on your device. " +
+                            "Impulsive does not store recovery progress or behavioural " +
+                            "history on its servers. If device backup is enabled, your " +
+                            "phone may back up selected app data through your own Google " +
+                            "account so your progress can be restored after reinstalling " +
+                            "or changing devices. You can also export an encrypted backup " +
+                            "file manually. Impulsive keeps only account, subscription, " +
+                            "and security records on its servers."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { showDataStorageInfo = false }) { Text("Got it") }
+                },
+            )
+        }
         if (showAbout) {
             AlertDialog(
                 onDismissRequest = { showAbout = false },
@@ -1608,7 +2328,13 @@ private fun SupportGroup(
                         Spacer(Modifier.height(8.dp))
                         Text("Version ${appVersionName(context)}", style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(8.dp))
-                        Text("useimpulsive.com", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "useimpulsive.com",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.clickable {
+                                openImpulsiveWebPage(context, "https://useimpulsive.com")
+                            },
+                        )
                         Text("Hello@useimpulsive.com", style = MaterialTheme.typography.bodySmall)
                     }
                 },
@@ -1621,7 +2347,17 @@ private fun SupportGroup(
 private fun PlusGroup(
     haptics: ImpulsiveHaptics,
     onViewPlus: () -> Unit,
+    premiumEntitlement: PremiumEntitlement,
+    restoreState: BillingRestoreState,
+    onRestorePurchases: () -> Unit,
+    subscriptionCatalogState: SubscriptionCatalogState,
+    onRetryBilling: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val activeProductId = activePlaySubscriptionProductId(
+        entitlement = premiumEntitlement,
+        nowMillis = System.currentTimeMillis(),
+    )
     val plusFlow = rememberInfiniteTransition(label = "PlusFlow")
     val plusPhase by plusFlow.animateFloat(
         initialValue = 0f,
@@ -1638,7 +2374,7 @@ private fun PlusGroup(
 
     AccordionGroup(
         title = "Impulsive Plus",
-        summary = "Website protection for risky sites",
+        summary = "Website Protection",
         icon = Icons.Filled.AutoAwesome,
         haptics = haptics,
         leadingContent = {
@@ -1666,17 +2402,121 @@ private fun PlusGroup(
         SettingsDivider()
         PlusFeatureRow(
             title = "Stronger anti-bypass support",
-            note = "Helps reduce quick access to risky sites during protected windows.",
+            note = "Helps reduce access to risky sites during protected windows.",
         )
         SettingsDivider()
-        PlusFeatureRow(
-            title = "£2.99/month",
-            note = "Monthly subscription. Cancel anytime through Google Play.",
-        )
+        when (subscriptionCatalogState) {
+            SubscriptionCatalogState.Loading -> {
+                PlusFeatureRow(
+                    title = "Subscription pricing",
+                    note = "Loading current Google Play pricing\u2026",
+                )
+            }
+
+            SubscriptionCatalogState.Unavailable -> {
+                PlusFeatureRow(
+                    title = "Subscription pricing unavailable",
+                    note = "Current Google Play pricing could not be loaded.",
+                )
+                SettingsDivider()
+                SettingsRow(
+                    title = "Retry billing",
+                    subtext = "Try loading current Google Play pricing again.",
+                    onClick = {
+                        haptics.confirm()
+                        onRetryBilling()
+                    },
+                )
+            }
+
+            is SubscriptionCatalogState.Ready -> {
+                val monthlyPlan = subscriptionCatalogState.monthly
+                val yearlyPlan = subscriptionCatalogState.yearly
+
+                if (monthlyPlan != null) {
+                    PlusFeatureRow(
+                        title = subscriptionPlanTitle(monthlyPlan),
+                        note = subscriptionPlanDisclosure(monthlyPlan),
+                    )
+                }
+
+                if (monthlyPlan != null && yearlyPlan != null) {
+                    SettingsDivider()
+                }
+
+                if (yearlyPlan != null) {
+                    PlusFeatureRow(
+                        title = subscriptionPlanTitle(yearlyPlan),
+                        note = subscriptionPlanDisclosure(yearlyPlan),
+                    )
+                }
+            }
+        }
+
+        if (activeProductId != null) {
+            SettingsDivider()
+            SettingsRow(
+                title = "Manage subscription",
+                subtext = "Open Google Play to manage or cancel your Plus subscription.",
+                value = "Google Play",
+                onClick = {
+                    haptics.confirm()
+
+                    val opened = openGooglePlaySubscriptionManagement(
+                        context = context,
+                        productId = activeProductId,
+                    )
+
+                    if (!opened) {
+                        Toast.makeText(
+                            context,
+                            "Google Play subscriptions could not be opened.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+            )
+        }
+
+        val restoreSubtext = when (restoreState) {
+            BillingRestoreState.Idle ->
+                "Check Google Play and restore an existing Plus subscription."
+
+            BillingRestoreState.Loading ->
+                "Checking Google Play and verifying your subscription\u2026"
+
+            BillingRestoreState.Success ->
+                "Your Plus subscription has been restored."
+
+            BillingRestoreState.NoPurchase ->
+                "No active Plus subscription was found on this Google Play account."
+
+            BillingRestoreState.Error ->
+                "Restore failed. Check your connection and try again."
+        }
+
         SettingsDivider()
-        PlusFeatureRow(
+        SettingsRow(
             title = "Restore purchases",
-            note = "Available when billing is connected.",
+            subtext = restoreSubtext,
+            trailing = if (restoreState == BillingRestoreState.Loading) {
+                {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            } else {
+                null
+            },
+            onClick = if (restoreState == BillingRestoreState.Loading) {
+                null
+            } else {
+                {
+                    haptics.confirm()
+                    onRestorePurchases()
+                }
+            },
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -2048,9 +2888,10 @@ private fun SettingsRow(
     trailing: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
+    val minimumRowHeight = if (subtext == null) 48.dp else 64.dp
     val rowModifier = Modifier
         .fillMaxWidth()
-        .height(if (subtext == null) 42.dp else 58.dp)
+        .heightIn(min = minimumRowHeight)
         .then(
             if (onClick != null) {
                 Modifier
@@ -2067,7 +2908,7 @@ private fun SettingsRow(
         )
 
     Row(
-        modifier = rowModifier,
+        modifier = rowModifier.padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -2092,7 +2933,10 @@ private fun SettingsRow(
                 color = valueColor,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 10.dp),
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .padding(start = 10.dp)
+                    .widthIn(max = 140.dp),
             )
         }
         if (trailingIcon != null) {
@@ -2320,7 +3164,7 @@ private fun AvatarCircle(
     }
 }
 
-private fun isNotificationPermissionAllowed(context: Context): Boolean {
+private fun isRuntimeNotificationPermissionGranted(context: Context): Boolean {
     return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
@@ -2417,6 +3261,133 @@ private fun DeleteAccountPasswordDialog(
     )
 }
 
+@Composable
+private fun CloudRecoveryPasswordDialog(
+    onConfirm: (CharArray) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    val canConfirm = hasValidCloudRecoveryPassword(password, confirmation)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Create a recovery password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("This password protects your encrypted Google Drive recovery backup. Impulsive never stores it.")
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    singleLine = true,
+                    label = { Text("Recovery password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                OutlinedTextField(
+                    value = confirmation,
+                    onValueChange = { confirmation = it },
+                    singleLine = true,
+                    label = { Text("Confirm recovery password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                Text("Use at least 10 characters. Do not lose this password.")
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canConfirm,
+                onClick = {
+                    val passwordChars = password.toCharArray()
+                    password = ""
+                    confirmation = ""
+                    onConfirm(passwordChars)
+                },
+            ) { Text("Turn on") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+@Composable
+private fun ManualBackupPasswordDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    requireConfirmation: Boolean,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    val canConfirm = password.length >= 6 &&
+        (!requireConfirmation || confirmPassword == password)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(message)
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    singleLine = true,
+                    label = { Text("Password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                if (requireConfirmation) {
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it },
+                        singleLine = true,
+                        label = { Text("Confirm password") },
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    Text("Use at least 6 characters. Impulsive cannot recover this password.")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(password) },
+                enabled = canConfirm,
+            ) { Text(confirmLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+internal fun openImpulsiveWebPage(context: Context, url: String): Boolean {
+    val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+
+    if (uri.scheme != "https") {
+        return false
+    }
+
+    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+        if (context !is Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    return runCatching {
+        context.startActivity(intent)
+        true
+    }.getOrDefault(false)
+}
+
+private fun openWebPageOrShowError(context: Context, url: String) {
+    if (!openImpulsiveWebPage(context, url)) {
+        Toast.makeText(
+            context,
+            "No browser is available to open this page.",
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+}
+
 internal fun sendSupportEmail(context: Context, subject: String, body: String = "") {
     val uri = Uri.parse(
         "mailto:Hello@useimpulsive.com" +
@@ -2431,17 +3402,6 @@ internal fun appVersionName(context: Context): String =
     runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName
     }.getOrNull() ?: "1.0"
-
-private fun recoverySummary(answers: OnboardingAnswers): String {
-    val triggerCount = answers.triggers.size
-    val timingCount = answers.timing.size
-    return when {
-        triggerCount > 0 && timingCount > 0 -> "$triggerCount cues, $timingCount timing cues"
-        triggerCount > 0 -> "$triggerCount cues saved"
-        timingCount > 0 -> "$timingCount timing cues saved"
-        else -> "Setup answers and targets"
-    }
-}
 
 private fun answerListSummary(
     selectedIds: List<String>,

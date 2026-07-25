@@ -80,6 +80,10 @@ fun LoginSignupGuestScreen(
     onContinue: () -> Unit = {},
     onAuthenticated: () -> Unit = onContinue,
     authViewModel: AuthViewModel,
+    accountSetupLoading: Boolean = false,
+    accountSetupMessage: String? = null,
+    onRetryAccountSetup: () -> Unit = onAuthenticated,
+    onDismissAccountSetupMessage: () -> Unit = {},
 ) {
     val state by authViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -87,14 +91,20 @@ fun LoginSignupGuestScreen(
     var localMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.user) {
-        if (state.user != null) {
+        // A non-null user here can be a stale persisted Firebase session that
+        // survived an account deletion or wipe. Verify it before skipping the
+        // login screen; an invalid session is signed out inside the check,
+        // which sets state.user back to null and keeps this screen in place.
+        if (state.user != null && authViewModel.confirmSessionStillValid()) {
             onAuthenticated()
         }
     }
 
     LoginContent(
         state = state,
-        message = state.errorMessage ?: localMessage,
+        message = state.errorMessage ?: accountSetupMessage ?: localMessage,
+        accountSetupLoading = accountSetupLoading,
+        accountSetupMessage = accountSetupMessage,
         onSignInWithGoogle = {
             localMessage = null
             activity?.let(authViewModel::signInWithGoogle)
@@ -109,6 +119,9 @@ fun LoginSignupGuestScreen(
         },
         onDismissError = {
             localMessage = null
+            if (accountSetupMessage != null) {
+                onDismissAccountSetupMessage()
+            }
             authViewModel.consumeError()
         },
         onCreateAccount = {
@@ -125,6 +138,7 @@ fun LoginSignupGuestScreen(
             localMessage = null
             authViewModel.signInWithEmail(email, password)
         },
+        onRetryAccountSetup = onRetryAccountSetup,
         onRefreshEmailVerification = {
             localMessage = null
             authViewModel.refreshEmailVerification()
@@ -136,6 +150,8 @@ fun LoginSignupGuestScreen(
 private fun LoginContent(
     state: AuthState,
     message: String?,
+    accountSetupLoading: Boolean,
+    accountSetupMessage: String?,
     onSignInWithGoogle: () -> Unit,
     onSignInWithFacebook: () -> Unit,
     onContinueAsGuest: () -> Unit,
@@ -144,6 +160,7 @@ private fun LoginContent(
     onLogIn: () -> Unit,
     onCreateAccountWithEmail: (String, String) -> Unit,
     onSignInWithEmail: (String, String) -> Unit,
+    onRetryAccountSetup: () -> Unit,
     onRefreshEmailVerification: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -163,6 +180,7 @@ private fun LoginContent(
     var passwordText by remember { mutableStateOf("") }
     var validationMessage by remember { mutableStateOf<String?>(null) }
     val isGuestLoading = state.inFlightProvider == AuthProvider.Guest
+    val actionsEnabled = !state.isLoading && !accountSetupLoading
 
     if (state.isWaitingForEmailVerification) {
         EmailVerificationWaitingView(
@@ -342,7 +360,7 @@ private fun LoginContent(
                 ) {
                     LoginPrimaryButton(
                         text = "Create account",
-                        enabled = !state.isLoading,
+                        enabled = actionsEnabled,
                         height = buttonHeight,
                         onClick = {
                             validationMessage = null
@@ -355,7 +373,7 @@ private fun LoginContent(
 
                     LoginOutlinedButton(
                         text = "Log in",
-                        enabled = !state.isLoading,
+                        enabled = actionsEnabled,
                         height = buttonHeight,
                         onClick = {
                             validationMessage = null
@@ -370,7 +388,7 @@ private fun LoginContent(
                         password = passwordText,
                         validationMessage = validationMessage,
                         loading = state.inFlightProvider == AuthProvider.Email,
-                        enabled = !state.isLoading || state.inFlightProvider == AuthProvider.Email,
+                        enabled = actionsEnabled || state.inFlightProvider == AuthProvider.Email,
                         onEmailChange = {
                             emailText = it
                             validationMessage = null
@@ -415,7 +433,7 @@ private fun LoginContent(
                                 contentDescription = "Google",
                             )
                         },
-                        enabled = !state.isLoading,
+                        enabled = actionsEnabled,
                         loading = state.inFlightProvider == AuthProvider.Google,
                         height = buttonHeight,
                         onClick = onSignInWithGoogle,
@@ -431,7 +449,7 @@ private fun LoginContent(
                                 contentDescription = "Facebook",
                             )
                         },
-                        enabled = !state.isLoading,
+                        enabled = actionsEnabled,
                         loading = state.inFlightProvider == AuthProvider.Facebook,
                         height = buttonHeight,
                         onClick = onSignInWithFacebook,
@@ -446,7 +464,7 @@ private fun LoginContent(
                 Spacer(modifier = Modifier.height(guestTopGap))
 
                 TextButton(
-                    enabled = !state.isLoading,
+                    enabled = actionsEnabled,
                     onClick = onContinueAsGuest,
                     shape = RoundedCornerShape(24.dp),
                     colors = ButtonDefaults.textButtonColors(

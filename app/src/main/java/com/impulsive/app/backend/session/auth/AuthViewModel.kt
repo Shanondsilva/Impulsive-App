@@ -9,10 +9,12 @@ import com.impulsive.app.backend.data.repository.AuthRepository
 import com.impulsive.app.backend.data.repository.AuthRepositoryFactory
 import com.impulsive.app.backend.data.repository.AuthResult
 import com.impulsive.app.backend.data.repository.FirebaseAuthRepository
+import com.impulsive.app.backend.data.repository.SessionValidationResult
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -36,6 +38,9 @@ class AuthViewModel : AndroidViewModel {
     private val _deletionState = MutableStateFlow<AccountDeletionUiState>(AccountDeletionUiState.Idle)
     val deletionState: StateFlow<AccountDeletionUiState> = _deletionState.asStateFlow()
 
+    @Volatile
+    private var accountSwitchInProgress = false
+
     constructor(application: Application) : this(
         application = application,
         repository = AuthRepositoryFactory.create(application),
@@ -53,6 +58,19 @@ class AuthViewModel : AndroidViewModel {
             ),
         )
         state = _state.asStateFlow()
+        viewModelScope.launch {
+            repository.currentUser.collect { user ->
+                _state.update { current ->
+                    if (accountSwitchInProgress && user == null) {
+                        current
+                    } else if (current.user == user) {
+                        current
+                    } else {
+                        current.copy(user = user)
+                    }
+                }
+            }
+        }
     }
 
     fun signInWithGoogle(activity: Activity) = launchSignIn(AuthProvider.Google) {
@@ -61,6 +79,10 @@ class AuthViewModel : AndroidViewModel {
 
     fun linkGoogleAccount(activity: Activity) = launchSignIn(AuthProvider.Google) {
         repository.linkGoogleAccount(activity)
+    }
+
+    fun linkEmailAccount(email: String, password: String) = launchSignIn(AuthProvider.Email) {
+        repository.linkEmailAccount(email = email, password = password)
     }
 
     fun createAccountWithEmail(email: String, password: String) = launchSignIn(AuthProvider.Email) {
@@ -120,8 +142,10 @@ class AuthViewModel : AndroidViewModel {
         _deletionState.value = AccountDeletionUiState.InProgress
         viewModelScope.launch {
             when (val result = repository.deleteAccount()) {
-                AccountDeletionResult.Success ->
+                AccountDeletionResult.Success -> {
+                    _state.value = AuthState()
                     _deletionState.value = AccountDeletionUiState.Deleted
+                }
                 is AccountDeletionResult.ReauthRequired ->
                     if (result.provider == AuthProvider.Email) {
                         _deletionState.value = AccountDeletionUiState.NeedsPassword(result.email)
@@ -158,12 +182,72 @@ class AuthViewModel : AndroidViewModel {
 
     private fun applyDeletionResult(result: AccountDeletionResult) {
         _deletionState.value = when (result) {
-            AccountDeletionResult.Success -> AccountDeletionUiState.Deleted
+            AccountDeletionResult.Success -> {
+                _state.value = AuthState()
+                AccountDeletionUiState.Deleted
+            }
             AccountDeletionResult.Cancelled -> AccountDeletionUiState.Idle
             is AccountDeletionResult.Error -> AccountDeletionUiState.Failed(result.message)
             is AccountDeletionResult.ReauthRequired ->
                 AccountDeletionUiState.Failed("Could not verify your sign-in. Please try again.")
         }
+    }
+
+    /**
+     * Confirms the switch offered by an [AuthResult.AccountConflict] dialog.
+     * Account switching does not erase local recovery data or restart or
+     * terminate the process. The successfully verified Firebase user is
+     * applied directly to [AuthState], and Settings updates through that state
+     * and the existing Firebase auth-state collector. A failed switch leaves
+     * the existing session and local data unchanged.
+     */
+    fun confirmAccountSwitch() {
+        confirmAccountSwitchInternal(navigateAfterSuccess = true)
+    }
+
+    fun confirmAccountSwitchForPurchase() {
+        confirmAccountSwitchInternal(navigateAfterSuccess = false)
+    }
+
+    private fun confirmAccountSwitchInternal(navigateAfterSuccess: Boolean) {
+        val conflict = _state.value.pendingAccountConflict ?: return
+        if (_state.value.inFlightProvider != null) return
+        _state.update {
+            it.copy(
+                inFlightProvider = conflict.provider,
+                pendingAccountConflict = null,
+                errorMessage = null,
+            )
+        }
+        accountSwitchInProgress = true
+        viewModelScope.launch {
+            val result = try {
+                repository.switchToExistingAccount()
+            } catch (error: Exception) {
+                AuthResult.Error(
+                    error.localizedMessage?.ifBlank { null }
+                        ?: "Could not switch accounts. Please try again.",
+                    error,
+                )
+            }
+            accountSwitchInProgress = false
+            _state.update {
+                it.withAuthResult(result).copy(
+                    accountSwitchCompleted =
+                        navigateAfterSuccess && result is AuthResult.Success,
+                )
+            }
+        }
+    }
+
+    /** Dismisses the switch dialog. Guest session and local data untouched. */
+    fun dismissAccountSwitch() {
+        repository.abandonAccountSwitch()
+        _state.update { it.copy(pendingAccountConflict = null) }
+    }
+
+    fun consumeAccountSwitchNavigation() {
+        _state.update { it.copy(accountSwitchCompleted = false) }
     }
 
     /** Called by the screen once it's read & displayed the error. */
@@ -178,6 +262,42 @@ class AuthViewModel : AndroidViewModel {
     fun forwardActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
         (repository as? FirebaseAuthRepository)
             ?.onActivityResult(requestCode, resultCode, data)
+    }
+
+    /**
+     * Server-verifies the current session before the login screen is allowed
+     * to auto-advance past itself. See [AuthRepository.hasValidSession].
+     */
+    suspend fun confirmSessionStillValid(): Boolean = repository.hasValidSession()
+
+    /**
+     * Validates an already-running authenticated session when the app returns to
+     * the foreground.
+     *
+     * Guest accounts are intentionally excluded. They are local/anonymous app
+     * sessions and must never trigger the remote account-deletion wipe flow.
+     */
+    suspend fun validateForegroundSession(): SessionValidationResult {
+        val currentUser = _state.value.user
+            ?: return SessionValidationResult.NoSession
+
+        if (currentUser.provider == AuthProvider.Guest) {
+            return SessionValidationResult.Valid
+        }
+
+        return repository.validateCurrentSession()
+    }
+
+    /**
+     * Clears SDK and UI authentication state after foreground validation has
+     * established that the cached session can no longer be used.
+     *
+     * Local Impulsive data is deliberately NOT touched here. MainActivity owns the
+     * destructive local wipe and invokes this only at the appropriate point.
+     */
+    suspend fun clearValidatedSession() {
+        repository.signOut()
+        _state.value = AuthState()
     }
 
     private fun launchSignIn(
@@ -222,6 +342,11 @@ class AuthViewModel : AndroidViewModel {
         is AuthResult.Error -> copy(
             inFlightProvider = null,
             errorMessage = result.message,
+        )
+        is AuthResult.AccountConflict -> copy(
+            inFlightProvider = null,
+            errorMessage = null,
+            pendingAccountConflict = result,
         )
     }
 }

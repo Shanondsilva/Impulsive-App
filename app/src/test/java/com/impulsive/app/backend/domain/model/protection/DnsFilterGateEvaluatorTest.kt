@@ -11,6 +11,7 @@ class DnsFilterGateEvaluatorTest {
         val result = DnsFilterGateEvaluator.evaluate(
             privateDnsBypassesFilter = false,
             anotherVpnActive = false,
+            lockdownModeActive = false,
         )
 
         assertTrue(result.canEnable)
@@ -22,6 +23,7 @@ class DnsFilterGateEvaluatorTest {
         val result = DnsFilterGateEvaluator.evaluate(
             privateDnsBypassesFilter = true,
             anotherVpnActive = false,
+            lockdownModeActive = false,
         )
 
         assertFalse(result.canEnable)
@@ -36,6 +38,7 @@ class DnsFilterGateEvaluatorTest {
         val result = DnsFilterGateEvaluator.evaluate(
             privateDnsBypassesFilter = false,
             anotherVpnActive = true,
+            lockdownModeActive = false,
         )
 
         assertFalse(result.canEnable)
@@ -50,6 +53,7 @@ class DnsFilterGateEvaluatorTest {
         val result = DnsFilterGateEvaluator.evaluate(
             privateDnsBypassesFilter = true,
             anotherVpnActive = true,
+            lockdownModeActive = false,
         )
 
         assertFalse(result.canEnable)
@@ -57,6 +61,40 @@ class DnsFilterGateEvaluatorTest {
             listOf(
                 DnsFilterGateEvaluator.Blocker.PrivateDnsActive,
                 DnsFilterGateEvaluator.Blocker.AnotherVpnActive,
+            ),
+            result.blockers,
+        )
+    }
+
+    @Test
+    fun blocksOnLockdownModeOnly() {
+        val result = DnsFilterGateEvaluator.evaluate(
+            privateDnsBypassesFilter = false,
+            anotherVpnActive = false,
+            lockdownModeActive = true,
+        )
+
+        assertFalse(result.canEnable)
+        assertEquals(
+            listOf(DnsFilterGateEvaluator.Blocker.LockdownModeActive),
+            result.blockers,
+        )
+    }
+
+    @Test
+    fun blocksOnAllInFixedOrder() {
+        val result = DnsFilterGateEvaluator.evaluate(
+            privateDnsBypassesFilter = true,
+            anotherVpnActive = true,
+            lockdownModeActive = true,
+        )
+
+        assertFalse(result.canEnable)
+        assertEquals(
+            listOf(
+                DnsFilterGateEvaluator.Blocker.PrivateDnsActive,
+                DnsFilterGateEvaluator.Blocker.AnotherVpnActive,
+                DnsFilterGateEvaluator.Blocker.LockdownModeActive,
             ),
             result.blockers,
         )
