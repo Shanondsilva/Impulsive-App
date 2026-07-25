@@ -1809,7 +1809,7 @@ private fun CloudRestoreDialog(
 
                     Toast.makeText(
                         context,
-                        "Your data was restored and Google Drive recovery backup is on. " +
+                        "Your data was restored and cloud recovery backup is on. " +
                             "A backup refresh will be requested again when your data changes.",
                         Toast.LENGTH_LONG,
                     ).show()
@@ -1822,7 +1822,7 @@ private fun CloudRestoreDialog(
                     Toast.makeText(
                         context,
                         "Your recovery data was restored, but automatic " +
-                            "Google Drive backup could not be re-enabled. " +
+                            "cloud recovery backup could not be re-enabled. " +
                             "Turn it on again in Settings.",
                         Toast.LENGTH_LONG,
                     ).show()
@@ -1852,7 +1852,7 @@ private fun CloudRestoreDialog(
 
                 CloudRecoveryRestoreResult.InvalidBackup -> {
                     message =
-                        "This Google Drive recovery backup is not valid."
+                        "This cloud recovery backup is not valid."
                 }
 
                 CloudRecoveryRestoreResult.ImportFailed -> {
@@ -1897,7 +1897,7 @@ private fun CloudRestoreDialog(
 
                 CloudRecoveryRestoreDiscovery.NoBackupFound -> {
                     message =
-                        "No Google Drive recovery backup was found for Impulsive."
+                        "No cloud recovery backup was found for Impulsive."
                 }
 
                 CloudRecoveryRestoreDiscovery.AuthorizationRequired -> {
@@ -1907,20 +1907,20 @@ private fun CloudRestoreDialog(
 
                 CloudRecoveryRestoreDiscovery.TemporarilyUnavailable -> {
                     message =
-                        "Google Drive recovery is temporarily unavailable. " +
+                        "Cloud recovery is temporarily unavailable. " +
                             "Check your connection and try again."
                 }
 
                 CloudRecoveryRestoreDiscovery.InvalidBackup -> {
                     message =
-                        "The Google Drive recovery backup is not valid."
+                        "The cloud recovery backup is not valid."
                 }
 
                 CloudRecoveryRestoreDiscovery.NotSignedIn,
                 CloudRecoveryRestoreDiscovery.GuestNotSupported,
                 CloudRecoveryRestoreDiscovery.Failed -> {
                     message =
-                        "Could not access Google Drive recovery."
+                        "Could not access cloud recovery."
                 }
             }
         }
@@ -1972,14 +1972,13 @@ private fun CloudRestoreDialog(
 
         title = {
             Text(
-                "Restore from Google Drive",
+                "Restore from cloud backup",
             )
         },
 
         text = {
             Text(
-                "Restore an encrypted recovery backup from your private " +
-                    "Google Drive app data.",
+                "Restore your encrypted cloud recovery copy.",
             )
         },
 
@@ -2070,8 +2069,8 @@ private fun CloudRestoreDialog(
             text = {
                 Column {
                     Text(
-                        "Enter the password you created when you turned on " +
-                            "Google Drive recovery. Impulsive does not store " +
+                        "Enter the password you created when you turned on cloud recovery backup. " +
+                            "Impulsive does not store " +
                             "this password.",
                     )
 
@@ -2236,7 +2235,7 @@ private fun CloudRestoreDialog(
 
             title = {
                 Text(
-                    "Google Drive recovery",
+                    "Cloud recovery",
                 )
             },
 
@@ -2388,11 +2387,11 @@ private fun AuthenticatedOnboardingDecisionDialog(
                 title = { Text("Setup not on this device") },
                 text = {
                     Column {
-                        Text("Your account was found, but this device doesn't currently have your saved Impulsive setup. You can restore an encrypted Google Drive recovery backup, try Android backup again, or set up this device again.")
+                        Text("Your account was found, but this device doesn't currently have your saved Impulsive setup. You can restore an encrypted cloud recovery backup, try Android backup again, or set up this device again.")
                         TextButton(onClick = onTryAgain) { Text("Try Android backup again") }
                     }
                 },
-                confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from Google Drive") } },
+                confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from cloud backup") } },
                 dismissButton = { TextButton(onClick = onSetUpAgain) { Text("Set up again") } },
             )
             if (showCloudRestore) {
@@ -2413,8 +2412,8 @@ private fun AuthenticatedOnboardingDecisionDialog(
             AlertDialog(
                 onDismissRequest = { },
                 title = { Text("Restore saved data?") },
-                text = { Text("This restored local data predates the identity claim. Restore and confirm the encrypted Google Drive recovery copy before claiming it.") },
-                confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from Google Drive") } },
+                text = { Text("This restored local data predates the identity claim. Restore and confirm your encrypted cloud recovery copy before claiming it.") },
+                confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from cloud backup") } },
                 dismissButton = { TextButton(onClick = onUseAnotherAccount) { Text("Use another account") } },
             )
             if (showCloudRestore) CloudRestoreDialog(onDismiss = { showCloudRestore = false }, onSuccess = { showCloudRestore = false; onTryAgain() })
