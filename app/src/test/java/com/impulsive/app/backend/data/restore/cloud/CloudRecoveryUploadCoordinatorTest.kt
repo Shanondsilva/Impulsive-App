@@ -13,7 +13,7 @@ import org.junit.Test
 
 class CloudRecoveryUploadCoordinatorTest {
         @Test
-    fun `account without Google subject hash fails before Drive authorization`() =
+    fun `account without Google subject hash reaches normal upload path`() =
         runBlocking {
             val authorization = RecordingAuthorizationProvider()
 
@@ -26,8 +26,8 @@ class CloudRecoveryUploadCoordinatorTest {
                 authorization = authorization,
             ).uploadCurrentRecovery()
 
-            assertTrue(result is CloudRecoveryUploadResult.PermanentFailure)
-            assertEquals(0, authorization.requests)
+            assertEquals(CloudRecoveryUploadResult.Uploaded, result)
+            assertEquals(1, authorization.requests)
         }
 @Test
     fun `disabled cloud recovery does not inspect account keys or Drive`() =

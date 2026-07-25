@@ -2,7 +2,6 @@ package com.impulsive.app.backend.data.restore.cloud
 
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
-import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
 import com.impulsive.app.backend.data.account.resolveGoogleAccountIdentity
 import com.impulsive.app.backend.data.local.onboarding.OnboardingPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryPreferencesDataSource
@@ -152,10 +151,6 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                         .GuestNotApplicable
             }
             val googleSubjectHash = account.googleSubjectHash
-                ?.takeIf(::isValidGoogleSubjectHash)
-                ?: return CloudRecoveryUploadResult.PermanentFailure(
-                    IllegalStateException("Cloud recovery upload requires a linked Google identity."),
-                )
 
             val isCompleted =
                 ownerStateDataSource
