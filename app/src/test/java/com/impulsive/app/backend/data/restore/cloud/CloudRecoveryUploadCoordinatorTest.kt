@@ -13,7 +13,7 @@ import org.junit.Test
 
 class CloudRecoveryUploadCoordinatorTest {
         @Test
-    fun `account without Google subject hash reaches normal upload path`() =
+    fun `account without Google subject hash fails before Drive authorization`() =
         runBlocking {
             val authorization = RecordingAuthorizationProvider()
 
@@ -26,8 +26,8 @@ class CloudRecoveryUploadCoordinatorTest {
                 authorization = authorization,
             ).uploadCurrentRecovery()
 
-            assertEquals(CloudRecoveryUploadResult.Uploaded, result)
-            assertEquals(1, authorization.requests)
+            assertTrue(result is CloudRecoveryUploadResult.PermanentFailure)
+            assertEquals(0, authorization.requests)
         }
 @Test
     fun `disabled cloud recovery does not inspect account keys or Drive`() =
@@ -176,6 +176,9 @@ class CloudRecoveryUploadCoordinatorTest {
 
                             isAnonymous =
                                 false,
+
+                            googleSubjectHash =
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         ),
 
                     ownerUid =
@@ -321,6 +324,11 @@ class CloudRecoveryUploadCoordinatorTest {
             assertEquals(
                 "user-a",
                 encryptor.ownerUid,
+            )
+
+            assertEquals(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                encryptor.ownerGoogleSubjectHash,
             )
 
             assertEquals(
@@ -766,6 +774,9 @@ class CloudRecoveryUploadCoordinatorTest {
 
                             isAnonymous =
                                 false,
+
+                            googleSubjectHash =
+                                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         ),
 
                     ownerUid =
@@ -968,6 +979,9 @@ class CloudRecoveryUploadCoordinatorTest {
 
                 isAnonymous =
                     false,
+
+                googleSubjectHash =
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             ),
 
         completed:
@@ -1298,6 +1312,10 @@ class CloudRecoveryUploadCoordinatorTest {
             String? =
             null
 
+        var ownerGoogleSubjectHash:
+            String? =
+            null
+
         var payloadJson:
             String? =
             null
@@ -1320,6 +1338,9 @@ class CloudRecoveryUploadCoordinatorTest {
         ): ByteArray {
             this.ownerUid =
                 ownerUid
+
+            this.ownerGoogleSubjectHash =
+                ownerGoogleSubjectHash
 
             this.payloadJson =
                 payloadJson
