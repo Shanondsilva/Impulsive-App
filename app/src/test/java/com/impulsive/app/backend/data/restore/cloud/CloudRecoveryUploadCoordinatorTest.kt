@@ -38,8 +38,8 @@ class CloudRecoveryUploadCoordinatorTest {
             val authorization =
                 RecordingAuthorizationProvider()
 
-            val drive =
-                RecordingDriveGateway()
+            val transport =
+                RecordingTransport()
 
             val result =
                 coordinator(
@@ -55,8 +55,8 @@ class CloudRecoveryUploadCoordinatorTest {
                     authorization =
                         authorization,
 
-                    drive =
-                        drive,
+                    transport =
+                        transport,
                 ).uploadCurrentRecovery()
 
             assertEquals(
@@ -76,7 +76,7 @@ class CloudRecoveryUploadCoordinatorTest {
 
             assertEquals(
                 0,
-                drive.findCalls,
+                transport.findCalls,
             )
         }
     @Test
@@ -88,8 +88,8 @@ class CloudRecoveryUploadCoordinatorTest {
             val authorization =
                 RecordingAuthorizationProvider()
 
-            val drive =
-                RecordingDriveGateway()
+            val transport =
+                RecordingTransport()
 
             val result =
                 coordinator(
@@ -102,8 +102,8 @@ class CloudRecoveryUploadCoordinatorTest {
                     authorization =
                         authorization,
 
-                    drive =
-                        drive,
+                    transport =
+                        transport,
                 ).uploadCurrentRecovery()
 
             assertEquals(
@@ -124,7 +124,7 @@ class CloudRecoveryUploadCoordinatorTest {
 
             assertEquals(
                 0,
-                drive.findCalls,
+                transport.findCalls,
             )
         }
 
@@ -266,8 +266,8 @@ class CloudRecoveryUploadCoordinatorTest {
             val encryptor =
                 RecordingEncryptor()
 
-            val drive =
-                RecordingDriveGateway(
+            val transport =
+                RecordingTransport(
                     existingFiles =
                         emptyList(),
                 )
@@ -283,8 +283,8 @@ class CloudRecoveryUploadCoordinatorTest {
                                 metadata,
                         ),
 
-                    drive =
-                        drive,
+                    transport =
+                        transport,
 
                     encryptor =
                         encryptor,
@@ -298,27 +298,27 @@ class CloudRecoveryUploadCoordinatorTest {
 
             assertEquals(
                 1,
-                drive.findCalls,
+                transport.findCalls,
             )
 
             assertEquals(
                 1,
-                drive.createCalls,
+                transport.createCalls,
             )
 
             assertEquals(
                 0,
-                drive.updateCalls,
+                transport.updateCalls,
             )
 
             assertEquals(
                 CloudRecoveryDriveFileName,
-                drive.lastFileName,
+                transport.lastFileName,
             )
 
             assertEquals(
                 CloudRecoveryDriveContentType,
-                drive.lastContentType,
+                transport.lastContentType,
             )
 
             assertEquals(
@@ -364,8 +364,8 @@ class CloudRecoveryUploadCoordinatorTest {
     @Test
     fun `existing newest file is updated instead of creating a duplicate`() =
         runBlocking {
-            val drive =
-                RecordingDriveGateway(
+            val transport =
+                RecordingTransport(
                     existingFiles =
                         listOf(
                             DriveAppDataFile(
@@ -386,8 +386,8 @@ class CloudRecoveryUploadCoordinatorTest {
 
             val result =
                 coordinator(
-                    drive =
-                        drive,
+                    transport =
+                        transport,
                 ).uploadCurrentRecovery()
 
             assertEquals(
@@ -398,17 +398,17 @@ class CloudRecoveryUploadCoordinatorTest {
 
             assertEquals(
                 0,
-                drive.createCalls,
+                transport.createCalls,
             )
 
             assertEquals(
                 1,
-                drive.updateCalls,
+                transport.updateCalls,
             )
 
             assertEquals(
                 "newest-id",
-                drive.updatedFileId,
+                transport.updatedFileId,
             )
         }
 
@@ -439,8 +439,8 @@ class CloudRecoveryUploadCoordinatorTest {
     @Test
     fun `Drive 401 becomes authorization required without retry classification`() =
         runBlocking {
-            val drive =
-                RecordingDriveGateway(
+            val transport =
+                RecordingTransport(
                     findFailure =
                         DriveAppDataHttpException
                             .Unauthorized(
@@ -451,8 +451,8 @@ class CloudRecoveryUploadCoordinatorTest {
 
             val result =
                 coordinator(
-                    drive =
-                        drive,
+                    transport =
+                        transport,
                 ).uploadCurrentRecovery()
 
             assertEquals(
@@ -465,8 +465,8 @@ class CloudRecoveryUploadCoordinatorTest {
     @Test
     fun `Drive rate limit becomes retryable`() =
         runBlocking {
-            val drive =
-                RecordingDriveGateway(
+            val transport =
+                RecordingTransport(
                     findFailure =
                         DriveAppDataHttpException
                             .RateLimited(
@@ -477,8 +477,8 @@ class CloudRecoveryUploadCoordinatorTest {
 
             val result =
                 coordinator(
-                    drive =
-                        drive,
+                    transport =
+                        transport,
                 ).uploadCurrentRecovery()
 
             assertTrue(
@@ -491,8 +491,8 @@ class CloudRecoveryUploadCoordinatorTest {
     @Test
     fun `ordinary IO failure becomes retryable`() =
         runBlocking {
-            val drive =
-                RecordingDriveGateway(
+            val transport =
+                RecordingTransport(
                     findFailure =
                         IOException(
                             "network unavailable",
@@ -501,8 +501,8 @@ class CloudRecoveryUploadCoordinatorTest {
 
             val result =
                 coordinator(
-                    drive =
-                        drive,
+                    transport =
+                        transport,
                 ).uploadCurrentRecovery()
 
             assertTrue(
@@ -563,8 +563,8 @@ class CloudRecoveryUploadCoordinatorTest {
             val recorder =
                 RecordingStatusRecorder(events)
 
-            val drive =
-                RecordingDriveGateway(
+            val transport =
+                RecordingTransport(
                     existingFiles =
                         emptyList(),
 
@@ -580,8 +580,8 @@ class CloudRecoveryUploadCoordinatorTest {
                             2000L,
                         ),
 
-                    drive =
-                        drive,
+                    transport =
+                        transport,
 
                     statusRecorder =
                         recorder,
@@ -611,8 +611,8 @@ class CloudRecoveryUploadCoordinatorTest {
             val recorder =
                 RecordingStatusRecorder(events)
 
-            val drive =
-                RecordingDriveGateway(
+            val transport =
+                RecordingTransport(
                     existingFiles =
                         listOf(
                             DriveAppDataFile(
@@ -635,8 +635,8 @@ class CloudRecoveryUploadCoordinatorTest {
                             2000L,
                         ),
 
-                    drive =
-                        drive,
+                    transport =
+                        transport,
 
                     statusRecorder =
                         recorder,
@@ -673,8 +673,8 @@ class CloudRecoveryUploadCoordinatorTest {
                             1000L,
                         ),
 
-                    drive =
-                        RecordingDriveGateway(
+                    transport =
+                        RecordingTransport(
                             findFailure =
                                 IOException(
                                     "network unavailable",
@@ -720,8 +720,8 @@ class CloudRecoveryUploadCoordinatorTest {
                             1000L,
                         ),
 
-                    drive =
-                        RecordingDriveGateway(
+                    transport =
+                        RecordingTransport(
                             findFailure =
                                 DriveAppDataHttpException.Unauthorized(
                                     statusCode =
@@ -858,8 +858,8 @@ class CloudRecoveryUploadCoordinatorTest {
                             1000L,
                         ),
 
-                    drive =
-                        RecordingDriveGateway(
+                    transport =
+                        RecordingTransport(
                             findFailure =
                                 DriveAppDataHttpException.Other(
                                     statusCode =
@@ -938,8 +938,8 @@ class CloudRecoveryUploadCoordinatorTest {
                             1000L,
                         ),
 
-                    drive =
-                        RecordingDriveGateway(
+                    transport =
+                        RecordingTransport(
                             findFailure =
                                 CancellationException(
                                     "cancelled",
@@ -1000,9 +1000,9 @@ class CloudRecoveryUploadCoordinatorTest {
             CloudRecoveryUploadAuthorizationProvider =
             RecordingAuthorizationProvider(),
 
-        drive:
-            CloudRecoveryUploadDriveGateway =
-            RecordingDriveGateway(),
+        transport:
+            RecordingTransport =
+            RecordingTransport(),
 
         encryptor:
             CloudRecoveryUploadEnvelopeEncryptor =
@@ -1050,8 +1050,8 @@ class CloudRecoveryUploadCoordinatorTest {
             authorizationProvider =
                 authorization,
 
-            driveGateway =
-                drive,
+            transportProvider =
+                CloudRecoveryUploadTransportProvider { transport },
 
             envelopeEncryptor =
                 encryptor,
@@ -1225,7 +1225,7 @@ class CloudRecoveryUploadCoordinatorTest {
         }
     }
 
-    private class RecordingDriveGateway(
+    private class RecordingTransport(
         private val existingFiles:
             List<DriveAppDataFile> =
             emptyList(),
@@ -1237,7 +1237,13 @@ class CloudRecoveryUploadCoordinatorTest {
         private val events:
             MutableList<String>? =
             null,
-    ) : CloudRecoveryUploadDriveGateway {
+    ) : CloudRecoveryTransport {
+        override val kind: CloudRecoveryTransportKind =
+            CloudRecoveryTransportKind.DriveAppData
+
+        override val requiresDriveAuthorization: Boolean =
+            true
+
         var findCalls =
             0
 
@@ -1259,53 +1265,57 @@ class CloudRecoveryUploadCoordinatorTest {
             String? =
             null
 
-        override suspend fun findByName(
-            accessToken: String,
-            fileName: String,
-        ): List<DriveAppDataFile> {
-            findCalls += 1
+        var receivedEnvelopeBytes:
+            ByteArray? =
+            null
 
-            findFailure?.let {
-                throw it
+        var receivedAccessToken:
+            String? =
+            null
+
+        override suspend fun upload(
+            envelopeBytes: ByteArray,
+            driveAccessToken: String?,
+        ): CloudRecoveryTransportOutcome<Unit> {
+            findCalls += 1
+            findFailure?.let { throw it }
+
+            receivedEnvelopeBytes =
+                envelopeBytes.copyOf()
+            receivedAccessToken =
+                driveAccessToken
+            lastFileName =
+                CloudRecoveryDriveFileName
+            lastContentType =
+                CloudRecoveryDriveContentType
+
+            if (existingFiles.isEmpty()) {
+                createCalls += 1
+                events?.add("drive-create")
+            } else {
+                updateCalls += 1
+                events?.add("drive-update")
+                updatedFileId =
+                    existingFiles.first().id
             }
 
-            lastFileName =
-                fileName
-
-            return existingFiles
+            return CloudRecoveryTransportOutcome.Success(Unit)
         }
 
-        override suspend fun create(
-            accessToken: String,
-            fileName: String,
-            contentType: String,
-            bytes: ByteArray,
-        ) {
-            createCalls += 1
-            events?.add("drive-create")
-            lastFileName =
-                fileName
+        override suspend fun download(
+            driveAccessToken: String?,
+        ): CloudRecoveryTransportOutcome<ByteArray> =
+            CloudRecoveryTransportOutcome.PermanentFailure(
+                UnsupportedOperationException(),
+            )
 
-            lastContentType =
-                contentType
-        }
-
-        override suspend fun updateContent(
-            accessToken: String,
-            fileId: String,
-            contentType: String,
-            bytes: ByteArray,
-        ) {
-            updateCalls += 1
-            events?.add("drive-update")
-            updatedFileId =
-                fileId
-
-            lastContentType =
-                contentType
-        }
+        override suspend fun deleteAll(
+            driveAccessToken: String?,
+        ): CloudRecoveryTransportOutcome<Int> =
+            CloudRecoveryTransportOutcome.PermanentFailure(
+                UnsupportedOperationException(),
+            )
     }
-
     private class RecordingEncryptor :
         CloudRecoveryUploadEnvelopeEncryptor {
         var ownerUid:

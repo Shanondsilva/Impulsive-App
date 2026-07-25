@@ -24,6 +24,10 @@ internal sealed interface CloudRecoveryTransportOutcome<out T> {
     data class PermanentFailure(val cause: Throwable) : CloudRecoveryTransportOutcome<Nothing>
 }
 
+internal fun interface CloudRecoveryUploadTransportProvider {
+    fun transportFor(kind: CloudRecoveryTransportKind): CloudRecoveryTransport
+}
+
 internal interface CloudRecoveryTransport {
     val kind: CloudRecoveryTransportKind
     val requiresDriveAuthorization: Boolean

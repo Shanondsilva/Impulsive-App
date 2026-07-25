@@ -19,7 +19,7 @@ public class CloudRecoveryUploadCoordinator internal constructor(
     private val payloadProvider: CloudRecoveryUploadPayloadProvider,
     private val keyMaterialSource: CloudRecoveryUploadKeyMaterialSource,
     private val authorizationProvider: CloudRecoveryUploadAuthorizationProvider,
-    private val driveGateway: CloudRecoveryUploadDriveGateway,
+    private val transportProvider: CloudRecoveryUploadTransportProvider,
     private val envelopeEncryptor: CloudRecoveryUploadEnvelopeEncryptor,
     private val clock: CloudRecoveryUploadClock,
     private val statusRecorder: CloudRecoveryUploadStatusRecorder,
@@ -70,11 +70,7 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                     context.applicationContext,
                 ),
             ),
-
-        driveGateway =
-            DriveClientCloudRecoveryUploadDriveGateway(
-                DriveAppDataClient(),
-            ),
+        transportProvider = DefaultCloudRecoveryUploadTransportProvider(),
 
         envelopeEncryptor =
             CryptoCloudRecoveryUploadEnvelopeEncryptor(
@@ -239,49 +235,24 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                             wrappedKeyMetadata,
                     )
 
-                val existingFiles =
-                    driveGateway
-                        .findByName(
-                            accessToken =
-                                accessToken,
-
-                            fileName =
-                                CloudRecoveryDriveFileName,
-                        )
-
-                if (
-                    existingFiles
-                        .isEmpty()
+                when (
+                    val outcome = transportProvider
+                        .transportFor(CloudRecoveryTransportKind.DriveAppData)
+                        .upload(envelopeBytes, accessToken)
                 ) {
-                    driveGateway.create(
-                        accessToken =
-                            accessToken,
-
-                        fileName =
-                            CloudRecoveryDriveFileName,
-
-                        contentType =
-                            CloudRecoveryDriveContentType,
-
-                        bytes =
-                            envelopeBytes,
-                    )
-                } else {
-                    driveGateway.updateContent(
-                        accessToken =
-                            accessToken,
-
-                        fileId =
-                            existingFiles
-                                .first()
-                                .id,
-
-                        contentType =
-                            CloudRecoveryDriveContentType,
-
-                        bytes =
-                            envelopeBytes,
-                    )
+                    is CloudRecoveryTransportOutcome.Success -> Unit
+                    CloudRecoveryTransportOutcome.NotFound ->
+                        return CloudRecoveryUploadResult.RetryableFailure(
+                            IOException(
+                                "Drive upload returned no matching file.",
+                            ),
+                        )
+                    CloudRecoveryTransportOutcome.AuthorizationRequired ->
+                        return CloudRecoveryUploadResult.AuthorizationRequired
+                    is CloudRecoveryTransportOutcome.RetryableFailure ->
+                        return CloudRecoveryUploadResult.RetryableFailure(outcome.cause)
+                    is CloudRecoveryTransportOutcome.PermanentFailure ->
+                        return CloudRecoveryUploadResult.PermanentFailure(outcome.cause)
                 }
 
                 CloudRecoveryUploadResult.Uploaded
@@ -453,27 +424,6 @@ internal fun interface CloudRecoveryUploadAuthorizationProvider {
         DriveAuthorizationResult
 }
 
-internal interface CloudRecoveryUploadDriveGateway {
-    suspend fun findByName(
-        accessToken: String,
-        fileName: String,
-    ): List<DriveAppDataFile>
-
-    suspend fun create(
-        accessToken: String,
-        fileName: String,
-        contentType: String,
-        bytes: ByteArray,
-    )
-
-    suspend fun updateContent(
-        accessToken: String,
-        fileId: String,
-        contentType: String,
-        bytes: ByteArray,
-    )
-}
-
 internal fun interface CloudRecoveryUploadEnvelopeEncryptor {
     fun encrypt(
         ownerUid: String,
@@ -622,65 +572,25 @@ private class IdentityCloudRecoveryUploadAuthorizationProvider(
         authorization.requestAuthorization()
 }
 
-private class DriveClientCloudRecoveryUploadDriveGateway(
-    private val client:
-        DriveAppDataClient,
-) : CloudRecoveryUploadDriveGateway {
-    override suspend fun findByName(
-        accessToken: String,
-        fileName: String,
-    ): List<DriveAppDataFile> =
-        client.findByName(
-            accessToken =
-                accessToken,
+private class DefaultCloudRecoveryUploadTransportProvider :
+    CloudRecoveryUploadTransportProvider {
+    private val driveTransport =
+        DriveCloudRecoveryTransport()
 
-            fileName =
-                fileName,
-        )
+    private val firebaseStorageTransport =
+        FirebaseStorageCloudRecoveryTransport()
 
-    override suspend fun create(
-        accessToken: String,
-        fileName: String,
-        contentType: String,
-        bytes: ByteArray,
-    ) {
-        client.create(
-            accessToken =
-                accessToken,
+    override fun transportFor(
+        kind: CloudRecoveryTransportKind,
+    ): CloudRecoveryTransport =
+        when (kind) {
+            CloudRecoveryTransportKind.DriveAppData ->
+                driveTransport
 
-            fileName =
-                fileName,
-
-            contentType =
-                contentType,
-
-            bytes =
-                bytes,
-        )
-    }
-
-    override suspend fun updateContent(
-        accessToken: String,
-        fileId: String,
-        contentType: String,
-        bytes: ByteArray,
-    ) {
-        client.updateContent(
-            accessToken =
-                accessToken,
-
-            fileId =
-                fileId,
-
-            contentType =
-                contentType,
-
-            bytes =
-                bytes,
-        )
-    }
+            CloudRecoveryTransportKind.FirebaseStorage ->
+                firebaseStorageTransport
+        }
 }
-
 private class CryptoCloudRecoveryUploadEnvelopeEncryptor(
     private val crypto:
         CloudRecoveryCrypto,
