@@ -21,6 +21,7 @@ class CloudRecoveryUploadCoordinatorTest {
                 account = CloudRecoveryUploadAccount(
                     uid = "user-a",
                     isAnonymous = false,
+                    hasGoogleProvider = true,
                     googleSubjectHash = null,
                 ),
                 authorization = authorization,
@@ -28,6 +29,72 @@ class CloudRecoveryUploadCoordinatorTest {
 
             assertEquals(CloudRecoveryUploadResult.Uploaded, result)
             assertEquals(1, authorization.requests)
+        }
+    @Test
+    fun `non Google account never requests Drive authorization`() =
+        runBlocking {
+            val authorization = RecordingAuthorizationProvider()
+            val transport = RecordingTransport(
+                kind = CloudRecoveryTransportKind.FirebaseStorage,
+                requiresDriveAuthorization = false,
+            )
+            val provider = RecordingTransportProvider(transport)
+
+            val result = coordinator(
+                account = CloudRecoveryUploadAccount(
+                    uid = "user-a",
+                    isAnonymous = false,
+                    hasGoogleProvider = false,
+                    googleSubjectHash = null,
+                ),
+                authorization = authorization,
+                transport = transport,
+                transportProvider = provider,
+            ).uploadCurrentRecovery()
+
+            assertEquals(CloudRecoveryUploadResult.Uploaded, result)
+            assertEquals(0, authorization.requests)
+            assertEquals(listOf(CloudRecoveryTransportKind.FirebaseStorage), provider.requestedKinds)
+            assertEquals(null, transport.receivedAccessToken)
+        }
+
+    @Test
+    fun `Google account still requests Drive authorization`() =
+        runBlocking {
+            val authorization = RecordingAuthorizationProvider()
+            val transport = RecordingTransport()
+            val provider = RecordingTransportProvider(transport)
+
+            val result = coordinator(
+                account = CloudRecoveryUploadAccount(
+                    uid = "user-a",
+                    isAnonymous = false,
+                    hasGoogleProvider = true,
+                    googleSubjectHash = null,
+                ),
+                authorization = authorization,
+                transport = transport,
+                transportProvider = provider,
+            ).uploadCurrentRecovery()
+
+            assertEquals(CloudRecoveryUploadResult.Uploaded, result)
+            assertEquals(1, authorization.requests)
+            assertEquals(listOf(CloudRecoveryTransportKind.DriveAppData), provider.requestedKinds)
+            assertEquals("token", transport.receivedAccessToken)
+        }
+
+    @Test
+    fun `transport retryable failure maps to upload retryable failure`() =
+        runBlocking {
+            val failure = IOException("network unavailable")
+            val result = coordinator(
+                transport = RecordingTransport(
+                    uploadOutcome = CloudRecoveryTransportOutcome.RetryableFailure(failure),
+                ),
+            ).uploadCurrentRecovery()
+
+            assertTrue(result is CloudRecoveryUploadResult.RetryableFailure)
+            assertEquals(failure, (result as CloudRecoveryUploadResult.RetryableFailure).cause)
         }
 @Test
     fun `disabled cloud recovery does not inspect account keys or Drive`() =
@@ -143,6 +210,9 @@ class CloudRecoveryUploadCoordinatorTest {
 
                             isAnonymous =
                                 true,
+
+                            hasGoogleProvider =
+                                false,
                         ),
 
                     authorization =
@@ -176,6 +246,9 @@ class CloudRecoveryUploadCoordinatorTest {
 
                             isAnonymous =
                                 false,
+
+                            hasGoogleProvider =
+                                true,
 
                             googleSubjectHash =
                                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -775,6 +848,9 @@ class CloudRecoveryUploadCoordinatorTest {
                             isAnonymous =
                                 false,
 
+                            hasGoogleProvider =
+                                true,
+
                             googleSubjectHash =
                                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         ),
@@ -980,6 +1056,9 @@ class CloudRecoveryUploadCoordinatorTest {
                 isAnonymous =
                     false,
 
+                hasGoogleProvider =
+                    true,
+
                 googleSubjectHash =
                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             ),
@@ -1003,6 +1082,10 @@ class CloudRecoveryUploadCoordinatorTest {
         transport:
             RecordingTransport =
             RecordingTransport(),
+
+        transportProvider:
+            CloudRecoveryUploadTransportProvider =
+            CloudRecoveryUploadTransportProvider { transport },
 
         encryptor:
             CloudRecoveryUploadEnvelopeEncryptor =
@@ -1051,7 +1134,7 @@ class CloudRecoveryUploadCoordinatorTest {
                 authorization,
 
             transportProvider =
-                CloudRecoveryUploadTransportProvider { transport },
+                transportProvider,
 
             envelopeEncryptor =
                 encryptor,
@@ -1225,6 +1308,18 @@ class CloudRecoveryUploadCoordinatorTest {
         }
     }
 
+    private class RecordingTransportProvider(
+        private val transport: CloudRecoveryTransport,
+    ) : CloudRecoveryUploadTransportProvider {
+        val requestedKinds = mutableListOf<CloudRecoveryTransportKind>()
+
+        override fun transportFor(
+            kind: CloudRecoveryTransportKind,
+        ): CloudRecoveryTransport {
+            requestedKinds += kind
+            return transport
+        }
+    }
     private class RecordingTransport(
         private val existingFiles:
             List<DriveAppDataFile> =
@@ -1237,12 +1332,17 @@ class CloudRecoveryUploadCoordinatorTest {
         private val events:
             MutableList<String>? =
             null,
-    ) : CloudRecoveryTransport {
+
+        private val uploadOutcome:
+            CloudRecoveryTransportOutcome<Unit> =
+            CloudRecoveryTransportOutcome.Success(Unit),
+
         override val kind: CloudRecoveryTransportKind =
-            CloudRecoveryTransportKind.DriveAppData
+            CloudRecoveryTransportKind.DriveAppData,
 
         override val requiresDriveAuthorization: Boolean =
-            true
+            true,
+    ) : CloudRecoveryTransport {
 
         var findCalls =
             0
@@ -1299,7 +1399,7 @@ class CloudRecoveryUploadCoordinatorTest {
                     existingFiles.first().id
             }
 
-            return CloudRecoveryTransportOutcome.Success(Unit)
+            return uploadOutcome
         }
 
         override suspend fun download(

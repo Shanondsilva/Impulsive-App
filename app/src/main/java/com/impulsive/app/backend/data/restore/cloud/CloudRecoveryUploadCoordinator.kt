@@ -2,6 +2,7 @@ package com.impulsive.app.backend.data.restore.cloud
 
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.impulsive.app.backend.data.account.resolveGoogleAccountIdentity
 import com.impulsive.app.backend.data.local.onboarding.OnboardingPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryPreferencesDataSource
@@ -186,33 +187,44 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                         ?: return CloudRecoveryUploadResult
                                 .SetupRequired
 
+                val transport =
+                    transportProvider
+                        .transportFor(
+                            cloudRecoveryTransportKind(
+                                account.hasGoogleProvider,
+                            ),
+                        )
+
                 val accessToken =
-                    when (
-                        val authorization =
-                            authorizationProvider
-                                .requestAuthorization()
-                    ) {
-                        is DriveAuthorizationResult.Authorized ->
-                            authorization.accessToken
+                    if (transport.requiresDriveAuthorization) {
+                        when (
+                            val authorization =
+                                authorizationProvider
+                                    .requestAuthorization()
+                        ) {
+                            is DriveAuthorizationResult.Authorized ->
+                                authorization.accessToken
 
-                        is DriveAuthorizationResult.NeedsUserResolution ->
-                            return CloudRecoveryUploadResult
-                                    .AuthorizationRequired
+                            is DriveAuthorizationResult.NeedsUserResolution ->
+                                return CloudRecoveryUploadResult
+                                        .AuthorizationRequired
 
-                        DriveAuthorizationResult.Cancelled ->
-                            return CloudRecoveryUploadResult
-                                    .Cancelled
+                            DriveAuthorizationResult.Cancelled ->
+                                return CloudRecoveryUploadResult
+                                        .Cancelled
 
-                        is DriveAuthorizationResult.Failed ->
-                            return CloudRecoveryUploadResult
-                                    .PermanentFailure(
-                                        authorization.cause
-                                            ?: IllegalStateException(
-                                                "Drive appDataFolder authorization failed without a cause.",
-                                            ),
-                                    )
+                            is DriveAuthorizationResult.Failed ->
+                                return CloudRecoveryUploadResult
+                                        .PermanentFailure(
+                                            authorization.cause
+                                                ?: IllegalStateException(
+                                                    "Drive appDataFolder authorization failed without a cause.",
+                                                ),
+                                        )
+                        }
+                    } else {
+                        null
                     }
-
                 val payloadJson =
                     payloadProvider
                         .buildPayloadJson()
@@ -236,17 +248,10 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                     )
 
                 when (
-                    val outcome = transportProvider
-                        .transportFor(CloudRecoveryTransportKind.DriveAppData)
-                        .upload(envelopeBytes, accessToken)
+                    val outcome = transport.upload(envelopeBytes, accessToken)
                 ) {
                     is CloudRecoveryTransportOutcome.Success -> Unit
-                    CloudRecoveryTransportOutcome.NotFound ->
-                        return CloudRecoveryUploadResult.RetryableFailure(
-                            IOException(
-                                "Drive upload returned no matching file.",
-                            ),
-                        )
+                    CloudRecoveryTransportOutcome.NotFound,
                     CloudRecoveryTransportOutcome.AuthorizationRequired ->
                         return CloudRecoveryUploadResult.AuthorizationRequired
                     is CloudRecoveryTransportOutcome.RetryableFailure ->
@@ -374,6 +379,7 @@ public sealed interface CloudRecoveryUploadResult {
 internal data class CloudRecoveryUploadAccount(
     val uid: String,
     val isAnonymous: Boolean,
+    val hasGoogleProvider: Boolean,
     val googleSubjectHash: String? = null,
 )
 
@@ -518,6 +524,11 @@ private class FirebaseCloudRecoveryUploadAccountProvider(
 
             isAnonymous =
                 user.isAnonymous,
+
+            hasGoogleProvider =
+                user.providerData.any { info ->
+                    info.providerId == GoogleAuthProvider.PROVIDER_ID
+                },
 
             googleSubjectHash =
                 resolveGoogleAccountIdentity(user)?.subjectHash,
