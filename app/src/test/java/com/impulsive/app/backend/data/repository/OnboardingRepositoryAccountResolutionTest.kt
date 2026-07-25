@@ -11,8 +11,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class OnboardingRepositoryAccountResolutionTest {
+    @Test
+    fun localStateContractContainsGoogleHashWithoutOptionalOwnerInterface() {
+        val source = File(
+            "src/main/java/com/impulsive/app/backend/data/repository/OnboardingRepository.kt",
+        ).readText()
+
+        assertTrue(source.contains("val completedGoogleSubjectHash: Flow<String?>"))
+        assertTrue(source.contains("googleSubjectHash: String?,"))
+        val removedInterfaceName =
+            "OnboardingGoogle" + "OwnerStateDataSource"
+        assertFalse(source.contains(removedInterfaceName))
+        assertFalse(source.contains("as? " + removedInterfaceName))
+    }
+
     @Test
     fun remoteCompletedWithoutLocalDataDoesNotFabricateLocalCompletion() = runBlocking {
         val local = FakeLocalOnboardingDataSource(completed = false)
@@ -221,6 +236,27 @@ class OnboardingRepositoryAccountResolutionTest {
     }
 
     @Test
+    fun authenticatedCompletionWritesUidAndGoogleHashThroughUnifiedMethod() = runBlocking {
+        val local = FakeLocalOnboardingDataSource(completed = false)
+        val remote = FakeRemoteOnboardingDataSource(
+            completion = RemoteOnboardingCompletionResult.Incomplete,
+        )
+        val repository = repository(
+            local = local,
+            remote = remote,
+            uid = "user-a",
+            googleSubjectHash = ValidGoogleSubjectHash,
+        )
+
+        val result = repository.completeOnboardingForCurrentAccount()
+
+        assertEquals(CompleteOnboardingResult.Completed, result)
+        assertEquals("user-a", local.completedAccountUid.value)
+        assertEquals(ValidGoogleSubjectHash, local.completedGoogleSubjectHash.value)
+        assertEquals(1, local.setCompletedForAccountCalls)
+    }
+
+    @Test
     fun authenticatedCompletionRequestsSnapshotRefreshAfterRemoteAndLocalSuccess() = runBlocking {
         val local = FakeLocalOnboardingDataSource(completed = false)
         val remote = FakeRemoteOnboardingDataSource(
@@ -337,29 +373,78 @@ class OnboardingRepositoryAccountResolutionTest {
         assertEquals(emptyList<OnboardingAnswers>(), remote.receivedAnswers)
     }
 
+    @Test
+    fun differentUidWithoutRestoreProvenanceIsAccountMismatch() = runBlocking {
+        val result = repository(FakeLocalOnboardingDataSource(true, "old", ValidGoogleSubjectHash), FakeRemoteOnboardingDataSource(RemoteOnboardingCompletionResult.Incomplete), "new", ValidGoogleSubjectHash, restorePending = false).resolveAuthenticatedOnboarding()
+        assertEquals(AuthenticatedOnboardingResolution.AccountMismatch, result)
+    }
+
+    @Test
+    fun restoredDifferentUidWithMatchingHashesNeedsConfirmation() = runBlocking {
+        val result = repository(FakeLocalOnboardingDataSource(true, "old", ValidGoogleSubjectHash), FakeRemoteOnboardingDataSource(RemoteOnboardingCompletionResult.Incomplete), "new", ValidGoogleSubjectHash, restorePending = true).resolveAuthenticatedOnboarding()
+        assertEquals(AuthenticatedOnboardingResolution.RestoredSameGoogleIdentityNeedsConfirmation, result)
+    }
+
+    @Test
+    fun restoredDifferentUidWithoutStoredHashNeedsLegacyDriveVerification() = runBlocking {
+        val result = repository(FakeLocalOnboardingDataSource(true, "old", null), FakeRemoteOnboardingDataSource(RemoteOnboardingCompletionResult.Incomplete), "new", ValidGoogleSubjectHash, restorePending = true).resolveAuthenticatedOnboarding()
+        assertEquals(AuthenticatedOnboardingResolution.RestoredLegacyOwnershipNeedsDriveVerification, result)
+    }
+
+    @Test
+    fun restoredDifferentUidWithDifferentHashesIsAccountMismatch() = runBlocking {
+        val result = repository(FakeLocalOnboardingDataSource(true, "old", ValidGoogleSubjectHash), FakeRemoteOnboardingDataSource(RemoteOnboardingCompletionResult.Incomplete), "new", "b".repeat(64), restorePending = true).resolveAuthenticatedOnboarding()
+        assertEquals(AuthenticatedOnboardingResolution.AccountMismatch, result)
+    }
+
+    @Test
+    fun restoredUnownedLocalDataNeedsLegacyDriveVerification() = runBlocking {
+        val result = repository(FakeLocalOnboardingDataSource(true, null), FakeRemoteOnboardingDataSource(RemoteOnboardingCompletionResult.Incomplete), "new", restorePending = true).resolveAuthenticatedOnboarding()
+        assertEquals(AuthenticatedOnboardingResolution.RestoredLegacyOwnershipNeedsDriveVerification, result)
+    }
+
+    @Test
+    fun unownedLocalDataWithoutRestoreProvenanceRemainsLegacy() = runBlocking {
+        val result = repository(FakeLocalOnboardingDataSource(true, null), FakeRemoteOnboardingDataSource(RemoteOnboardingCompletionResult.Incomplete), "new", restorePending = false).resolveAuthenticatedOnboarding()
+        assertEquals(AuthenticatedOnboardingResolution.LegacyUnownedLocalData, result)
+    }
+    private companion object {
+        const val ValidGoogleSubjectHash =
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+
     private fun repository(
         local: FakeLocalOnboardingDataSource,
         remote: FakeRemoteOnboardingDataSource,
         uid: String,
+        googleSubjectHash: String? = null,
+        restorePending: Boolean = false,
         onAuthenticatedOnboardingCompleted: () -> Unit = {},
     ): OnboardingRepository = OnboardingRepository(
         localDataSource = local,
         remoteDataSource = remote,
         accountProvider = FakeAccountProvider(
-            CurrentOnboardingAccount(uid = uid, isAnonymous = false),
+            CurrentOnboardingAccount(
+                uid = uid,
+                isAnonymous = false,
+                googleSubjectHash = googleSubjectHash,
+            ),
         ),
         onAuthenticatedOnboardingCompleted = onAuthenticatedOnboardingCompleted,
+    restoreProvenance = RestoreProvenance { restorePending },
     )
 }
 
 private class FakeLocalOnboardingDataSource(
     completed: Boolean,
     ownerUid: String? = null,
+    ownerGoogleSubjectHash: String? = null,
     answers: OnboardingAnswers = OnboardingAnswers(),
 ) : OnboardingLocalStateDataSource {
     override val answers = MutableStateFlow(answers)
     override val isCompleted = MutableStateFlow(completed)
     override val completedAccountUid = MutableStateFlow(ownerUid)
+    override val completedGoogleSubjectHash = MutableStateFlow(ownerGoogleSubjectHash)
     var setCompletedForAccountCalls = 0
 
     override suspend fun setPersonalization(name: String, avatarId: String) = Unit
@@ -371,16 +456,25 @@ private class FakeLocalOnboardingDataSource(
 
     override suspend fun setCompleted(isCompleted: Boolean) {
         this.isCompleted.value = isCompleted
-        if (!isCompleted) completedAccountUid.value = null
+        if (!isCompleted) {
+            completedAccountUid.value = null
+            completedGoogleSubjectHash.value = null
+        }
     }
 
-    override suspend fun setCompletedForAccount(isCompleted: Boolean, accountUid: String?) {
+    override suspend fun setCompletedForAccount(
+        isCompleted: Boolean,
+        accountUid: String?,
+        googleSubjectHash: String?,
+    ) {
         setCompletedForAccountCalls += 1
         this.isCompleted.value = isCompleted
         if (isCompleted && !accountUid.isNullOrBlank()) {
             completedAccountUid.value = accountUid
-        } else if (!isCompleted) {
+            completedGoogleSubjectHash.value = googleSubjectHash
+        } else {
             completedAccountUid.value = null
+            completedGoogleSubjectHash.value = null
         }
     }
 
