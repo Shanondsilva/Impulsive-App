@@ -2,6 +2,7 @@ package com.impulsive.app.backend.session.settings
 
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryBackupMetadata
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryStoredUploadOutcome
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryTransportKind
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -15,6 +16,7 @@ internal data class CloudRecoveryBackupUiModel(
 )
 
 internal fun cloudRecoveryBackupUiModel(
+    transportKind: CloudRecoveryTransportKind,
     cloudRecoveryEnabled: Boolean,
     cloudRecoverySetupInProgress: Boolean,
     hasQueuedUpload: Boolean,
@@ -57,7 +59,7 @@ internal fun cloudRecoveryBackupUiModel(
     if (!cloudRecoveryEnabled) {
         return CloudRecoveryBackupUiModel(
             value = "Off",
-            subtext = "Keep an encrypted recovery copy in your private Google Drive app data. Your recovery password is never stored by Impulsive.",
+            subtext = "Keep an encrypted recovery copy ${cloudRecoveryDestinationDescription(transportKind)}",
             showProgress = false,
             showBackupNow = false,
         )
@@ -69,7 +71,7 @@ internal fun cloudRecoveryBackupUiModel(
         if (attempt != null && (success == null || attempt > success)) {
             return CloudRecoveryBackupUiModel(
                 value = "Backup needs attention",
-                subtext = attentionSubtext(metadata.latestOutcome),
+                subtext = attentionSubtext(transportKind, metadata.latestOutcome),
                 showProgress = false,
                 showBackupNow = true,
             )
@@ -83,7 +85,7 @@ internal fun cloudRecoveryBackupUiModel(
     ) {
         return CloudRecoveryBackupUiModel(
             value = "Backed up",
-            subtext = "Encrypted recovery copy in your private Google Drive app data. Last backup: ${formatCloudRecoveryLastBackup(successEpochMillis, nowEpochMillis)}.",
+            subtext = "Encrypted recovery copy ${cloudRecoveryDestinationDescription(transportKind)} Last backup: ${formatCloudRecoveryLastBackup(successEpochMillis, nowEpochMillis)}.",
             showProgress = false,
             showBackupNow = true,
         )
@@ -96,6 +98,17 @@ internal fun cloudRecoveryBackupUiModel(
         showBackupNow = true,
     )
 }
+
+private fun cloudRecoveryDestinationDescription(
+    transportKind: CloudRecoveryTransportKind,
+): String =
+    when (transportKind) {
+        CloudRecoveryTransportKind.DriveAppData ->
+            "in your private Google Drive app data. Your recovery password is never stored by Impulsive."
+
+        CloudRecoveryTransportKind.FirebaseStorage ->
+            "in your Impulsive account, encrypted with your recovery password. Impulsive cannot read it."
+    }
 
 internal fun formatCloudRecoveryLastBackup(
     backupEpochMillis: Long,
@@ -129,11 +142,12 @@ internal fun formatCloudRecoveryLastBackup(
 }
 
 private fun attentionSubtext(
+    transportKind: CloudRecoveryTransportKind,
     outcome: CloudRecoveryStoredUploadOutcome,
 ): String =
     when (outcome) {
         CloudRecoveryStoredUploadOutcome.NoAuthenticatedAccount ->
-            "Sign in again to continue Google Drive recovery backup."
+            "Sign in again to continue cloud recovery backup."
 
         CloudRecoveryStoredUploadOutcome.AccountMismatch ->
             "The signed-in account does not match the account that owns this recovery data."
@@ -142,7 +156,11 @@ private fun attentionSubtext(
             "Recovery setup needs to be completed again."
 
         CloudRecoveryStoredUploadOutcome.AuthorizationRequired ->
-            "Google Drive needs to be connected again. Turn recovery off and on to reconnect."
+            if (transportKind == CloudRecoveryTransportKind.DriveAppData) {
+                "Google Drive needs to be connected again. Turn recovery off and on to reconnect."
+            } else {
+                "Sign in again to continue cloud recovery backup."
+            }
 
         CloudRecoveryStoredUploadOutcome.RetryableFailure ->
             "The latest backup did not finish. Check your connection and try again."
@@ -151,10 +169,10 @@ private fun attentionSubtext(
             "The latest backup did not finish. Try again from Settings."
 
         CloudRecoveryStoredUploadOutcome.GuestNotApplicable ->
-            "Google Drive recovery backup is not available for guest accounts."
+            "Cloud recovery backup is not available for guest accounts."
 
         CloudRecoveryStoredUploadOutcome.NoOwnedCompletedData ->
-            "Complete setup before Google Drive recovery backup can continue."
+            "Complete setup before cloud recovery backup can continue."
 
         CloudRecoveryStoredUploadOutcome.Cancelled ->
             "The latest backup was cancelled before it finished."

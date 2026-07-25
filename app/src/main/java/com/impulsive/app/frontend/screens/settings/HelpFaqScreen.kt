@@ -183,7 +183,7 @@ private val helpFaqCategories = listOf(
             ),
             HelpFaqItem(
                 question = "How does backup and restore work?",
-                answer = "If Android backup is enabled on your phone, your device may back up selected Impulsive data through your own Google account, protected with encryption based on your lock screen where your device supports it. When you reinstall Impulsive or move to a new Android phone with the same Google account, your progress is restored automatically. Impulsive cannot see or access this backup.",
+                answer = "Cloud recovery creates an encrypted recovery copy protected by the password you choose. For accounts with Google, it is stored in private Google Drive app data; for other accounts, it is stored in your Impulsive account. Impulsive cannot read either copy. To restore, sign in to the same account and enter your recovery password. Android backup is separate: when Android backup is enabled and restores app data for the same Google account on a new or reinstalled device, it may restore selected Impulsive data automatically.",
             ),
             HelpFaqItem(
                 question = "How do I export an encrypted backup?",
@@ -203,7 +203,7 @@ private val helpFaqCategories = listOf(
             ),
             HelpFaqItem(
                 question = "How do I delete my account and data?",
-                answer = "Open Settings, go to the privacy and account section, and choose the account deletion option. This deletes your account and subscription records from Impulsive's servers and erases everything stored on this device. If your phone backed up Impulsive through your Google account, you can clear that backup in your device's Google backup settings.",
+                answer = "Open Settings, go to the privacy and account section, and choose the account deletion option. This deletes your account and subscription records from Impulsive's servers, removes your cloud recovery backup, and erases everything stored on this device. If Android backed up Impulsive through your Google account, you can clear that backup in your device's Google backup settings.",
             ),
             HelpFaqItem(
                 question = "What should I include when reporting a problem?",

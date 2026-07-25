@@ -2,6 +2,7 @@ package com.impulsive.app.backend.session.settings
 
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryBackupMetadata
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryStoredUploadOutcome
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryTransportKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -15,6 +16,19 @@ class CloudRecoveryBackupUiPolicyTest {
         assertEquals("Off", model.value)
         assertFalse(model.showProgress)
         assertFalse(model.showBackupNow)
+    }
+
+    @Test
+    fun storageDestinationSaysImpulsiveCannotReadTheRecoveryCopy() {
+        val model = model(
+            enabled = false,
+            transportKind = CloudRecoveryTransportKind.FirebaseStorage,
+        )
+
+        assertEquals(
+            "Keep an encrypted recovery copy in your Impulsive account, encrypted with your recovery password. Impulsive cannot read it.",
+            model.subtext,
+        )
     }
 
     @Test
@@ -130,6 +144,7 @@ class CloudRecoveryBackupUiPolicyTest {
     }
 
     private fun model(
+        transportKind: CloudRecoveryTransportKind = CloudRecoveryTransportKind.DriveAppData,
         enabled: Boolean = true,
         setup: Boolean = false,
         queued: Boolean = false,
@@ -138,6 +153,7 @@ class CloudRecoveryBackupUiPolicyTest {
         now: Long = 60_000L,
     ): CloudRecoveryBackupUiModel =
         cloudRecoveryBackupUiModel(
+            transportKind = transportKind,
             cloudRecoveryEnabled = enabled,
             cloudRecoverySetupInProgress = setup,
             hasQueuedUpload = queued,

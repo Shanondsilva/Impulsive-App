@@ -143,6 +143,7 @@ import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryDeletionCoordin
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryDeletionResult
 import com.impulsive.app.backend.data.restore.cloud.currentCloudRecoveryTransportRequiresDriveAuthorization
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryUploadScheduler
+import com.impulsive.app.backend.data.restore.cloud.cloudRecoveryTransportKind
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -348,8 +349,14 @@ fun SettingsScreen(
                 it.state == WorkInfo.State.BLOCKED
         }
     var cloudRecoverySetupInProgress by remember { mutableStateOf(false) }
+    val cloudRecoveryTransportKind =
+        cloudRecoveryTransportKind(
+            hasGoogleProvider =
+                authState.user?.linkedProviders?.contains(AuthProvider.Google) == true,
+        )
     val cloudRecoveryBackupStatusUiModel =
         cloudRecoveryBackupUiModel(
+            transportKind = cloudRecoveryTransportKind,
             cloudRecoveryEnabled = cloudRecoveryEnabled,
             cloudRecoverySetupInProgress = cloudRecoverySetupInProgress,
             hasQueuedUpload = hasQueuedCloudRecoveryUpload,
@@ -443,7 +450,7 @@ fun SettingsScreen(
                 is CloudRecoveryDeletionResult.Failed -> {
                     cloudRecoveryDeletionInProgress = false
                     cloudRecoveryMessage =
-                        "Could not remove your encrypted Google Drive recovery " +
+                        "Could not remove your encrypted recovery " +
                             "backup. Your Impulsive account has not been deleted " +
                             "yet. Check your connection and try again."
                 }
@@ -454,7 +461,7 @@ fun SettingsScreen(
         } catch (error: Throwable) {
             cloudRecoveryDeletionInProgress = false
             cloudRecoveryMessage =
-                "Could not remove your encrypted Google Drive recovery backup. " +
+                "Could not remove your encrypted recovery backup. " +
                     "Your Impulsive account has not been deleted yet. Check your " +
                     "connection and try again."
         }
@@ -697,22 +704,22 @@ fun SettingsScreen(
                                 result
                             ) {
                                 CloudRecoverySetupResult.Success ->
-                                    "Backed up successfully. Your encrypted recovery copy is now in Google Drive."
+                                    "Backed up successfully. Your encrypted recovery copy is ready to restore."
 
                                 CloudRecoverySetupResult.NotSignedIn ->
-                                    "Sign in to a non-guest account to use Google Drive recovery backup."
+                                    "Sign in to a non-guest account to use cloud recovery backup."
 
                                 CloudRecoverySetupResult.GuestNotSupported ->
-                                    "Google Drive recovery backup is not available for guest accounts."
+                                    "Cloud recovery backup is not available for guest accounts."
 
                                 CloudRecoverySetupResult.PasswordTooShort ->
                                     "Choose a recovery password with at least 10 characters."
 
                                 is CloudRecoverySetupResult.InitialUploadFailed ->
-                                    "Recovery setup was created, but the Google Drive backup did not finish. Keep Impulsive installed, check your connection, and try again."
+                                    "Recovery setup was created, but the encrypted recovery backup did not finish. Keep Impulsive installed, check your connection, and try again."
 
                                 CloudRecoverySetupResult.UnexpectedFailure ->
-                                    "Google Drive recovery backup could not be fully enabled. Please try again."
+                                    "Cloud recovery backup could not be fully enabled. Please try again."
                             }
                     } catch (
                         cancellation:
@@ -724,7 +731,7 @@ fun SettingsScreen(
                             Throwable,
                     ) {
                         cloudRecoveryMessage =
-                            "Google Drive recovery backup could not be fully enabled. Please try again."
+                            "Cloud recovery backup could not be fully enabled. Please try again."
                     } finally {
                         cloudRecoverySetupInProgress =
                             false
@@ -737,7 +744,7 @@ fun SettingsScreen(
     cloudRecoveryMessage?.let { message ->
         AlertDialog(
             onDismissRequest = { cloudRecoveryMessage = null },
-            title = { Text("Google Drive recovery backup") },
+            title = { Text("Cloud recovery backup") },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { cloudRecoveryMessage = null }) { Text("OK") }
@@ -888,7 +895,7 @@ fun SettingsScreen(
                                     Throwable,
                             ) {
                                 cloudRecoveryMessage =
-                                    "Google Drive recovery backup could not be turned off. Please try again."
+                                    "Cloud recovery backup could not be turned off. Please try again."
                             } finally {
                                 cloudRecoverySetupInProgress =
                                     false
@@ -965,11 +972,11 @@ fun SettingsScreen(
                             }
 
                             CloudRecoveryAccountEligibility.NotSignedIn -> {
-                                cloudRecoveryMessage = "Sign in to a non-guest account to use Google Drive recovery backup."
+                                cloudRecoveryMessage = "Sign in to a non-guest account to use cloud recovery backup."
                             }
 
                             CloudRecoveryAccountEligibility.GuestNotSupported -> {
-                                cloudRecoveryMessage = "Google Drive recovery backup is not available for guest accounts."
+                                cloudRecoveryMessage = "Cloud recovery backup is not available for guest accounts."
                             }
                         }
                     }
@@ -2068,7 +2075,7 @@ private fun PrivacyAccountGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Google Drive recovery backup",
+            title = "Cloud recovery backup",
             subtext = cloudRecoveryBackupUiModel.subtext,
             value = cloudRecoveryBackupUiModel.value,
             trailing = {
@@ -2087,7 +2094,7 @@ private fun PrivacyAccountGroup(
             SettingsDivider()
             SettingsRow(
                 title = "Back up now",
-                subtext = "Update your encrypted Google Drive recovery copy.",
+                subtext = "Update your encrypted recovery copy.",
                 onClick = onCloudRecoveryBackupNow,
             )
         }
@@ -3291,7 +3298,7 @@ private fun CloudRecoveryPasswordDialog(
         title = { Text("Create a recovery password") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("This password protects your encrypted Google Drive recovery backup. Impulsive never stores it.")
+                Text("This password protects your encrypted recovery copy. It cannot be reset. If you lose it, nobody, including Impulsive, can recover your backup.")
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
@@ -3306,7 +3313,7 @@ private fun CloudRecoveryPasswordDialog(
                     label = { Text("Confirm recovery password") },
                     visualTransformation = PasswordVisualTransformation(),
                 )
-                Text("Use at least 10 characters. Do not lose this password.")
+                Text("Use at least 10 characters.")
             }
         },
         confirmButton = {
