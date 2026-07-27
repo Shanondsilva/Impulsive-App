@@ -5,15 +5,25 @@ import java.util.Locale
 sealed interface InterruptionNotificationDecision {
     data class Post(
         val message: String,
+        val stage: InterruptionNotificationStage,
     ) : InterruptionNotificationDecision
 
     data object Suppress : InterruptionNotificationDecision
 }
 
+enum class InterruptionNotificationStage(
+    internal val elapsedThresholdMillis: Long,
+) {
+    Initial(0L),
+    TwentySeconds(20_000L),
+    FortySeconds(40_000L),
+}
+
 object InterruptionNotificationLimiter {
     private data class Encounter(
         val message: String,
-        var fallbackNotificationClaimed: Boolean,
+        val startedAtMillis: Long,
+        var lastSubmittedStage: InterruptionNotificationStage?,
         var lastSeenAtMillis: Long,
     )
 
@@ -23,11 +33,13 @@ object InterruptionNotificationLimiter {
     fun messageForApp(
         packageName: String,
         nowMillis: Long,
+        incidentStartedAtMillis: Long? = null,
         selectMessage: () -> String,
     ): String = synchronized(lock) {
         messageFor(
             key = appKey(packageName),
             nowMillis = nowMillis,
+            incidentStartedAtMillis = incidentStartedAtMillis,
             resetAfterMillis = null,
             selectMessage = selectMessage,
         )
@@ -41,6 +53,7 @@ object InterruptionNotificationLimiter {
         messageFor(
             key = domainKey(matchedDomain),
             nowMillis = nowMillis,
+            incidentStartedAtMillis = null,
             resetAfterMillis = DomainEncounterResetMillis,
             selectMessage = selectMessage,
         )
@@ -54,6 +67,7 @@ object InterruptionNotificationLimiter {
             key = appKey(packageName),
             nowMillis = nowMillis,
             resetAfterMillis = null,
+            stages = AppNotificationStages,
         )
     }
 
@@ -65,6 +79,7 @@ object InterruptionNotificationLimiter {
             key = domainKey(matchedDomain),
             nowMillis = nowMillis,
             resetAfterMillis = DomainEncounterResetMillis,
+            stages = DomainNotificationStages,
         )
     }
 
@@ -94,6 +109,7 @@ object InterruptionNotificationLimiter {
     private fun messageFor(
         key: String,
         nowMillis: Long,
+        incidentStartedAtMillis: Long?,
         resetAfterMillis: Long?,
         selectMessage: () -> String,
     ): String {
@@ -102,11 +118,16 @@ object InterruptionNotificationLimiter {
             current != null &&
                 resetAfterMillis != null &&
                 nowMillis - current.lastSeenAtMillis >= resetAfterMillis
+        val replaced =
+            current != null &&
+                incidentStartedAtMillis != null &&
+                current.startedAtMillis != incidentStartedAtMillis
 
-        if (current == null || expired) {
+        if (current == null || expired || replaced) {
             return Encounter(
                 message = selectMessage(),
-                fallbackNotificationClaimed = false,
+                startedAtMillis = incidentStartedAtMillis ?: nowMillis,
+                lastSubmittedStage = null,
                 lastSeenAtMillis = nowMillis,
             ).also { encounter ->
                 encounters[key] = encounter
@@ -121,6 +142,7 @@ object InterruptionNotificationLimiter {
         key: String,
         nowMillis: Long,
         resetAfterMillis: Long?,
+        stages: List<InterruptionNotificationStage>,
     ): InterruptionNotificationDecision {
         val encounter = encounters[key]
             ?: return InterruptionNotificationDecision.Suppress
@@ -135,14 +157,25 @@ object InterruptionNotificationLimiter {
 
         encounter.lastSeenAtMillis = nowMillis
 
-        if (encounter.fallbackNotificationClaimed) {
+        val elapsedMillis =
+            (nowMillis - encounter.startedAtMillis).coerceAtLeast(0L)
+        val stage =
+            stages.lastOrNull { candidate ->
+                elapsedMillis >= candidate.elapsedThresholdMillis
+            } ?: return InterruptionNotificationDecision.Suppress
+
+        if (
+            encounter.lastSubmittedStage != null &&
+            encounter.lastSubmittedStage!!.ordinal >= stage.ordinal
+        ) {
             return InterruptionNotificationDecision.Suppress
         }
 
-        encounter.fallbackNotificationClaimed = true
+        encounter.lastSubmittedStage = stage
 
         return InterruptionNotificationDecision.Post(
             encounter.message,
+            stage,
         )
     }
 
@@ -158,4 +191,14 @@ object InterruptionNotificationLimiter {
     private const val AppPrefix = "app:"
     private const val DomainPrefix = "domain:"
     private const val DomainEncounterResetMillis = 60_000L
+    private val AppNotificationStages =
+        listOf(
+            InterruptionNotificationStage.Initial,
+            InterruptionNotificationStage.TwentySeconds,
+            InterruptionNotificationStage.FortySeconds,
+        )
+    private val DomainNotificationStages =
+        listOf(
+            InterruptionNotificationStage.Initial,
+        )
 }

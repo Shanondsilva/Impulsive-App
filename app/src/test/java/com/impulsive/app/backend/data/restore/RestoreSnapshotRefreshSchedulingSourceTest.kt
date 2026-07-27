@@ -57,7 +57,7 @@ class RestoreSnapshotRefreshSchedulingSourceTest {
         assertOrdered(
             deleteAllData,
             "RestoreSnapshotRefreshScheduler.cancelAndAwait(context)",
-            "AppDatabase.getInstance(context).clearAllTables()",
+            "database.clearAllTables()",
         )
         assertOrdered(
             deleteAllData,
@@ -71,7 +71,7 @@ class RestoreSnapshotRefreshSchedulingSourceTest {
         )
         assertOrdered(
             deleteAllData,
-            "AppDatabase.getInstance(context).clearAllTables()",
+            "database.clearAllTables()",
             "BackupManager(context.applicationContext).dataChanged()",
         )
         assertOrdered(

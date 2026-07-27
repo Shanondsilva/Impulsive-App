@@ -57,8 +57,8 @@
     <string name="notif_blocked_attempt_body_8">Give %1$s thirty seconds of second-thought. Future-you might thank you.</string>
     <string name="notif_block_fullscreen_title">Pause before %1$s</string>
     <string name="notif_block_fullscreen_body">Tap to take a moment with Impulsive.</string>
-    <string name="notif_action_game">Game</string>
-    <string name="notif_action_reading">Reading</string>
+    <string name="notif_action_game">Quick game</string>
+    <string name="notif_action_reading">Reset reading</string>
     <string name="notif_protection_recovery_title">Protection needs attention</string>
     <string name="notif_protection_recovery_body">Open Impulsive to restore protection.</string>
 

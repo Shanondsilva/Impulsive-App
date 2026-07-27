@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
+import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
+import com.impulsive.app.backend.data.restore.cloud.requireValidCloudRecoveryOnboardingAnswers
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.release.plannedWindowsForDate
 import com.impulsive.app.backend.domain.model.release.toMinuteOfDay
@@ -123,20 +125,74 @@ class OnboardingPreferencesDataSource(
         accountUid: String?,
         googleSubjectHash: String? = null,
     ) {
+        val normalizedUid =
+            accountUid
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+
+        val normalizedGoogleSubjectHash =
+            googleSubjectHash
+                ?.takeIf(::isValidGoogleSubjectHash)
+
         dataStore.edit { preferences ->
             preferences[OnboardingCompletedKey] = isCompleted
 
-            if (isCompleted && !accountUid.isNullOrBlank()) {
-                preferences[OnboardingCompletedAccountUidKey] = accountUid
-                if (googleSubjectHash.isNullOrBlank()) {
-                    preferences.remove(OnboardingCompletedGoogleSubjectHashKey)
+            if (isCompleted && normalizedUid != null) {
+                preferences[OnboardingCompletedAccountUidKey] =
+                    normalizedUid
+
+                if (normalizedGoogleSubjectHash != null) {
+                    preferences[OnboardingCompletedGoogleSubjectHashKey] =
+                        normalizedGoogleSubjectHash
                 } else {
-                    preferences[OnboardingCompletedGoogleSubjectHashKey] = googleSubjectHash
+                    preferences.remove(
+                        OnboardingCompletedGoogleSubjectHashKey,
+                    )
                 }
-            } else if (!isCompleted) {
-                preferences.remove(OnboardingCompletedAccountUidKey)
-                preferences.remove(OnboardingCompletedGoogleSubjectHashKey)
+            } else {
+                preferences.remove(
+                    OnboardingCompletedAccountUidKey,
+                )
+                preferences.remove(
+                    OnboardingCompletedGoogleSubjectHashKey,
+                )
             }
+        }
+    }
+
+    internal suspend fun restoreCompletedSnapshotForAccount(
+        answers: OnboardingAnswers,
+        accountUid: String,
+        googleSubjectHash: String?,
+    ) {
+        requireValidCloudRecoveryOnboardingAnswers(answers)
+        val normalizedUid = accountUid.trim()
+        require(normalizedUid.isNotBlank() && normalizedUid.length <= 128) {
+            "Verified Firebase UID is invalid for onboarding restore."
+        }
+        val normalizedGoogleSubjectHash =
+            googleSubjectHash?.takeIf(::isValidGoogleSubjectHash)
+
+        dataStore.edit { preferences ->
+            preferences[NameKey] = answers.name
+            preferences[AvatarIdKey] = answers.avatarId
+            preferences.putOrRemove(InterruptingKey, answers.interrupting.toStoredValue())
+            preferences.putOrRemove(TimingKey, answers.timing.toStoredValue())
+            preferences.putOrRemove(TriggersKey, answers.triggers.toStoredValue())
+            preferences.putOrRemove(WeekOneGoalKey, answers.weekOneGoal)
+            preferences[DailyRelapseUrgeCountKey] = answers.dailyRelapseUrgeCount
+            preferences[ActiveDayStartMinuteKey] = answers.activeDayStartMinute
+            preferences[ActiveDayEndMinuteKey] = answers.activeDayEndMinute
+            preferences.putOrRemove(
+                PlannedReleaseWindowMinutesKey,
+                answers.plannedReleaseWindowMinutes.joinToString(StoredListSeparator),
+            )
+            preferences[OnboardingCompletedKey] = true
+            preferences[OnboardingCompletedAccountUidKey] = normalizedUid
+            preferences.putOrRemove(
+                OnboardingCompletedGoogleSubjectHashKey,
+                normalizedGoogleSubjectHash,
+            )
         }
     }
 
@@ -152,6 +208,17 @@ class OnboardingPreferencesDataSource(
     }
 
     private fun List<String>.toStoredValue(): String = joinToString(StoredListSeparator)
+
+    private fun androidx.datastore.preferences.core.MutablePreferences.putOrRemove(
+        key: androidx.datastore.preferences.core.Preferences.Key<String>,
+        value: String?,
+    ) {
+        if (value.isNullOrEmpty()) {
+            remove(key)
+        } else {
+            this[key] = value
+        }
+    }
 
     private fun String?.toMinuteList(): List<Int> {
         if (isNullOrBlank()) return emptyList()

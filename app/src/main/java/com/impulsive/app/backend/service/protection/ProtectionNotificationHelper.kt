@@ -45,6 +45,11 @@ sealed interface InterruptionNotificationResult {
     ) : InterruptionNotificationResult
 }
 
+internal const val InterruptionFallbackNotificationTitle =
+    "Pause before you continue"
+internal const val InterruptionFallbackNotificationBody =
+    "A protected app is open. Choose one quick reset before continuing."
+
 class ProtectionNotificationHelper(
     context: Context,
 ) {
@@ -321,9 +326,11 @@ class ProtectionNotificationHelper(
     fun showInterruptionFallback(
         sourcePackageName: String,
         sourceLabel: String,
-        message: String,
         hideSensitive: Boolean = false,
         isFocusSession: Boolean = false,
+        incidentStartedAtMillis: Long = System.currentTimeMillis(),
+        isWebsiteIncident: Boolean = false,
+        stage: InterruptionNotificationStage = InterruptionNotificationStage.Initial,
     ): InterruptionNotificationResult {
         ensureChannels()
         val status = interruptionNotificationStatus()
@@ -338,6 +345,10 @@ class ProtectionNotificationHelper(
                     .createHomeIntent(context)
                     .apply {
                         action = ActionOpenInterruptionHome
+                        putExtra(
+                            AppMonitorService.ExtraFallbackIncidentPackageName,
+                            sourcePackageName,
+                        )
                     },
                 PendingIntent.FLAG_UPDATE_CURRENT or
                     PendingIntent.FLAG_IMMUTABLE,
@@ -379,30 +390,101 @@ class ProtectionNotificationHelper(
                 PendingIntent.FLAG_UPDATE_CURRENT or
                     PendingIntent.FLAG_IMMUTABLE,
             )
-            val notification = NotificationCompat.Builder(context, BlockedAttemptChannelId)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Impulsive")
-                .setContentText(message)
-                .setContentIntent(homePendingIntent)
-                .setAutoCancel(true)
-                .setVisibility(if (hideSensitive) NotificationCompat.VISIBILITY_SECRET else NotificationCompat.VISIBILITY_PRIVATE)
-                .setCategory(NotificationCompat.CATEGORY_REMINDER)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .addAction(
-                    R.drawable.ic_notification,
-                    context.getString(R.string.notif_action_game),
-                    gamePendingIntent,
+            val deletePendingIntent = PendingIntent.getService(
+                context,
+                InterruptionDismissedRequestCode,
+                Intent(context, AppMonitorService::class.java).apply {
+                    action = AppMonitorService.ActionFallbackNotificationDismissed
+                    putExtra(
+                        AppMonitorService.ExtraFallbackIncidentPackageName,
+                        sourcePackageName,
+                    )
+                    putExtra(
+                        AppMonitorService.ExtraFallbackIncidentStartedAtMillis,
+                        incidentStartedAtMillis,
+                    )
+                    putExtra(
+                        AppMonitorService.ExtraFallbackIncidentIsWebsite,
+                        isWebsiteIncident,
+                    )
+                    putExtra(
+                        AppMonitorService.ExtraFallbackIncidentIsFocus,
+                        isFocusSession,
+                    )
+                    putExtra(
+                        AppMonitorService.ExtraFallbackNotificationStage,
+                        stage.name,
+                    )
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE,
+            )
+            val displayedTitle =
+                if (hideSensitive) {
+                    "Impulsive"
+                } else {
+                    InterruptionFallbackNotificationTitle
+                }
+
+            val displayedBody =
+                if (hideSensitive) {
+                    "Open Impulsive to continue."
+                } else {
+                    InterruptionFallbackNotificationBody
+                }
+
+            val notification =
+                NotificationCompat.Builder(
+                    context,
+                    BlockedAttemptChannelId,
                 )
-                .addAction(
-                    R.drawable.ic_notification,
-                    context.getString(R.string.notif_action_reading),
-                    readingPendingIntent,
-                )
-                .build()
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setColor(
+                        ContextCompat.getColor(
+                            context,
+                            R.color.protection_notification_accent,
+                        ),
+                    )
+                    .setContentTitle(displayedTitle)
+                    .setContentText(displayedBody)
+                    .setStyle(
+                        NotificationCompat.BigTextStyle()
+                            .setBigContentTitle(displayedTitle)
+                            .bigText(displayedBody),
+                    )
+                    .setContentIntent(homePendingIntent)
+                    .setDeleteIntent(deletePendingIntent)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(
+                        if (hideSensitive) {
+                            NotificationCompat.VISIBILITY_SECRET
+                        } else {
+                            NotificationCompat.VISIBILITY_PRIVATE
+                        },
+                    )
+                    .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .addAction(
+                        R.drawable.ic_notification,
+                        context.getString(
+                            R.string.notif_action_game,
+                        ),
+                        gamePendingIntent,
+                    )
+                    .addAction(
+                        R.drawable.ic_notification,
+                        context.getString(
+                            R.string.notif_action_reading,
+                        ),
+                        readingPendingIntent,
+                    )
+                    .build()
             when (
                 submitStandardNotification(
                     BlockedAttemptNotificationId,
                     notification,
+                    eligibleDuringSkippedState = false,
                 )
             ) {
                 ProtectionNotificationSubmission.Posted ->
@@ -797,8 +879,9 @@ class ProtectionNotificationHelper(
         private const val InterruptionHomeRequestCode = 4220
         private const val InterruptionGameRequestCode = 4221
         private const val InterruptionReadingRequestCode = 4222
+        private const val InterruptionDismissedRequestCode = 4223
 
-        private const val ActionOpenInterruptionHome =
+        internal const val ActionOpenInterruptionHome =
             "com.impulsive.app.action.OPEN_INTERRUPTION_HOME"
 
         private const val ActionOpenInterruptionGame =

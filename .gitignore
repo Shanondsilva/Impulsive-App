@@ -60,3 +60,6 @@ Thumbs.db
 *.dex
 *.class
 *.log
+notification-current-source/
+version*-build-logs/
+version*-clean-*.txt

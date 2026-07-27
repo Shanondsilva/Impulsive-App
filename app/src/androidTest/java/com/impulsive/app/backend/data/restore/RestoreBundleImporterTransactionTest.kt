@@ -8,6 +8,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.entity.BlockedDomainEntity
+import com.impulsive.app.backend.data.local.entity.CloudRestoreProofType
+import com.impulsive.app.backend.data.local.entity.CloudRestoreReceiptEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import kotlinx.coroutines.runBlocking
@@ -16,6 +18,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -698,9 +701,34 @@ class RestoreBundleImporterTransactionTest {
         }
 
     @Test
-    fun importIfNeeded_whenAutomaticBundleOwnerMatches_restoresAndDeletesBundle() =
+    fun importIfNeeded_whenVersionThreeAutomaticBundleOwnerMatches_restoresAndDeletesBundle() =
         runBlocking {
             writeAutomaticBundle(
+                ownerUid = "user-a",
+                ownerGoogleSubjectHash = ValidGoogleSubjectHash,
+                payloadJson = emptyPayloadJson(),
+            )
+            val importer = RestoreBundleImporter(
+                context,
+                database,
+            )
+
+            val result = importer.importIfNeeded(
+                ownerProof = AutoRestoreOwnerProof.ExactUid(
+                    currentUid = "user-a",
+                ),
+            )
+
+            assertEquals(AutoRestoreResult.Restored, result)
+            assertFalse(restoreBundleFile().exists())
+            assertDatabaseEmpty()
+        }
+
+    @Test
+    fun importIfNeeded_whenVersionTwoAutomaticBundleOwnerMatches_restoresAndDeletesBundle() =
+        runBlocking {
+            writeAutomaticBundle(
+                formatVersion = 2,
                 ownerUid = "user-a",
                 payloadJson = emptyPayloadJson(),
             )
@@ -710,7 +738,9 @@ class RestoreBundleImporterTransactionTest {
             )
 
             val result = importer.importIfNeeded(
-                expectedOwnerUid = "user-a",
+                ownerProof = AutoRestoreOwnerProof.ExactUid(
+                    currentUid = "user-a",
+                ),
             )
 
             assertEquals(AutoRestoreResult.Restored, result)
@@ -723,6 +753,7 @@ class RestoreBundleImporterTransactionTest {
         runBlocking {
             writeAutomaticBundle(
                 ownerUid = "user-a",
+                ownerGoogleSubjectHash = ValidGoogleSubjectHash,
                 payloadJson = payloadWithOneRecoverySessionJson(),
             )
             val importer = RestoreBundleImporter(
@@ -731,7 +762,9 @@ class RestoreBundleImporterTransactionTest {
             )
 
             val result = importer.importIfNeeded(
-                expectedOwnerUid = "user-b",
+                ownerProof = AutoRestoreOwnerProof.ExactUid(
+                    currentUid = "user-b",
+                ),
             )
 
             assertEquals(AutoRestoreResult.OwnerMismatch, result)
@@ -751,10 +784,112 @@ class RestoreBundleImporterTransactionTest {
             )
 
             val result = importer.importIfNeeded(
-                expectedOwnerUid = "user-a",
+                ownerProof = AutoRestoreOwnerProof.ExactUid(
+                    currentUid = "user-a",
+                ),
             )
 
             assertEquals(AutoRestoreResult.LegacyUnownedBundle, result)
+            assertTrue(restoreBundleFile().exists())
+            assertDatabaseEmpty()
+        }
+
+    @Test
+    fun importIfNeeded_whenVersionThreeGoogleHashMatchesConfirmedProof_restores() =
+        runBlocking {
+            writeAutomaticBundle(
+                ownerUid = "old-user",
+                ownerGoogleSubjectHash = ValidGoogleSubjectHash,
+                payloadJson = emptyPayloadJson(),
+            )
+            val importer = RestoreBundleImporter(
+                context,
+                database,
+            )
+
+            val result = importer.importIfNeeded(
+                ownerProof = AutoRestoreOwnerProof.ConfirmedSameGoogleIdentity(
+                    currentUid = "new-user",
+                    currentGoogleSubjectHash = ValidGoogleSubjectHash,
+                ),
+            )
+
+            assertEquals(AutoRestoreResult.Restored, result)
+            assertFalse(restoreBundleFile().exists())
+            assertDatabaseEmpty()
+        }
+
+    @Test
+    fun importIfNeeded_whenVersionThreeGoogleHashDiffersFromConfirmedProof_preservesBundle() =
+        runBlocking {
+            writeAutomaticBundle(
+                ownerUid = "old-user",
+                ownerGoogleSubjectHash = OtherValidGoogleSubjectHash,
+                payloadJson = payloadWithOneRecoverySessionJson(),
+            )
+            val importer = RestoreBundleImporter(
+                context,
+                database,
+            )
+
+            val result = importer.importIfNeeded(
+                ownerProof = AutoRestoreOwnerProof.ConfirmedSameGoogleIdentity(
+                    currentUid = "new-user",
+                    currentGoogleSubjectHash = ValidGoogleSubjectHash,
+                ),
+            )
+
+            assertEquals(AutoRestoreResult.OwnerMismatch, result)
+            assertTrue(restoreBundleFile().exists())
+            assertDatabaseEmpty()
+        }
+
+    @Test
+    fun importIfNeeded_whenVersionTwoBundleUsesSameGoogleProofRequiresLegacyVerification() =
+        runBlocking {
+            writeAutomaticBundle(
+                formatVersion = 2,
+                ownerUid = "old-user",
+                payloadJson = payloadWithOneRecoverySessionJson(),
+            )
+            val importer = RestoreBundleImporter(
+                context,
+                database,
+            )
+
+            val result = importer.importIfNeeded(
+                ownerProof = AutoRestoreOwnerProof.ConfirmedSameGoogleIdentity(
+                    currentUid = "new-user",
+                    currentGoogleSubjectHash = ValidGoogleSubjectHash,
+                ),
+            )
+
+            assertEquals(AutoRestoreResult.LegacyOwnerVerificationRequired, result)
+            assertTrue(restoreBundleFile().exists())
+            assertDatabaseEmpty()
+        }
+
+    @Test
+    fun importIfNeeded_whenVersionThreeBundleHasNullGoogleHashRequiresLegacyVerification() =
+        runBlocking {
+            writeAutomaticBundle(
+                ownerUid = "old-user",
+                ownerGoogleSubjectHash = null,
+                payloadJson = payloadWithOneRecoverySessionJson(),
+            )
+            val importer = RestoreBundleImporter(
+                context,
+                database,
+            )
+
+            val result = importer.importIfNeeded(
+                ownerProof = AutoRestoreOwnerProof.ConfirmedSameGoogleIdentity(
+                    currentUid = "new-user",
+                    currentGoogleSubjectHash = ValidGoogleSubjectHash,
+                ),
+            )
+
+            assertEquals(AutoRestoreResult.LegacyOwnerVerificationRequired, result)
             assertTrue(restoreBundleFile().exists())
             assertDatabaseEmpty()
         }
@@ -764,6 +899,7 @@ class RestoreBundleImporterTransactionTest {
         runBlocking {
             writeAutomaticBundle(
                 ownerUid = "user-a",
+                ownerGoogleSubjectHash = ValidGoogleSubjectHash,
                 payloadJson = payloadWithOneRecoverySessionJson(),
                 checksumOverride = "0".repeat(64),
             )
@@ -773,7 +909,9 @@ class RestoreBundleImporterTransactionTest {
             )
 
             val result = importer.importIfNeeded(
-                expectedOwnerUid = "user-a",
+                ownerProof = AutoRestoreOwnerProof.ExactUid(
+                    currentUid = "user-a",
+                ),
             )
 
             assertEquals(AutoRestoreResult.InvalidBundle, result)
@@ -784,10 +922,26 @@ class RestoreBundleImporterTransactionTest {
     private fun writeAutomaticBundle(
         ownerUid: String,
         payloadJson: String,
+        ownerGoogleSubjectHash: String? = null,
+        formatVersion: Int = RestoreBundleWriter.AutoBundleFormatVersion,
         checksumOverride: String? = null,
     ) {
+        val checksumMaterial = when (formatVersion) {
+            2 -> RestoreBundleWriter.automaticBundleChecksumMaterialV2(
+                ownerUid = ownerUid,
+                payloadJson = payloadJson,
+            )
+
+            3 -> RestoreBundleWriter.automaticBundleChecksumMaterialV3(
+                ownerUid = ownerUid,
+                ownerGoogleSubjectHash = ownerGoogleSubjectHash,
+                payloadJson = payloadJson,
+            )
+
+            else -> error("Unsupported test bundle format")
+        }
         val bundle = JSONObject()
-            .put("autoBundleFormatVersion", RestoreBundleWriter.AutoBundleFormatVersion)
+            .put("autoBundleFormatVersion", formatVersion)
             .put("ownerUid", ownerUid)
             .put("schemaVersion", RestoreBundleWriter.SchemaVersion)
             .put("createdAtMillis", 1_700_000_000_000L)
@@ -795,12 +949,15 @@ class RestoreBundleImporterTransactionTest {
             .put(
                 "checksumSha256",
                 checksumOverride ?: RestoreBundleWriter.sha256Hex(
-                    RestoreBundleWriter.automaticBundleChecksumMaterial(
-                        ownerUid = ownerUid,
-                        payloadJson = payloadJson,
-                    ),
+                    checksumMaterial,
                 ),
             )
+        if (formatVersion == 3) {
+            bundle.put(
+                "ownerGoogleSubjectHash",
+                ownerGoogleSubjectHash ?: JSONObject.NULL,
+            )
+        }
         writeRestoreBundle(bundle)
     }
 
@@ -929,6 +1086,171 @@ class RestoreBundleImporterTransactionTest {
                 check(cursor.moveToFirst())
                 cursor.getInt(0)
             }
+
+    @Test
+    fun cloudReceiptCommitsWithSuccessfulImport() = runBlocking {
+        val receipt = cloudReceipt()
+
+        val result =
+            RestoreBundleImporter(context, database).importPayload(
+                parsed = validPayload(),
+                cloudRestoreReceipt = receipt,
+            )
+
+        assertEquals(
+            RestoreBundleImporter.ImportOutcome.Success,
+            result,
+        )
+        assertEquals(
+            receipt,
+            database.cloudRestoreReceiptDao().find(receipt.receiptId),
+        )
+    }
+
+    @Test
+    fun receiptInsertionFailureRollsBackAllRestoredInserts() = runBlocking {
+        val receipt = cloudReceipt()
+        database.cloudRestoreReceiptDao().insert(receipt)
+
+        val error =
+            runCatching {
+                RestoreBundleImporter(context, database).importPayload(
+                    parsed = validPayload(),
+                    cloudRestoreReceipt = receipt,
+                )
+            }.exceptionOrNull()
+
+        assertTrue(error is SQLiteConstraintException)
+        assertTrue(
+            database.journalNoteDao()
+                .getAllNotesForSync()
+                .isEmpty(),
+        )
+        assertEquals(0, checklistItemCount())
+        assertTrue(
+            database.recoverySessionDao()
+                .getAllSessions()
+                .isEmpty(),
+        )
+        assertTrue(database.blockedDomainDao().getAll().isEmpty())
+        assertEquals(
+            receipt,
+            database.cloudRestoreReceiptDao().latest(),
+        )
+    }
+
+    @Test
+    fun invalidImportCreatesNoCloudReceipt() = runBlocking {
+        val malformed =
+            JSONObject()
+                .put("journalNotes", "not-an-array")
+                .put("checklistItems", JSONArray())
+                .put("recoverySessions", JSONArray())
+                .put("blockedDomains", JSONArray())
+
+        val error =
+            runCatching {
+                RestoreBundleImporter(context, database).importPayload(
+                    parsed = malformed,
+                    cloudRestoreReceipt = cloudReceipt(),
+                )
+            }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertNull(database.cloudRestoreReceiptDao().latest())
+    }
+
+    @Test
+    fun existingDataRejectionCreatesNoCloudReceipt() = runBlocking {
+        database.journalNoteDao().insert(
+            JournalNoteEntity(
+                noteType = "TEXT",
+                title = "Existing note",
+                source = "normal_journal",
+                createdAtMillis = 1L,
+                updatedAtMillis = 1L,
+            ),
+        )
+
+        val result =
+            RestoreBundleImporter(context, database).importPayload(
+                parsed = validPayload(),
+                cloudRestoreReceipt = cloudReceipt(),
+            )
+
+        assertEquals(
+            RestoreBundleImporter.ImportOutcome.ExistingDataPresent,
+            result,
+        )
+        assertNull(database.cloudRestoreReceiptDao().latest())
+    }
+
+    @Test
+    fun nonCloudImportsCreateNoCloudReceipt() = runBlocking {
+        val result =
+            RestoreBundleImporter(context, database).importPayload(
+                parsed = validPayload(),
+            )
+
+        assertEquals(
+            RestoreBundleImporter.ImportOutcome.Success,
+            result,
+        )
+        assertNull(database.cloudRestoreReceiptDao().latest())
+    }
+
+    @Test
+    fun receiptFieldsExactlyMatchAuthorizedProofAndPayloadHash() =
+        runBlocking {
+            val receipt =
+                cloudReceipt().copy(
+                    proofType =
+                        CloudRestoreProofType
+                            .SameGoogleIdentity
+                            .persistedValue,
+                    previousUid = "previous-user",
+                    previousGoogleSubjectHash =
+                        ValidGoogleSubjectHash,
+                    currentGoogleSubjectHash =
+                        ValidGoogleSubjectHash,
+                )
+
+            RestoreBundleImporter(context, database).importPayload(
+                parsed = validPayload(),
+                cloudRestoreReceipt = receipt,
+            )
+
+            assertEquals(
+                receipt,
+                database.cloudRestoreReceiptDao()
+                    .find(receipt.receiptId),
+            )
+        }
+
+    @Test
+    fun clearAllTablesRemovesCloudRestoreReceipts() = runBlocking {
+        database.cloudRestoreReceiptDao().insert(cloudReceipt())
+
+        database.clearAllTables()
+
+        assertNull(database.cloudRestoreReceiptDao().latest())
+    }
+
+    private fun cloudReceipt() =
+        CloudRestoreReceiptEntity(
+            receiptId =
+                "123e4567-e89b-12d3-a456-426614174000",
+            payloadSha256 =
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            proofType =
+                CloudRestoreProofType.ExactUid.persistedValue,
+            previousUid = null,
+            previousGoogleSubjectHash = null,
+            currentUid = "current-user",
+            currentGoogleSubjectHash =
+                ValidGoogleSubjectHash,
+            importedAtMillis = 123L,
+        )
 
 @Test
 fun replacementPreservesFeedbackNoteAndItsChecklistItems() =
@@ -1093,5 +1415,9 @@ fun replacementPreservesFeedbackNoteAndItsChecklistItems() =
     private companion object {
         const val RollbackDomain = "rollback-test.example"
         const val MaxManualEnvelopeBytesForTest = 12 * 1024 * 1024
+        const val ValidGoogleSubjectHash =
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        const val OtherValidGoogleSubjectHash =
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     }
 }

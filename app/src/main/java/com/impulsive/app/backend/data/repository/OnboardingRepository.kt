@@ -3,6 +3,7 @@ package com.impulsive.app.backend.data.repository
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.impulsive.app.backend.data.account.resolveGoogleAccountIdentity
+import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
 import com.impulsive.app.backend.data.local.onboarding.OnboardingPreferencesDataSource
 import com.impulsive.app.backend.data.restore.AndroidRestoreProvenanceStore
 import com.impulsive.app.backend.data.remote.onboarding.FirebaseOnboardingAccountStateDataSource
@@ -93,10 +94,12 @@ class OnboardingRepository private constructor(
     suspend fun setCompletedForAccount(
         isCompleted: Boolean,
         accountUid: String?,
+        googleSubjectHash: String?,
     ) {
         delegate.setCompletedForAccount(
             isCompleted = isCompleted,
             accountUid = accountUid,
+            googleSubjectHash = googleSubjectHash,
         )
     }
 
@@ -152,6 +155,7 @@ internal interface OnboardingLocalStateDataSource {
     val answers: Flow<OnboardingAnswers>
     val isCompleted: Flow<Boolean>
     val completedAccountUid: Flow<String?>
+    val completedGoogleSubjectHash: Flow<String?>
 
     suspend fun setPersonalization(name: String, avatarId: String)
     suspend fun setInterrupting(selectedOptionIds: List<String>)
@@ -160,7 +164,11 @@ internal interface OnboardingLocalStateDataSource {
     suspend fun setWeekOneGoal(selectedOptionId: String?)
     suspend fun setDailyRelapseUrgeCount(count: Int)
     suspend fun setCompleted(isCompleted: Boolean)
-    suspend fun setCompletedForAccount(isCompleted: Boolean, accountUid: String?)
+    suspend fun setCompletedForAccount(
+        isCompleted: Boolean,
+        accountUid: String?,
+        googleSubjectHash: String?,
+    )
     suspend fun clear()
 }
 
@@ -203,8 +211,16 @@ private class OnboardingAccountRepositoryDelegate(
         localDataSource.setCompleted(isCompleted)
     }
 
-    suspend fun setCompletedForAccount(isCompleted: Boolean, accountUid: String?) {
-        localDataSource.setCompletedForAccount(isCompleted, accountUid)
+    suspend fun setCompletedForAccount(
+        isCompleted: Boolean,
+        accountUid: String?,
+        googleSubjectHash: String?,
+    ) {
+        localDataSource.setCompletedForAccount(
+            isCompleted = isCompleted,
+            accountUid = accountUid,
+            googleSubjectHash = googleSubjectHash,
+        )
     }
 
     suspend fun resolveAuthenticatedOnboarding(): AuthenticatedOnboardingResolution {
@@ -218,6 +234,10 @@ private class OnboardingAccountRepositoryDelegate(
         val uid = account.uid
         val localCompleted = isCompleted.first()
         val localOwnerUid = completedAccountUid.first()
+        val localGoogleSubjectHash =
+            localDataSource.completedGoogleSubjectHash.first()
+        val restorePending = restoreProvenance.isRestorePending()
+        val currentGoogleSubjectHash = account.googleSubjectHash?.takeIf(::isValidGoogleSubjectHash)
 
         if (localCompleted && localOwnerUid == uid) {
             remoteDataSource.markCompleted()
@@ -225,11 +245,25 @@ private class OnboardingAccountRepositoryDelegate(
         }
 
         if (localCompleted && localOwnerUid != null && localOwnerUid != uid) {
-            return AuthenticatedOnboardingResolution.AccountMismatch
+            if (!restorePending) return AuthenticatedOnboardingResolution.AccountMismatch
+            return when {
+                localGoogleSubjectHash != null &&
+                    isValidGoogleSubjectHash(localGoogleSubjectHash) &&
+                    currentGoogleSubjectHash != null &&
+                    localGoogleSubjectHash == currentGoogleSubjectHash ->
+                    AuthenticatedOnboardingResolution.RestoredSameGoogleIdentityNeedsConfirmation
+                localGoogleSubjectHash == null ->
+                    AuthenticatedOnboardingResolution.RestoredLegacyOwnershipNeedsDriveVerification
+                else -> AuthenticatedOnboardingResolution.AccountMismatch
+            }
         }
 
         if (localCompleted && localOwnerUid == null) {
-            return AuthenticatedOnboardingResolution.LegacyUnownedLocalData
+            return if (restorePending) {
+                AuthenticatedOnboardingResolution.RestoredLegacyOwnershipNeedsDriveVerification
+            } else {
+                AuthenticatedOnboardingResolution.LegacyUnownedLocalData
+            }
         }
 
         return when (val remote = remoteDataSource.getCompletion()) {
@@ -257,11 +291,11 @@ private class OnboardingAccountRepositoryDelegate(
 
         return when (val remote = remoteDataSource.markCompleted()) {
             RemoteOnboardingMarkResult.Completed -> {
-                (localDataSource as? OnboardingGoogleOwnerStateDataSource)?.setCompletedForAccount(
+                localDataSource.setCompletedForAccount(
                     isCompleted = true,
                     accountUid = account.uid,
                     googleSubjectHash = account.googleSubjectHash,
-                ) ?: localDataSource.setCompletedForAccount(true, account.uid)
+                )
                 onAuthenticatedOnboardingCompleted()
                 CompleteOnboardingResult.Completed
             }
@@ -295,7 +329,7 @@ private class OnboardingAccountRepositoryDelegate(
 
 private class PreferencesOnboardingLocalStateDataSource(
     private val dataSource: OnboardingPreferencesDataSource,
-) : OnboardingLocalStateDataSource, OnboardingGoogleOwnerStateDataSource {
+) : OnboardingLocalStateDataSource {
     override val answers: Flow<OnboardingAnswers> = dataSource.answers
     override val isCompleted: Flow<Boolean> = dataSource.isCompleted
     override val completedAccountUid: Flow<String?> = dataSource.completedAccountUid
@@ -329,12 +363,16 @@ private class PreferencesOnboardingLocalStateDataSource(
         dataSource.setCompleted(isCompleted)
     }
 
-    override suspend fun setCompletedForAccount(isCompleted: Boolean, accountUid: String?) {
-        dataSource.setCompletedForAccount(isCompleted, accountUid)
-    }
-
-    override suspend fun setCompletedForAccount(isCompleted: Boolean, accountUid: String?, googleSubjectHash: String?) {
-        dataSource.setCompletedForAccount(isCompleted, accountUid, googleSubjectHash)
+    override suspend fun setCompletedForAccount(
+        isCompleted: Boolean,
+        accountUid: String?,
+        googleSubjectHash: String?,
+    ) {
+        dataSource.setCompletedForAccount(
+            isCompleted = isCompleted,
+            accountUid = accountUid,
+            googleSubjectHash = googleSubjectHash,
+        )
     }
 
     override suspend fun clear() {
@@ -350,14 +388,11 @@ private class FirebaseOnboardingAccountProvider(
         return CurrentOnboardingAccount(
             uid = user.uid,
             isAnonymous = user.isAnonymous,
+            googleSubjectHash = resolveGoogleAccountIdentity(user)?.subjectHash,
         )
     }
 }
 
-internal interface OnboardingGoogleOwnerStateDataSource {
-    val completedGoogleSubjectHash: Flow<String?>
-    suspend fun setCompletedForAccount(isCompleted: Boolean, accountUid: String?, googleSubjectHash: String?)
-}
 
 internal fun interface RestoreProvenance {
     fun isRestorePending(): Boolean

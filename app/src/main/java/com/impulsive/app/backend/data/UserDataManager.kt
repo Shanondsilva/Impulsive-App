@@ -5,10 +5,13 @@ import android.content.Context
 import android.content.Intent
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.restore.RestoreBundleWriter
+import com.impulsive.app.backend.data.restore.AndroidRestoreProvenanceStore
+import com.impulsive.app.backend.data.restore.AndroidPendingRestoredOwnershipClaimStore
 import com.impulsive.app.backend.data.restore.RestoreSnapshotRefreshScheduler
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryLocalKeyStore
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryLocalMetadataStore
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryUploadScheduler
+import com.impulsive.app.backend.data.restore.cloud.AndroidPendingCloudRestoreAuthorizationStore
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +60,10 @@ class UserDataManager(
              * Never hide a Room failure. The operation must not report success
              * or restart after database deletion has failed.
              */
-            AppDatabase.getInstance(context).clearAllTables()
+            val database = AppDatabase.getInstance(context)
+            AndroidPendingCloudRestoreAuthorizationStore(context).clear()
+            database.cloudRestoreReceiptDao().clearAll()
+            database.clearAllTables()
 
             /*
              * DataStore objects can retain in-memory values. Remove their
@@ -109,6 +115,9 @@ class UserDataManager(
             LocalStateSharedPreferences.forEach { preferencesName ->
                 clearSharedPreferencesOrThrow(preferencesName)
             }
+
+            AndroidPendingRestoredOwnershipClaimStore(context).clear()
+            AndroidRestoreProvenanceStore(context).clearRestorePending()
 
             /*
              * Request replacement of the Android backup only after all local

@@ -33,7 +33,17 @@ class UserDataManagerRestoreDeletionPolicyTest {
 
         assertTrue(
             source.contains(
-                "AppDatabase.getInstance(context).clearAllTables()",
+                "database.clearAllTables()",
+            ),
+        )
+        assertTrue(
+            source.contains(
+                "AndroidPendingCloudRestoreAuthorizationStore(context).clear()",
+            ),
+        )
+        assertTrue(
+            source.contains(
+                "database.cloudRestoreReceiptDao().clearAll()",
             ),
         )
 
@@ -149,7 +159,15 @@ class UserDataManagerRestoreDeletionPolicyTest {
             )
         val roomClear =
             source.indexOf(
-                "AppDatabase.getInstance(context).clearAllTables()",
+                "database.clearAllTables()",
+            )
+        val authorizationClear =
+            source.indexOf(
+                "AndroidPendingCloudRestoreAuthorizationStore(context).clear()",
+            )
+        val receiptClear =
+            source.indexOf(
+                "database.cloudRestoreReceiptDao().clearAll()",
             )
         val dataStoreDelete =
             source.indexOf(
@@ -169,11 +187,16 @@ class UserDataManagerRestoreDeletionPolicyTest {
             )
 
         assertTrue(refreshCancellation >= 0)
+        assertTrue(authorizationClear > refreshCancellation)
+        assertTrue(receiptClear > authorizationClear)
+        assertTrue(roomClear > receiptClear)
         assertTrue(roomClear > refreshCancellation)
         assertTrue(dataStoreDelete > roomClear)
         assertTrue(restoreDelete > dataStoreDelete)
         assertTrue(preferencesClear > restoreDelete)
         assertTrue(backupChanged > preferencesClear)
+        assertTrue(backupChanged > authorizationClear)
+        assertTrue(backupChanged > receiptClear)
     }
 
     @Test

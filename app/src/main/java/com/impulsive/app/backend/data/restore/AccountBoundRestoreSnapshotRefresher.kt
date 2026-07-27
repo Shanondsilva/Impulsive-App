@@ -3,6 +3,9 @@ package com.impulsive.app.backend.data.restore
 import android.app.backup.BackupManager
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
+import com.impulsive.app.backend.data.account.resolveGoogleAccountIdentity
 import com.impulsive.app.backend.data.local.onboarding.OnboardingPreferencesDataSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -19,8 +22,12 @@ class AccountBoundRestoreSnapshotRefresher private constructor(
             ownerStateDataSource = PreferencesRestoreSnapshotOwnerStateDataSource(
                 OnboardingPreferencesDataSource(context.applicationContext),
             ),
-            writer = RestoreSnapshotWriter { ownerUid ->
-                RestoreBundleWriter(context.applicationContext).writeBundle(ownerUid = ownerUid)
+            writer = RestoreSnapshotWriter { ownerUid, ownerGoogleSubjectHash ->
+                RestoreBundleWriter(context.applicationContext)
+                    .writeBundle(
+                        ownerUid = ownerUid,
+                        ownerGoogleSubjectHash = ownerGoogleSubjectHash,
+                    )
             },
             backupChangeNotifier = BackupChangeNotifier {
                 BackupManager(context.applicationContext).dataChanged()
@@ -51,6 +58,7 @@ sealed interface RestoreSnapshotRefreshResult {
     data object GuestNotApplicable : RestoreSnapshotRefreshResult
     data object NoOwnedCompletedData : RestoreSnapshotRefreshResult
     data object AccountMismatch : RestoreSnapshotRefreshResult
+    data object GoogleIdentityUnavailable : RestoreSnapshotRefreshResult
 
     data class Failed(
         val cause: Throwable,
@@ -60,6 +68,8 @@ sealed interface RestoreSnapshotRefreshResult {
 internal data class RestoreSnapshotAccount(
     val uid: String,
     val isAnonymous: Boolean,
+    val hasGoogleProvider: Boolean,
+    val googleSubjectHash: String?,
 )
 
 internal interface RestoreSnapshotAccountProvider {
@@ -69,10 +79,14 @@ internal interface RestoreSnapshotAccountProvider {
 internal interface RestoreSnapshotOwnerStateDataSource {
     val isCompleted: Flow<Boolean>
     val completedAccountUid: Flow<String?>
+    val completedGoogleSubjectHash: Flow<String?>
 }
 
 internal fun interface RestoreSnapshotWriter {
-    suspend fun write(ownerUid: String)
+    suspend fun write(
+        ownerUid: String,
+        ownerGoogleSubjectHash: String?,
+    )
 }
 
 internal fun interface BackupChangeNotifier {
@@ -96,6 +110,11 @@ private class AccountBoundRestoreSnapshotRefreshDelegate(
 
             val isCompleted = ownerStateDataSource.isCompleted.first()
             val ownerUid = ownerStateDataSource.completedAccountUid.first()
+            val savedGoogleSubjectHash =
+                ownerStateDataSource.completedGoogleSubjectHash.first()
+            val currentGoogleSubjectHash = account.googleSubjectHash
+            val savedValidGoogleSubjectHash =
+                savedGoogleSubjectHash?.takeIf(::isValidGoogleSubjectHash)
 
             if (!isCompleted || ownerUid == null) {
                 return RestoreSnapshotRefreshResult.NoOwnedCompletedData
@@ -105,7 +124,26 @@ private class AccountBoundRestoreSnapshotRefreshDelegate(
                 return RestoreSnapshotRefreshResult.AccountMismatch
             }
 
-            writer.write(ownerUid = account.uid)
+            if (savedGoogleSubjectHash != null && savedValidGoogleSubjectHash == null) {
+                return RestoreSnapshotRefreshResult.AccountMismatch
+            }
+
+            if (account.hasGoogleProvider && !isValidGoogleSubjectHash(currentGoogleSubjectHash.orEmpty())) {
+                return RestoreSnapshotRefreshResult.GoogleIdentityUnavailable
+            }
+
+            if (
+                savedValidGoogleSubjectHash != null &&
+                currentGoogleSubjectHash != null &&
+                savedValidGoogleSubjectHash != currentGoogleSubjectHash
+            ) {
+                return RestoreSnapshotRefreshResult.AccountMismatch
+            }
+
+            writer.write(
+                ownerUid = account.uid,
+                ownerGoogleSubjectHash = if (account.hasGoogleProvider) currentGoogleSubjectHash else null,
+            )
             backupChangeNotifier.dataChanged()
             RestoreSnapshotRefreshResult.Written
         } catch (cancellation: CancellationException) {
@@ -124,6 +162,10 @@ private class FirebaseRestoreSnapshotAccountProvider(
         return RestoreSnapshotAccount(
             uid = user.uid,
             isAnonymous = user.isAnonymous,
+            hasGoogleProvider = user.providerData.any { provider ->
+                provider.providerId == GoogleAuthProvider.PROVIDER_ID
+            },
+            googleSubjectHash = resolveGoogleAccountIdentity(user)?.subjectHash,
         )
     }
 }
@@ -133,4 +175,6 @@ private class PreferencesRestoreSnapshotOwnerStateDataSource(
 ) : RestoreSnapshotOwnerStateDataSource {
     override val isCompleted: Flow<Boolean> = dataSource.isCompleted
     override val completedAccountUid: Flow<String?> = dataSource.completedAccountUid
+    override val completedGoogleSubjectHash: Flow<String?> =
+        dataSource.completedGoogleSubjectHash
 }

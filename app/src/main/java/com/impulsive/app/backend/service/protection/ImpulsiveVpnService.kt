@@ -758,47 +758,57 @@ ActionRefreshAllowedApplications -> {
          * BLOCKED DOMAIN PATH
          */
         if (blockedEntry != null) {
-            val attributedPackage =
-                websiteProtectionPackageAttributor.resolve(
+            val attributionNow = System.currentTimeMillis()
+            val currentForegroundPackage =
+                foregroundAppReader.getCurrentForegroundPackage()
+            val recentForegroundBrowser =
+                RecentForegroundWebsiteBrowserRegistry.freshObservation(
+                    attributionNow,
+                )
+            val exactAttribution =
+                websiteProtectionPackageAttributor.resolveExact(
                     tuple =
                         dnsConnectionTupleFromPacket(
                             parsed,
                         ),
                     selectedPackages =
                         allowedPackages,
-                    vpnAllowedPackages =
-                        allowedPackages,
                 )
+            val attributionDecision =
+                decideWebsiteIncidentAttribution(
+                    exactAttribution = exactAttribution,
+                    currentForegroundPackage = currentForegroundPackage,
+                    recentForegroundBrowser = recentForegroundBrowser,
+                    websiteProtectedPackages = allowedPackages,
+                    vpnAllowedPackages = allowedPackages,
+                    nowEpochMillis = attributionNow,
+                )
+            val exactPackage =
+                (exactAttribution as? ExactWebsitePackageAttribution.SelectedPackage)
+                    ?.packageName
 
-            if (attributedPackage != null) {
-                val foregroundPackage =
-                    foregroundAppReader.getCurrentForegroundPackage()
+            ProtectionLog.debugThrottled(
+                key = "website_incident_attribution:${attributionDecision.reason}",
+                message =
+                    "Website Protection attribution decision: " +
+                        "attributedPackage=$exactPackage, " +
+                        "currentForegroundPackage=$currentForegroundPackage, " +
+                        "recentForegroundPackage=${recentForegroundBrowser?.packageName}, " +
+                        "reason=${attributionDecision.reason}",
+            )
 
-                if (foregroundPackage == attributedPackage) {
-                    websiteProtectionIncidentDataSource.recordAdultActivity(
-                        packageName =
-                            attributedPackage,
-                        sourceLabel =
-                            foregroundAppReader.getApplicationLabel(
-                                attributedPackage,
-                            ),
-                        blockedDomain =
-                            blockedEntry,
-                        nowEpochMillis =
-                            System.currentTimeMillis(),
-                    )
-                } else {
-                    ProtectionLog.debugThrottled(
-                        key = "website_adult_activity_background:$attributedPackage",
-                        message =
-                            "Blocked Website Protection domain attributed to a background package; friction not started",
-                    )
-                }
-            } else {
-                ProtectionLog.warnThrottled(
-                    key = "website_cooldown_unattributed",
-                    message =
-                        "Blocked Website Protection domain could not be attributed to a protected package",
+            attributionDecision.packageName?.let { incidentPackage ->
+                websiteProtectionIncidentDataSource.recordAdultActivity(
+                    packageName =
+                        incidentPackage,
+                    sourceLabel =
+                        foregroundAppReader.getApplicationLabel(
+                            incidentPackage,
+                        ),
+                    blockedDomain =
+                        blockedEntry,
+                    nowEpochMillis =
+                        attributionNow,
                 )
             }
 
@@ -1139,8 +1149,6 @@ ActionRefreshAllowedApplications -> {
                 sourceLabel =
                     interruption
                         .sourceLabel,
-                message =
-                    decision.message,
                 hideSensitive =
                     hideSensitiveNotifications
                         .value,

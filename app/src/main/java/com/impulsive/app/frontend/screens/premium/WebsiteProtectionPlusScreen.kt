@@ -380,6 +380,13 @@ private fun WebsiteProtectionManagementCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
 
+            Text(
+                text = "Browser Secure DNS must remain off for website blocking and " +
+                    "SafeSearch enforcement to work.",
+                color = muted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+
             OutlinedButton(
                 onClick = onChooseApps,
                 modifier = Modifier

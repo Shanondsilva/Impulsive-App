@@ -11,6 +11,9 @@ import com.impulsive.app.backend.data.repository.CompleteOnboardingResult
 import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.restore.AccountBoundRestoreCoordinator
 import com.impulsive.app.backend.data.restore.AccountBoundRestoreResult
+import com.impulsive.app.backend.data.restore.RestoredAccountMigrationCoordinator
+import com.impulsive.app.backend.data.restore.cloud.CloudRestorePostImportRecoveryCoordinator
+import com.impulsive.app.backend.data.restore.cloud.CloudRestorePostImportRecoveryResult
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -21,14 +24,43 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-class OnboardingViewModel(
+private const val CloudRestoreFinalizationRetryMessage = "Your setup is saved, but Impulsive could not finish restoring your data. Try again."
+
+class OnboardingViewModel internal constructor(
     application: Application,
+    restoredAccountMigrationOperation: RestoredAccountMigrationOperation,
+    cloudRestorePostImportRecoveryOperation:
+        CloudRestorePostImportRecoveryOperation,
 ) : AndroidViewModel(application) {
+    constructor(application: Application) : this(
+        application = application,
+        restoredAccountMigrationOperation = RestoredAccountMigrationOperation {
+            RestoredAccountMigrationCoordinator(application)
+                .confirmSameGoogleIdentityAndRestore()
+        },
+        cloudRestorePostImportRecoveryOperation =
+            CloudRestorePostImportRecoveryOperation {
+                CloudRestorePostImportRecoveryCoordinator(application)
+                    .resumeIfNeeded()
+            },
+    )
+
     private val repository = OnboardingRepository(application)
     private val accountBoundRestoreCoordinator = AccountBoundRestoreCoordinator(application)
+    private val restoredAccountMigrationController =
+        RestoredAccountMigrationUiController(
+            scope = viewModelScope,
+            operation = restoredAccountMigrationOperation,
+        )
     private val accountLocalDataResetCoordinator =
         AccountLocalDataResetCoordinator(application)
+    private val cloudRestoreOnboardingRecovery =
+        CloudRestoreOnboardingRecovery(
+            operation = cloudRestorePostImportRecoveryOperation,
+        )
     private var accountResolutionJob: Job? = null
     private var accountRestoreJob: Job? = null
     private var accountLocalDataResetJob: Job? = null
@@ -46,6 +78,9 @@ class OnboardingViewModel(
 
     val accountRestoreState: StateFlow<AccountRestoreState> =
         _accountRestoreState.asStateFlow()
+    internal val restoredAccountMigrationState:
+        StateFlow<RestoredAccountMigrationUiState> =
+        restoredAccountMigrationController.state
     val accountLocalDataResetState: StateFlow<AccountLocalDataResetState> =
         _accountLocalDataResetState.asStateFlow()
     val accountResolutionState: StateFlow<OnboardingAccountResolutionState> =
@@ -130,16 +165,20 @@ class OnboardingViewModel(
             if (state.value.answers.name.isBlank()) return@launch
 
             _completionState.value = OnboardingCompletionState.Saving
-            when (repository.completeOnboardingForCurrentAccount()) {
-                CompleteOnboardingResult.Completed -> {
-                    _completionState.value = OnboardingCompletionState.Idle
-                    onCompleted()
+            val result =
+                cloudRestoreOnboardingRecovery.completeOnboarding {
+                    repository.completeOnboardingForCurrentAccount()
                 }
-
-                is CompleteOnboardingResult.RetryableFailure -> {
-                    _completionState.value = OnboardingCompletionState.RetryableFailure()
-                }
-            }
+            dispatchCloudRestoreOnboardingCompletion(
+                result = result,
+                onCompletionStateChanged = {
+                    _completionState.value = it
+                },
+                onAccountResolutionStateChanged = {
+                    _accountResolutionState.value = it
+                },
+                onCompleted = onCompleted,
+            )
         }
     }
 
@@ -157,18 +196,46 @@ class OnboardingViewModel(
 
         accountResolutionJob = viewModelScope.launch {
             _accountResolutionState.value = OnboardingAccountResolutionState.Loading
-            val resolution = repository.resolveAuthenticatedOnboarding()
-            if (resolution is AuthenticatedOnboardingResolution.RetryableFailure) {
+            val result =
+                cloudRestoreOnboardingRecovery
+                    .resolveAuthenticatedOnboarding {
+                        repository.resolveAuthenticatedOnboarding()
+                    }
+            if (
+                result.resolution is
+                AuthenticatedOnboardingResolution.RetryableFailure
+            ) {
                 _accountResolutionState.value = OnboardingAccountResolutionState.RetryableFailure()
             } else {
-                _accountResolutionState.value = OnboardingAccountResolutionState.Idle
+                _accountResolutionState.value =
+                    when (result.message) {
+                        CloudRestorePostImportStartupMessage
+                            .RefreshPending ->
+                            OnboardingAccountResolutionState
+                                .CloudRestoreRefreshPending
+                        CloudRestorePostImportStartupMessage
+                            .CloudRecoverySetupRequired ->
+                            OnboardingAccountResolutionState
+                                .CloudRecoverySetupRequired
+                        null ->
+                            OnboardingAccountResolutionState.Idle
+                    }
             }
-            onResolved(resolution)
+            onResolved(result.resolution)
         }
     }
 
     fun clearAccountResolutionFailure() {
-        if (_accountResolutionState.value is OnboardingAccountResolutionState.RetryableFailure) {
+        if (
+            _accountResolutionState.value is
+            OnboardingAccountResolutionState.RetryableFailure ||
+            _accountResolutionState.value ==
+            OnboardingAccountResolutionState
+                .CloudRestoreRefreshPending ||
+            _accountResolutionState.value ==
+            OnboardingAccountResolutionState
+                .CloudRecoverySetupRequired
+        ) {
             _accountResolutionState.value = OnboardingAccountResolutionState.Idle
         }
     }
@@ -212,6 +279,21 @@ class OnboardingViewModel(
         if (_accountRestoreState.value !is AccountRestoreState.Restoring) {
             _accountRestoreState.value = AccountRestoreState.Idle
         }
+    }
+
+    internal fun confirmRestoredSameGoogleIdentity(
+        onReady: () -> Unit,
+        onLegacyCloudVerificationRequired: () -> Unit,
+    ) {
+        restoredAccountMigrationController.confirm(
+            onReady = onReady,
+            onLegacyCloudVerificationRequired =
+                onLegacyCloudVerificationRequired,
+        )
+    }
+
+    internal fun dismissRestoredAccountMigrationMessage() {
+        restoredAccountMigrationController.dismissMessage()
     }
 
     fun requestEraseUnusableLocalData() {
@@ -365,5 +447,303 @@ class OnboardingViewModel(
             repository.clear()
             onCleared()
         }
+    }
+}
+
+internal fun interface CloudRestorePostImportRecoveryOperation {
+    suspend fun resumeIfNeeded(): CloudRestorePostImportRecoveryResult
+}
+
+internal enum class CloudRestorePostImportStartupMessage {
+    RefreshPending,
+    CloudRecoverySetupRequired,
+}
+
+internal sealed interface CloudRestorePostImportStartupDecision {
+    data class Continue(
+        val message: CloudRestorePostImportStartupMessage? = null,
+    ) : CloudRestorePostImportStartupDecision
+
+    data object StartOnboardingWithRestoredData :
+        CloudRestorePostImportStartupDecision
+
+    data object AccountMismatch :
+        CloudRestorePostImportStartupDecision
+
+    data class Retryable(
+        val cause: Throwable?,
+    ) : CloudRestorePostImportStartupDecision
+}
+
+internal fun CloudRestorePostImportRecoveryResult.toStartupDecision():
+    CloudRestorePostImportStartupDecision =
+    when (this) {
+        CloudRestorePostImportRecoveryResult.NothingPending,
+        CloudRestorePostImportRecoveryResult.Finalized,
+        CloudRestorePostImportRecoveryResult
+            .AuthorizationWithoutCommittedImportCleared,
+        -> CloudRestorePostImportStartupDecision.Continue()
+
+        CloudRestorePostImportRecoveryResult.RequiresOnboardingSetup ->
+            CloudRestorePostImportStartupDecision
+                .StartOnboardingWithRestoredData
+
+        CloudRestorePostImportRecoveryResult.FinalizedRefreshPending ->
+            CloudRestorePostImportStartupDecision.Continue(
+                CloudRestorePostImportStartupMessage.RefreshPending,
+            )
+
+        CloudRestorePostImportRecoveryResult
+            .RequiresCloudRecoverySetup ->
+            CloudRestorePostImportStartupDecision.Continue(
+                CloudRestorePostImportStartupMessage
+                    .CloudRecoverySetupRequired,
+            )
+
+        CloudRestorePostImportRecoveryResult.RequiresCorrectAccount ->
+            CloudRestorePostImportStartupDecision.AccountMismatch
+
+        CloudRestorePostImportRecoveryResult.FinalizationPending ->
+            CloudRestorePostImportStartupDecision.Retryable(null)
+
+        is CloudRestorePostImportRecoveryResult.Failed ->
+            CloudRestorePostImportStartupDecision.Retryable(cause)
+    }
+
+internal data class CloudRestoreAuthenticatedOnboardingResult(
+    val resolution: AuthenticatedOnboardingResolution,
+    val message: CloudRestorePostImportStartupMessage? = null,
+)
+
+internal sealed interface CloudRestoreOnboardingCompletionResult {
+    data class Completed(
+        val message: CloudRestorePostImportStartupMessage? = null,
+    ) : CloudRestoreOnboardingCompletionResult
+
+    data class RetryableFailure(
+        val message: String,
+        val cause: Throwable? = null,
+    ) : CloudRestoreOnboardingCompletionResult
+
+    data object AlreadyRunning :
+        CloudRestoreOnboardingCompletionResult
+}
+
+internal class CloudRestoreOnboardingRecovery(
+    private val operation: CloudRestorePostImportRecoveryOperation,
+) {
+    private val recoveryMutex = Mutex()
+    private val completionMutex = Mutex()
+    private var finalizationPending = false
+    private var onboardingCompletionRecorded = false
+
+    suspend fun resolveAuthenticatedOnboarding(
+        resolveAccount:
+            suspend () -> AuthenticatedOnboardingResolution,
+    ): CloudRestoreAuthenticatedOnboardingResult {
+        val recoveryDecision =
+            try {
+                recoveryMutex.withLock {
+                    operation.resumeIfNeeded()
+                        .toStartupDecision()
+                        .also { decision ->
+                            if (
+                                decision ==
+                                CloudRestorePostImportStartupDecision
+                                    .StartOnboardingWithRestoredData
+                            ) {
+                                finalizationPending = true
+                                onboardingCompletionRecorded = false
+                            }
+                        }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                CloudRestorePostImportStartupDecision
+                    .Retryable(failure)
+            }
+
+        return when (recoveryDecision) {
+            CloudRestorePostImportStartupDecision
+                .StartOnboardingWithRestoredData ->
+                CloudRestoreAuthenticatedOnboardingResult(
+                    resolution =
+                        AuthenticatedOnboardingResolution.Incomplete,
+                )
+
+            CloudRestorePostImportStartupDecision.AccountMismatch ->
+                CloudRestoreAuthenticatedOnboardingResult(
+                    resolution =
+                        AuthenticatedOnboardingResolution.AccountMismatch,
+                )
+
+            is CloudRestorePostImportStartupDecision.Retryable ->
+                CloudRestoreAuthenticatedOnboardingResult(
+                    resolution =
+                        AuthenticatedOnboardingResolution
+                            .RetryableFailure(
+                                recoveryDecision.cause,
+                            ),
+                )
+
+            is CloudRestorePostImportStartupDecision.Continue ->
+                CloudRestoreAuthenticatedOnboardingResult(
+                    resolution = resolveAccount(),
+                    message = recoveryDecision.message,
+                )
+        }
+    }
+
+    suspend fun completeOnboarding(
+        completeAccount: suspend () -> CompleteOnboardingResult,
+    ): CloudRestoreOnboardingCompletionResult {
+        if (!completionMutex.tryLock()) {
+            return CloudRestoreOnboardingCompletionResult.AlreadyRunning
+        }
+
+        var finalizingRestoredData = false
+        return try {
+            val completionAlreadyRecorded =
+                recoveryMutex.withLock {
+                    finalizationPending &&
+                        onboardingCompletionRecorded
+                }
+
+            if (!completionAlreadyRecorded) {
+                when (val completion = completeAccount()) {
+                    CompleteOnboardingResult.Completed -> {
+                        recoveryMutex.withLock {
+                            if (finalizationPending) {
+                                onboardingCompletionRecorded = true
+                            }
+                        }
+                    }
+
+                    is CompleteOnboardingResult.RetryableFailure ->
+                        return CloudRestoreOnboardingCompletionResult
+                            .RetryableFailure(
+                                message =
+                                    OnboardingCompletionState
+                                        .RetryableFailure()
+                                        .message,
+                                cause = completion.cause,
+                            )
+                }
+            }
+
+            recoveryMutex
+                .withLock<CloudRestoreOnboardingCompletionResult> {
+                if (!finalizationPending) {
+                    CloudRestoreOnboardingCompletionResult.Completed()
+                } else {
+                    finalizingRestoredData = true
+                    when (val recovery = operation.resumeIfNeeded()) {
+                        CloudRestorePostImportRecoveryResult.Finalized,
+                        CloudRestorePostImportRecoveryResult.NothingPending,
+                        CloudRestorePostImportRecoveryResult
+                            .AuthorizationWithoutCommittedImportCleared,
+                        -> acceptedFinalization()
+
+                        CloudRestorePostImportRecoveryResult
+                            .FinalizedRefreshPending ->
+                            acceptedFinalization(
+                                CloudRestorePostImportStartupMessage
+                                    .RefreshPending,
+                            )
+
+                        CloudRestorePostImportRecoveryResult
+                            .RequiresCloudRecoverySetup ->
+                            acceptedFinalization(
+                                CloudRestorePostImportStartupMessage
+                                    .CloudRecoverySetupRequired,
+                            )
+
+                        CloudRestorePostImportRecoveryResult
+                            .RequiresCorrectAccount,
+                        CloudRestorePostImportRecoveryResult
+                            .FinalizationPending,
+                        CloudRestorePostImportRecoveryResult
+                            .RequiresOnboardingSetup,
+                        -> retryableFinalization()
+
+                        is CloudRestorePostImportRecoveryResult.Failed ->
+                            retryableFinalization(recovery.cause)
+                    }
+                }
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Throwable) {
+            CloudRestoreOnboardingCompletionResult
+                .RetryableFailure(
+                    message =
+                        if (finalizingRestoredData) {
+                            CloudRestoreFinalizationRetryMessage
+                        } else {
+                            OnboardingCompletionState
+                                .RetryableFailure()
+                                .message
+                        },
+                    cause = failure,
+                )
+        } finally {
+            completionMutex.unlock()
+        }
+    }
+
+    private fun acceptedFinalization(
+        message: CloudRestorePostImportStartupMessage? = null,
+    ): CloudRestoreOnboardingCompletionResult {
+        finalizationPending = false
+        onboardingCompletionRecorded = false
+        return CloudRestoreOnboardingCompletionResult
+            .Completed(message)
+    }
+
+    private fun retryableFinalization(
+        cause: Throwable? = null,
+    ): CloudRestoreOnboardingCompletionResult =
+        CloudRestoreOnboardingCompletionResult
+            .RetryableFailure(
+                message = CloudRestoreFinalizationRetryMessage,
+                cause = cause,
+            )
+}
+
+internal fun dispatchCloudRestoreOnboardingCompletion(
+    result: CloudRestoreOnboardingCompletionResult,
+    onCompletionStateChanged: (OnboardingCompletionState) -> Unit,
+    onAccountResolutionStateChanged:
+        (OnboardingAccountResolutionState) -> Unit,
+    onCompleted: () -> Unit,
+) {
+    when (result) {
+        is CloudRestoreOnboardingCompletionResult.Completed -> {
+            onAccountResolutionStateChanged(
+                when (result.message) {
+                    CloudRestorePostImportStartupMessage.RefreshPending ->
+                        OnboardingAccountResolutionState
+                            .CloudRestoreRefreshPending
+
+                    CloudRestorePostImportStartupMessage
+                        .CloudRecoverySetupRequired ->
+                        OnboardingAccountResolutionState
+                            .CloudRecoverySetupRequired
+
+                    null -> OnboardingAccountResolutionState.Idle
+                },
+            )
+            onCompletionStateChanged(OnboardingCompletionState.Idle)
+            onCompleted()
+        }
+
+        is CloudRestoreOnboardingCompletionResult.RetryableFailure ->
+            onCompletionStateChanged(
+                OnboardingCompletionState
+                    .RetryableFailure(result.message),
+            )
+
+        CloudRestoreOnboardingCompletionResult.AlreadyRunning -> Unit
     }
 }

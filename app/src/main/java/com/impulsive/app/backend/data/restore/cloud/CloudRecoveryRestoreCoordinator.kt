@@ -4,9 +4,15 @@ import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.impulsive.app.backend.data.account.resolveGoogleAccountIdentity
+import com.impulsive.app.backend.data.local.database.AppDatabase
+import com.impulsive.app.backend.data.local.entity.CloudRestoreProofType
+import com.impulsive.app.backend.data.local.onboarding.OnboardingPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.CloudRecoveryPreferencesDataSource
 import com.impulsive.app.backend.data.restore.RestoreBundleImporter
+import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import java.io.IOException
+import java.security.MessageDigest
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -24,9 +30,13 @@ public class CloudRecoveryRestoreCoordinator(
     private val crypto =
         CloudRecoveryCrypto()
 
+    private val database =
+        AppDatabase.getInstance(appContext)
+
     private val importer =
         RestoreBundleImporter(
             appContext,
+            database,
         )
 
     private val keyStore =
@@ -43,6 +53,27 @@ public class CloudRecoveryRestoreCoordinator(
         CloudRecoveryPreferencesDataSource(
             appContext,
         )
+
+    private val ownershipFinalizer =
+        CloudRestoreOwnershipFinalizer(
+            appContext,
+        )
+
+    private val onboardingPreferences =
+        OnboardingPreferencesDataSource(
+            appContext,
+        )
+
+    private val activationSessionProvider =
+        CloudRestoreFirebaseAccountProvider(
+            FirebaseAuth.getInstance(),
+        )
+
+    private val pendingAuthorizationStore =
+        AndroidPendingCloudRestoreAuthorizationStore(appContext)
+
+    private val postImportRecoveryCoordinator =
+        CloudRestorePostImportRecoveryCoordinator(appContext)
 
     public fun requiresDriveAuthorization(): Boolean {
         val user =
@@ -169,7 +200,7 @@ public class CloudRecoveryRestoreCoordinator(
         downloadedEnvelope: ByteArray,
         password: CharArray,
         replaceExistingData: Boolean,
-        ownerMigrationConfirmed: Boolean = false,
+        ownerConfirmation: CloudRecoveryOwnerConfirmation = CloudRecoveryOwnerConfirmation.None,
     ): CloudRecoveryRestoreResult {
         try {
             val user =
@@ -208,29 +239,133 @@ public class CloudRecoveryRestoreCoordinator(
                 }
 
             try {
-                when (
+                val parsedPayload =
+                    try {
+                        JSONObject(
+                            decrypted.recovery.payloadJson,
+                        )
+                    } catch (_: Exception) {
+                        return CloudRecoveryRestoreResult.InvalidBackup
+                    }
+                val onboardingSnapshot =
+                    when (
+                        val decoded =
+                            CloudRecoveryOnboardingSnapshotCodec.decode(
+                                parsedPayload,
+                            )
+                    ) {
+                        CloudRecoveryOnboardingSnapshotDecodeResult.Missing ->
+                            null
+                        CloudRecoveryOnboardingSnapshotDecodeResult.Malformed ->
+                            return CloudRecoveryRestoreResult.InvalidBackup
+                        is CloudRecoveryOnboardingSnapshotDecodeResult.Success ->
+                            decoded.snapshot
+                    }
+
+                val currentGoogleSubjectHash =
+                    resolveGoogleAccountIdentity(user)?.subjectHash
+
+                val ownerVerdict =
                     cloudRecoveryOwnerVerdict(
                         ownerUid = decrypted.recovery.ownerUid,
                         ownerGoogleSubjectHash = decrypted.recovery.ownerGoogleSubjectHash,
                         currentFirebaseUid = user.uid,
-                        currentGoogleSubjectHash = resolveGoogleAccountIdentity(user)?.subjectHash,
+                        currentGoogleSubjectHash = currentGoogleSubjectHash,
+                    )
+
+                when (
+                    val authorization =
+                        cloudRecoveryOwnerAuthorization(
+                            verdict = ownerVerdict,
+                            confirmation = ownerConfirmation,
+                        )
+                ) {
+                    CloudRecoveryOwnerAuthorization.Authorized -> Unit
+                    CloudRecoveryOwnerAuthorization.Blocked ->
+                        return CloudRecoveryRestoreResult.AccountMismatch
+                    is CloudRecoveryOwnerAuthorization.ConfirmationRequired ->
+                        return CloudRecoveryRestoreResult
+                            .OwnerMigrationConfirmationRequired(
+                                authorization.kind,
+                            )
+                }
+
+                val ownerProof =
+                    when (ownerVerdict) {
+                        CloudRecoveryOwnerVerdict.ExactUidMatch ->
+                            VerifiedCloudRestoreOwnerProof.ExactUid(
+                                currentUid = user.uid,
+                            )
+                        CloudRecoveryOwnerVerdict
+                            .SameGoogleIdentityNewFirebaseUid ->
+                            VerifiedCloudRestoreOwnerProof
+                                .SameGoogleIdentity(
+                                    previousUid =
+                                        decrypted.recovery.ownerUid,
+                                    previousGoogleSubjectHash =
+                                        requireNotNull(
+                                            decrypted.recovery
+                                                .ownerGoogleSubjectHash,
+                                        ),
+                                    currentUid = user.uid,
+                                    currentGoogleSubjectHash =
+                                        requireNotNull(
+                                            currentGoogleSubjectHash,
+                                        ),
+                                )
+                        CloudRecoveryOwnerVerdict.LegacyEnvelope ->
+                            VerifiedCloudRestoreOwnerProof.LegacyEnvelope(
+                                previousUid = decrypted.recovery.ownerUid,
+                                currentUid = user.uid,
+                                currentGoogleSubjectHash =
+                                    currentGoogleSubjectHash,
+                            )
+                        CloudRecoveryOwnerVerdict.DifferentAccount ->
+                            error(
+                                "Different-account verdict must be blocked before import.",
+                            )
+                    }
+
+                val pendingAuthorization =
+                    try {
+                        if (
+                            database.cloudRestoreReceiptDao().latest() !=
+                            null
+                        ) {
+                            return CloudRecoveryRestoreResult
+                                .RestoredButOwnershipFinalizationPending
+                        }
+                        pendingAuthorizationStore.read()?.let {
+                            pendingAuthorizationStore.clear()
+                        }
+                        PendingCloudRestoreAuthorization(
+                            receiptId = UUID.randomUUID().toString(),
+                            payloadSha256 =
+                                decrypted.recovery.payloadJson
+                                    .cloudRestoreSha256(),
+                            proofType = ownerProof.proofType(),
+                            previousUid = ownerProof.previousUid(),
+                            previousGoogleSubjectHash =
+                                ownerProof.previousGoogleSubjectHash(),
+                            currentUid = user.uid,
+                            currentGoogleSubjectHash =
+                                currentGoogleSubjectHash,
+                            authorisedAtMillis =
+                                System.currentTimeMillis(),
+                        ).also(pendingAuthorizationStore::write)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        return CloudRecoveryRestoreResult.ImportFailed
+                    }
+
+                if (
+                    !ownerProof.matchesCurrentSession(
+                        activationSessionProvider.currentAccount(),
                     )
                 ) {
-                    CloudRecoveryOwnerVerdict.ExactUidMatch -> Unit
-                    CloudRecoveryOwnerVerdict.SameGoogleIdentityNewFirebaseUid ->
-                        if (!ownerMigrationConfirmed) {
-                            return CloudRecoveryRestoreResult.OwnerMigrationConfirmationRequired(
-                                legacyEnvelope = false,
-                            )
-                        }
-                    CloudRecoveryOwnerVerdict.LegacyEnvelope ->
-                        if (!ownerMigrationConfirmed) {
-                            return CloudRecoveryRestoreResult.OwnerMigrationConfirmationRequired(
-                                legacyEnvelope = true,
-                            )
-                        }
-                    CloudRecoveryOwnerVerdict.DifferentAccount ->
-                        return CloudRecoveryRestoreResult.AccountMismatch
+                    return CloudRecoveryRestoreResult
+                        .RestoredButOwnershipFinalizationPending
                 }
 
                 val mode =
@@ -249,15 +384,15 @@ public class CloudRecoveryRestoreCoordinator(
                 val importOutcome =
                     try {
                         importer.importPayload(
-                            parsed =
-                                JSONObject(
-                                    decrypted
-                                        .recovery
-                                        .payloadJson,
-                                ),
+                            parsed = parsedPayload,
 
                             mode =
                                 mode,
+                            cloudRestoreReceipt =
+                                pendingAuthorization.toReceipt(
+                                    importedAtMillis =
+                                        System.currentTimeMillis(),
+                                ),
                         )
                     } catch (
                         cancellation:
@@ -278,6 +413,13 @@ public class CloudRecoveryRestoreCoordinator(
                         .ImportOutcome
                         .ExistingDataPresent
                 ) {
+                    try {
+                        pendingAuthorizationStore.clear()
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        return CloudRecoveryRestoreResult.ImportFailed
+                    }
                     return CloudRecoveryRestoreResult
                             .ReplacementConfirmationRequired
                 }
@@ -288,34 +430,81 @@ public class CloudRecoveryRestoreCoordinator(
                  * Any later local cloud-credential failure must not claim the
                  * imported data remained unchanged.
                  */
-                return activateRestoredCloudRecovery(
-
-rawDek =
-                        decrypted.rawDek,
-
-                    wrappedKeyMetadata =
-                        decrypted.wrappedKeyMetadata,
-
-                    keyStore =
-                        LocalCloudRecoveryRestoreKeyStore(
-                            keyStore,
-                        ),
-
-                    metadataStore =
-                        LocalCloudRecoveryRestoreMetadataStore(
-                            metadataStore,
-                        ),
-
-                    preferences =
-                        DataStoreCloudRecoveryRestorePreferences(
-                            preferences,
-                        ),
-
-                    scheduler =
-                        WorkManagerCloudRecoveryRestoreScheduler(
-                            appContext,
-                        ),
+                restoreCloudRecoveryOnboardingAfterCommittedImport(
+                    snapshot = onboardingSnapshot,
+                    currentUid = user.uid,
+                    currentGoogleSubjectHash = currentGoogleSubjectHash,
+                    persist = { answers, accountUid, googleSubjectHash ->
+                        onboardingPreferences
+                            .restoreCompletedSnapshotForAccount(
+                                answers = answers,
+                                accountUid = accountUid,
+                                googleSubjectHash = googleSubjectHash,
+                            )
+                    },
                 )
+                val completion =
+                    finalizeThenActivateRestoredCloudRecovery(
+                        rawDek = decrypted.rawDek,
+                        ownerProof = ownerProof,
+                        finalizeOwnership = { proof ->
+                            ownershipFinalizer
+                                .finalizeAfterVerifiedCloudRestore(
+                                    proof = proof,
+                                    deferProvenanceCleanup = true,
+                                )
+                        },
+                        currentSession = {
+                            activationSessionProvider.currentAccount()
+                        },
+                        activateCloudRecovery = {
+                            activateRestoredCloudRecovery(
+                                rawDek = decrypted.rawDek,
+                                wrappedKeyMetadata =
+                                    decrypted.wrappedKeyMetadata,
+                                keyStore =
+                                    LocalCloudRecoveryRestoreKeyStore(
+                                        keyStore,
+                                    ),
+                                metadataStore =
+                                    LocalCloudRecoveryRestoreMetadataStore(
+                                        metadataStore,
+                                    ),
+                                preferences =
+                                    DataStoreCloudRecoveryRestorePreferences(
+                                        preferences,
+                                    ),
+                                scheduler =
+                                    WorkManagerCloudRecoveryRestoreScheduler(
+                                        appContext,
+                                    ),
+                            )
+                        },
+                    )
+                if (
+                    completion ==
+                    CloudRecoveryRestoreResult
+                        .RestoredButOwnershipFinalizationPending ||
+                    completion ==
+                    CloudRecoveryRestoreResult
+                        .SuccessRequiresOnboardingSetup ||
+                    completion ==
+                    CloudRecoveryRestoreResult
+                        .SuccessRequiresOnboardingSetupCloudRecoverySetupFailed
+                ) {
+                    return completion
+                }
+                return if (
+                    postImportRecoveryCoordinator
+                        .cleanupCommittedReceipt(
+                            pendingAuthorization.receiptId,
+                        )
+                ) {
+                    completion
+                } else {
+                    CloudRecoveryRestoreResult
+                        .RestoredButOwnershipFinalizationPending
+                }
             } finally {
                 decrypted.rawDek.fill(
                     0,
@@ -328,6 +517,132 @@ rawDek =
         }
     }
 }
+
+internal suspend fun restoreCloudRecoveryOnboardingAfterCommittedImport(
+    snapshot: CloudRecoveryOnboardingSnapshot?,
+    currentUid: String,
+    currentGoogleSubjectHash: String?,
+    persist:
+        suspend (
+            answers: OnboardingAnswers,
+            accountUid: String,
+            googleSubjectHash: String?,
+        ) -> Unit,
+): Boolean {
+    if (snapshot == null) return false
+    return try {
+        persist(
+            snapshot.answers,
+            currentUid,
+            currentGoogleSubjectHash,
+        )
+        true
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Throwable) {
+        false
+    }
+}
+
+private fun VerifiedCloudRestoreOwnerProof.proofType():
+    CloudRestoreProofType =
+    when (this) {
+        is VerifiedCloudRestoreOwnerProof.ExactUid ->
+            CloudRestoreProofType.ExactUid
+        is VerifiedCloudRestoreOwnerProof.SameGoogleIdentity ->
+            CloudRestoreProofType.SameGoogleIdentity
+        is VerifiedCloudRestoreOwnerProof.LegacyEnvelope ->
+            CloudRestoreProofType.LegacyEnvelope
+    }
+
+private fun VerifiedCloudRestoreOwnerProof.previousUid(): String? =
+    when (this) {
+        is VerifiedCloudRestoreOwnerProof.ExactUid -> null
+        is VerifiedCloudRestoreOwnerProof.SameGoogleIdentity ->
+            previousUid
+        is VerifiedCloudRestoreOwnerProof.LegacyEnvelope ->
+            previousUid
+    }
+
+private fun VerifiedCloudRestoreOwnerProof.previousGoogleSubjectHash():
+    String? =
+    when (this) {
+        is VerifiedCloudRestoreOwnerProof.ExactUid -> null
+        is VerifiedCloudRestoreOwnerProof.SameGoogleIdentity ->
+            previousGoogleSubjectHash
+        is VerifiedCloudRestoreOwnerProof.LegacyEnvelope -> null
+    }
+
+private fun String.cloudRestoreSha256(): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
+
+internal suspend fun finalizeThenActivateRestoredCloudRecovery(
+    rawDek: ByteArray,
+    ownerProof: VerifiedCloudRestoreOwnerProof,
+    finalizeOwnership:
+        suspend (VerifiedCloudRestoreOwnerProof) ->
+            CloudRestoreOwnershipFinalizationResult,
+    currentSession: () -> CloudRestoreOwnershipAccount?,
+    activateCloudRecovery: suspend () -> CloudRecoveryRestoreResult,
+): CloudRecoveryRestoreResult {
+    try {
+        val ownershipFinalization =
+            finalizeOwnership(ownerProof)
+        if (
+            ownershipFinalization ==
+            CloudRestoreOwnershipFinalizationResult
+                .RestoredButOwnershipFinalizationPending
+        ) {
+            return CloudRecoveryRestoreResult
+                .RestoredButOwnershipFinalizationPending
+        }
+        if (!ownerProof.matchesCurrentSession(currentSession())) {
+            return CloudRecoveryRestoreResult
+                .RestoredButOwnershipFinalizationPending
+        }
+        return combineCloudRestoreCompletion(
+            ownershipFinalization = ownershipFinalization,
+            activation = activateCloudRecovery(),
+        )
+    } finally {
+        rawDek.fill(0)
+    }
+}
+
+internal fun combineCloudRestoreCompletion(
+    ownershipFinalization: CloudRestoreOwnershipFinalizationResult,
+    activation: CloudRecoveryRestoreResult,
+): CloudRecoveryRestoreResult =
+    when (ownershipFinalization) {
+        CloudRestoreOwnershipFinalizationResult.Success -> activation
+        CloudRestoreOwnershipFinalizationResult.SuccessBackupRefreshPending ->
+            if (
+                activation ==
+                CloudRecoveryRestoreResult.RestoredButCloudRecoverySetupFailed
+            ) {
+                activation
+            } else {
+                CloudRecoveryRestoreResult.SuccessBackupRefreshPending
+            }
+        CloudRestoreOwnershipFinalizationResult.SuccessRequiresOnboardingSetup ->
+            if (
+                activation ==
+                CloudRecoveryRestoreResult
+                    .RestoredButCloudRecoverySetupFailed
+            ) {
+                CloudRecoveryRestoreResult
+                    .SuccessRequiresOnboardingSetupCloudRecoverySetupFailed
+            } else {
+                CloudRecoveryRestoreResult.SuccessRequiresOnboardingSetup
+            }
+        CloudRestoreOwnershipFinalizationResult
+            .RestoredButOwnershipFinalizationPending ->
+            CloudRecoveryRestoreResult.RestoredButOwnershipFinalizationPending
+    }
 
 internal suspend fun downloadCloudRecoveryEnvelope(
     hasGoogleProvider: Boolean,
@@ -519,6 +834,17 @@ public sealed interface CloudRecoveryRestoreDiscovery {
     ) : CloudRecoveryRestoreDiscovery
 }
 
+public sealed interface CloudRecoveryOwnerConfirmation {
+    public data object None : CloudRecoveryOwnerConfirmation
+    public data object ConfirmedSameGoogleIdentity : CloudRecoveryOwnerConfirmation
+    public data object ConfirmedLegacyEnvelope : CloudRecoveryOwnerConfirmation
+}
+
+public enum class CloudRecoveryOwnerConfirmationKind {
+    SameGoogleIdentity,
+    LegacyEnvelope,
+}
+
 public sealed interface CloudRecoveryRestoreResult {
     public data object Success :
         CloudRecoveryRestoreResult
@@ -527,6 +853,15 @@ public sealed interface CloudRecoveryRestoreResult {
         CloudRecoveryRestoreResult
 
     public data object RestoredButCloudRecoverySetupFailed :
+        CloudRecoveryRestoreResult
+
+    public data object SuccessRequiresOnboardingSetup :
+        CloudRecoveryRestoreResult
+
+    public data object SuccessRequiresOnboardingSetupCloudRecoverySetupFailed :
+        CloudRecoveryRestoreResult
+
+    public data object RestoredButOwnershipFinalizationPending :
         CloudRecoveryRestoreResult
 
     public data object NotSignedIn :
@@ -545,7 +880,7 @@ public sealed interface CloudRecoveryRestoreResult {
         CloudRecoveryRestoreResult
 
     public data class OwnerMigrationConfirmationRequired(
-        val legacyEnvelope: Boolean,
+        val kind: CloudRecoveryOwnerConfirmationKind,
     ) : CloudRecoveryRestoreResult
 
     public data object ReplacementConfirmationRequired :

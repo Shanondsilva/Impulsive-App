@@ -2,11 +2,14 @@ package com.impulsive.app.backend.data.restore
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.entity.BlockedDomainEntity
+import com.impulsive.app.backend.data.local.entity.CloudRestoreReceiptEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
+import com.impulsive.app.backend.data.local.entity.requireValid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -18,6 +21,17 @@ import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
 
+internal sealed interface AutoRestoreOwnerProof {
+    data class ExactUid(
+        val currentUid: String,
+    ) : AutoRestoreOwnerProof
+
+    data class ConfirmedSameGoogleIdentity(
+        val currentUid: String,
+        val currentGoogleSubjectHash: String,
+    ) : AutoRestoreOwnerProof
+}
+
 sealed interface AutoRestoreResult {
     data object NoBundle : AutoRestoreResult
     data object Restored : AutoRestoreResult
@@ -25,6 +39,7 @@ sealed interface AutoRestoreResult {
     data object InvalidBundle : AutoRestoreResult
     data object OwnerMismatch : AutoRestoreResult
     data object LegacyUnownedBundle : AutoRestoreResult
+    data object LegacyOwnerVerificationRequired : AutoRestoreResult
 
     data class Failed(
         val cause: Throwable?,
@@ -75,6 +90,13 @@ class RestoreBundleImporter(
         private const val MaxDomainChars = 253
     }
 
+    private data class ParsedAutomaticBundle(
+        val formatVersion: Int,
+        val ownerUid: String,
+        val ownerGoogleSubjectHash: String?,
+        val payload: JSONObject,
+    )
+
     private data class ValidatedRestorePayload(
         val notes: List<ValidatedJournalNote>,
         val checklistItems: List<ValidatedChecklistItem>,
@@ -106,17 +128,9 @@ class RestoreBundleImporter(
         ReplaceRestoreBundleData,
     }
 
-    suspend fun importIfNeeded(
-        expectedOwnerUid: String,
+    internal suspend fun importIfNeeded(
+        ownerProof: AutoRestoreOwnerProof,
     ): AutoRestoreResult = withContext(Dispatchers.IO) {
-        val normalizedExpectedOwnerUid = expectedOwnerUid.trim()
-        if (
-            normalizedExpectedOwnerUid.isBlank() ||
-            normalizedExpectedOwnerUid.length > MaxOwnerUidChars
-        ) {
-            return@withContext AutoRestoreResult.OwnerMismatch
-        }
-
         val bundleFile = File(
             File(appContext.filesDir, RestoreBundleWriter.DirectoryName),
             RestoreBundleWriter.FileName,
@@ -125,11 +139,10 @@ class RestoreBundleImporter(
             return@withContext AutoRestoreResult.NoBundle
         }
 
-        val parsed = runCatching {
+        val parsed = try {
             val bundleBytes = bundleFile.inputStream().use { input ->
                 input.readBounded(MaxAutoBundleBytes)
             }
-
             val bundle = JSONObject(
                 decodeUtf8Strict(bundleBytes),
             )
@@ -141,82 +154,22 @@ class RestoreBundleImporter(
                 return@withContext AutoRestoreResult.LegacyUnownedBundle
             }
 
-            val autoBundleFormatVersion = strictRequiredInt(
-                bundle,
-                "autoBundleFormatVersion",
-            )
-            if (autoBundleFormatVersion != RestoreBundleWriter.AutoBundleFormatVersion) {
-                return@runCatching null
-            }
-
-            val ownerUid = requireBoundedString(
-                bundle,
-                "ownerUid",
-                MaxOwnerUidChars,
-            ).trim()
-
-            require(ownerUid.isNotBlank()) {
-                "ownerUid must not be blank"
-            }
-
-            if (ownerUid != normalizedExpectedOwnerUid) {
-                return@withContext AutoRestoreResult.OwnerMismatch
-            }
-
-            val schemaVersion = strictRequiredInt(
-                bundle,
-                "schemaVersion",
-            )
-            val payloadJson = requireBoundedString(
-                bundle,
-                "payloadJson",
-                MaxPayloadBytes,
-            )
-            val checksum = requireBoundedString(
-                bundle,
-                "checksumSha256",
-                64,
-            )
-
-            require(checksum.length == 64) {
-                "checksumSha256 must be exactly 64 characters"
-            }
-
-            require(checksum.all { character ->
-                character in '0'..'9' ||
-                    character in 'a'..'f'
-            }) {
-                "checksumSha256 must be lowercase hexadecimal"
-            }
-
-            if (schemaVersion != RestoreBundleWriter.SchemaVersion) return@runCatching null
-            if (
-                sha256Hex(
-                    RestoreBundleWriter.automaticBundleChecksumMaterial(
-                        ownerUid = ownerUid,
-                        payloadJson = payloadJson,
-                    ),
-                ) != checksum
-            ) {
-                return@runCatching null
-            }
-
-            val payloadBytes = payloadJson.toByteArray(Charsets.UTF_8)
-
-            if (payloadBytes.size > MaxPayloadBytes) {
-                return@runCatching null
-            }
-
-            JSONObject(payloadJson)
-        }.getOrNull()
-
-        if (parsed == null) {
+            parseAutomaticBundle(bundle)
+        } catch (error: IllegalArgumentException) {
+            bundleFile.delete()
+            return@withContext AutoRestoreResult.InvalidBundle
+        } catch (error: org.json.JSONException) {
             bundleFile.delete()
             return@withContext AutoRestoreResult.InvalidBundle
         }
 
+        when (val proofResult = validateOwnerProof(ownerProof, parsed)) {
+            null -> Unit
+            else -> return@withContext proofResult
+        }
+
         try {
-            when (importPayload(parsed)) {
+            when (importPayload(parsed.payload)) {
                 ImportOutcome.Success -> {
                     bundleFile.delete()
                     AutoRestoreResult.Restored
@@ -236,6 +189,157 @@ class RestoreBundleImporter(
             AutoRestoreResult.Failed(error)
         }
     }
+
+    private fun parseAutomaticBundle(
+        bundle: JSONObject,
+    ): ParsedAutomaticBundle {
+        val autoBundleFormatVersion = strictRequiredInt(
+            bundle,
+            "autoBundleFormatVersion",
+        )
+        val ownerUid = requireBoundedString(
+            bundle,
+            "ownerUid",
+            MaxOwnerUidChars,
+        ).trim()
+
+        require(ownerUid.isNotBlank()) {
+            "ownerUid must not be blank"
+        }
+
+        val schemaVersion = strictRequiredInt(
+            bundle,
+            "schemaVersion",
+        )
+        val payloadJson = requireBoundedString(
+            bundle,
+            "payloadJson",
+            MaxPayloadBytes,
+        )
+        val checksum = requireBoundedString(
+            bundle,
+            "checksumSha256",
+            64,
+        )
+
+        require(checksum.length == 64) {
+            "checksumSha256 must be exactly 64 characters"
+        }
+
+        require(checksum.all { character ->
+            character in '0'..'9' ||
+                character in 'a'..'f'
+        }) {
+            "checksumSha256 must be lowercase hexadecimal"
+        }
+
+        require(schemaVersion == RestoreBundleWriter.SchemaVersion) {
+            "Unsupported restore bundle schema version"
+        }
+
+        val ownerGoogleSubjectHash = when (autoBundleFormatVersion) {
+            2 -> null
+            3 -> parseOwnerGoogleSubjectHash(bundle)
+            else -> throw IllegalArgumentException(
+                "Unsupported automatic restore bundle version",
+            )
+        }
+
+        val checksumMaterial = when (autoBundleFormatVersion) {
+            2 -> RestoreBundleWriter.automaticBundleChecksumMaterialV2(
+                ownerUid = ownerUid,
+                payloadJson = payloadJson,
+            )
+
+            3 -> RestoreBundleWriter.automaticBundleChecksumMaterialV3(
+                ownerUid = ownerUid,
+                ownerGoogleSubjectHash = ownerGoogleSubjectHash,
+                payloadJson = payloadJson,
+            )
+
+            else -> error("Unsupported format checked above")
+        }
+
+        require(sha256Hex(checksumMaterial) == checksum) {
+            "Automatic restore bundle checksum mismatch"
+        }
+
+        val payloadBytes = payloadJson.toByteArray(Charsets.UTF_8)
+        require(payloadBytes.size <= MaxPayloadBytes) {
+            "payloadJson exceeds maximum allowed size"
+        }
+
+        return ParsedAutomaticBundle(
+            formatVersion = autoBundleFormatVersion,
+            ownerUid = ownerUid,
+            ownerGoogleSubjectHash = ownerGoogleSubjectHash,
+            payload = JSONObject(payloadJson),
+        )
+    }
+
+    private fun parseOwnerGoogleSubjectHash(
+        bundle: JSONObject,
+    ): String? {
+        require(bundle.has("ownerGoogleSubjectHash")) {
+            "ownerGoogleSubjectHash is required for version 3 bundles"
+        }
+
+        if (bundle.isNull("ownerGoogleSubjectHash")) {
+            return null
+        }
+
+        val value = bundle.get("ownerGoogleSubjectHash")
+        require(value is String) {
+            "ownerGoogleSubjectHash must be a string or null"
+        }
+        require(isValidGoogleSubjectHash(value)) {
+            "ownerGoogleSubjectHash is invalid"
+        }
+        return value
+    }
+
+    private fun validateOwnerProof(
+        ownerProof: AutoRestoreOwnerProof,
+        parsed: ParsedAutomaticBundle,
+    ): AutoRestoreResult? = when (ownerProof) {
+        is AutoRestoreOwnerProof.ExactUid -> {
+            val normalizedCurrentUid = ownerProof.currentUid.trim()
+            if (
+                normalizedCurrentUid.isBlank() ||
+                normalizedCurrentUid.length > MaxOwnerUidChars ||
+                parsed.ownerUid != normalizedCurrentUid
+            ) {
+                AutoRestoreResult.OwnerMismatch
+            } else {
+                null
+            }
+        }
+
+        is AutoRestoreOwnerProof.ConfirmedSameGoogleIdentity -> {
+            val normalizedCurrentUid = ownerProof.currentUid.trim()
+            if (
+                normalizedCurrentUid.isBlank() ||
+                normalizedCurrentUid.length > MaxOwnerUidChars ||
+                !isValidGoogleSubjectHash(ownerProof.currentGoogleSubjectHash)
+            ) {
+                AutoRestoreResult.OwnerMismatch
+            } else if (parsed.formatVersion != 3) {
+                AutoRestoreResult.LegacyOwnerVerificationRequired
+            } else {
+                val parsedGoogleSubjectHash = parsed.ownerGoogleSubjectHash
+                when {
+                    parsedGoogleSubjectHash == null ->
+                        AutoRestoreResult.LegacyOwnerVerificationRequired
+                    !isValidGoogleSubjectHash(parsedGoogleSubjectHash) ->
+                        AutoRestoreResult.LegacyOwnerVerificationRequired
+                    parsedGoogleSubjectHash != ownerProof.currentGoogleSubjectHash ->
+                        AutoRestoreResult.OwnerMismatch
+                    else -> null
+                }
+            }
+        }
+    }
+
     suspend fun hasExistingUserData(): Boolean = withContext(Dispatchers.IO) {
         hasExistingUserData(database)
     }
@@ -623,7 +727,9 @@ class RestoreBundleImporter(
     suspend fun importPayload(
         parsed: JSONObject,
         mode: ImportMode = ImportMode.RejectIfExistingData,
+        cloudRestoreReceipt: CloudRestoreReceiptEntity? = null,
     ): ImportOutcome = withContext(Dispatchers.IO) {
+        cloudRestoreReceipt?.requireValid()
         val validatedPayload = validatePayload(parsed)
 
         database.withTransaction {
@@ -691,6 +797,10 @@ class RestoreBundleImporter(
                 blockedDomainDao.insertForRestore(
                     domain,
                 )
+            }
+
+            cloudRestoreReceipt?.let { receipt ->
+                database.cloudRestoreReceiptDao().insert(receipt)
             }
 
             ImportOutcome.Success

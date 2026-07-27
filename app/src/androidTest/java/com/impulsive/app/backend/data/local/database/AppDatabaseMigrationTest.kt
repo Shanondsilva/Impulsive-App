@@ -167,5 +167,133 @@ class AppDatabaseMigrationTest {
         }
     }
 
+    @Test
+    @Throws(IOException::class)
+    fun migrate6To7CreatesEmptyReceiptTableAndPreservesUserData() {
+        helper.createDatabase(testDbName, 6).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO recovery_sessions (
+                    startedAt,
+                    completedAt,
+                    durationSeconds,
+                    urgeBefore,
+                    urgeAfter,
+                    helped,
+                    triggerSource,
+                    recoveryType
+                )
+                VALUES (
+                    7000,
+                    8000,
+                    90,
+                    6,
+                    2,
+                    1,
+                    'migration_test',
+                    'breathing'
+                )
+                """.trimIndent(),
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            testDbName,
+            7,
+            true,
+            AppDatabase.Migration6To7,
+        ).use { db ->
+            db.query(
+                "SELECT COUNT(*) FROM cloud_restore_receipts",
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(0, cursor.getInt(0))
+            }
+            db.query(
+                """
+                SELECT startedAt, recoveryType
+                FROM recovery_sessions
+                """.trimIndent(),
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(7000L, cursor.getLong(0))
+                assertEquals("breathing", cursor.getString(1))
+            }
+            db.query("PRAGMA user_version").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(7, cursor.getInt(0))
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun completeExportedMigrationPathReachesVersion7() {
+        helper.createDatabase(testDbName, 3).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO journal_notes (
+                    noteType,
+                    title,
+                    body,
+                    checklist,
+                    sketch,
+                    reminderAtMillis,
+                    source,
+                    createdAtMillis,
+                    updatedAtMillis,
+                    isPinned,
+                    category,
+                    highlightColor,
+                    sortOrder
+                )
+                VALUES (
+                    'TEXT',
+                    'Survives',
+                    'Migration content',
+                    '',
+                    '',
+                    NULL,
+                    'normal_journal',
+                    100,
+                    200,
+                    0,
+                    '',
+                    NULL,
+                    NULL
+                )
+                """.trimIndent(),
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            testDbName,
+            7,
+            true,
+            AppDatabase.Migration3To4,
+            AppDatabase.Migration4To5,
+            AppDatabase.Migration5To6,
+            AppDatabase.Migration6To7,
+        ).use { db ->
+            db.query(
+                "SELECT title, body FROM journal_notes",
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("Survives", cursor.getString(0))
+                assertEquals("Migration content", cursor.getString(1))
+            }
+            db.query(
+                "SELECT COUNT(*) FROM cloud_restore_receipts",
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(0, cursor.getInt(0))
+            }
+            db.query("PRAGMA user_version").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(7, cursor.getInt(0))
+            }
+        }
+    }
+
     private fun assertTrue(value: Boolean) = assertEquals(true, value)
 }

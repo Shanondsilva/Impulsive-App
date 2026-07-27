@@ -3,10 +3,12 @@ package com.impulsive.app.backend.data.restore.cloud
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
+import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 
 internal const val CloudRecoveryStorageRootPath = "cloud_recovery"
+internal const val CloudRecoveryStorageContentType = "application/json"
 
 internal fun cloudRecoveryStoragePath(uid: String): String {
     require(uid.isNotBlank()) { "Firebase UID is required for cloud recovery storage." }
@@ -26,11 +28,18 @@ internal class FirebaseStorageCloudRecoveryTransport(
     override val kind: CloudRecoveryTransportKind = CloudRecoveryTransportKind.FirebaseStorage
     override val requiresDriveAuthorization: Boolean = false
 
+    private val uploadMetadata =
+        StorageMetadata.Builder()
+            .setContentType(CloudRecoveryStorageContentType)
+            .build()
+
     override suspend fun upload(
         envelopeBytes: ByteArray,
         driveAccessToken: String?,
     ): CloudRecoveryTransportOutcome<Unit> = withStorageOutcome {
-        referenceForCurrentAccount().putBytes(envelopeBytes).await()
+        referenceForCurrentAccount()
+            .putBytes(envelopeBytes, uploadMetadata)
+            .await()
         Unit
     }
 

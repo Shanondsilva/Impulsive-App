@@ -6,31 +6,166 @@ import org.junit.Test
 
 class WebsiteProtectionPackageAttributorTest {
     @Test
+    fun `exact owner equals current foreground protected browser is accepted`() {
+        val decision = decide(
+            exactAttribution = exact(Chrome),
+            currentForegroundPackage = Chrome,
+        )
+
+        assertEquals(Chrome, decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.ExactOwnerMatchesCurrentForeground,
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun `exact owner equals fresh recently observed foreground browser is accepted`() {
+        val decision = decide(
+            exactAttribution = exact(Brave),
+            currentForegroundPackage = "com.android.systemui",
+            recentForegroundBrowser = recent(Brave),
+        )
+
+        assertEquals(Brave, decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.ExactOwnerMatchesRecentForeground,
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun `owner unavailable plus current protected browser is accepted`() {
+        val decision = decide(
+            exactAttribution = ExactWebsitePackageAttribution.Unavailable,
+            currentForegroundPackage = Brave,
+        )
+
+        assertEquals(Brave, decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.CurrentForegroundUsedBecauseOwnerUnavailable,
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun `owner unavailable plus fresh recent protected browser is accepted`() {
+        val decision = decide(
+            exactAttribution = ExactWebsitePackageAttribution.Unavailable,
+            currentForegroundPackage = "com.android.systemui",
+            recentForegroundBrowser = recent(Brave),
+        )
+
+        assertEquals(Brave, decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.RecentForegroundUsedBecauseOwnerUnavailable,
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun `ambiguous owner plus fresh recent protected browser is accepted`() {
+        val decision = decide(
+            exactAttribution = ExactWebsitePackageAttribution.Ambiguous,
+            currentForegroundPackage = "com.android.systemui",
+            recentForegroundBrowser = recent(Brave),
+        )
+
+        assertEquals(Brave, decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.RecentForegroundUsedBecauseOwnerAmbiguous,
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun `exact different selected browser from current is rejected`() {
+        val decision = decide(
+            exactAttribution = exact(Chrome),
+            currentForegroundPackage = Brave,
+            recentForegroundBrowser = recent(Chrome),
+        )
+
+        assertNull(decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.RejectedExactDifferentBrowser,
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun `background browser without current or recent match is rejected`() {
+        val decision = decide(
+            exactAttribution = exact(Chrome),
+            currentForegroundPackage = "com.example.other",
+            recentForegroundBrowser = null,
+        )
+
+        assertNull(decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.RejectedNoCurrentOrRecentBrowser,
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun `stale recent browser cannot be used as attribution fallback`() {
+        val decision = decide(
+            exactAttribution = ExactWebsitePackageAttribution.Unavailable,
+            currentForegroundPackage = "com.android.systemui",
+            recentForegroundBrowser = RecentForegroundWebsiteBrowser(
+                packageName = Brave,
+                observedAtEpochMillis = Now -
+                    RecentForegroundWebsiteBrowserFreshnessMillis - 1L,
+            ),
+        )
+
+        assertNull(decision.packageName)
+    }
+
+    @Test
+    fun `foreground browser outside VPN allowed set is rejected`() {
+        val decision = decide(
+            exactAttribution = ExactWebsitePackageAttribution.Unavailable,
+            currentForegroundPackage = Brave,
+            vpnAllowedPackages = setOf(Chrome),
+        )
+
+        assertNull(decision.packageName)
+    }
+
+    @Test
+    fun `exact non selected connection owner cannot be replaced by foreground browser`() {
+        val decision = decide(
+            exactAttribution = ExactWebsitePackageAttribution.NonSelectedOwner,
+            currentForegroundPackage = Brave,
+        )
+
+        assertNull(decision.packageName)
+        assertEquals(
+            WebsiteIncidentAttributionReason.RejectedExactOwnerNotEligible,
+            decision.reason,
+        )
+    }
+
+    @Test
     fun `exact owner package selected from protected set`() {
         assertEquals(
-            "com.android.chrome",
+            Chrome,
             selectAttributedWebsitePackage(
-                ownerPackages = setOf("com.android.chrome"),
-                selectedPackages = setOf(
-                    "com.android.chrome",
-                    "com.sec.android.app.sbrowser",
-                ),
+                ownerPackages = setOf(Chrome),
+                selectedPackages = SelectedBrowsers,
             ),
         )
     }
 
     @Test
-    fun `foreground package cannot override exact owner package`() {
-        val foregroundPackage = "com.sec.android.app.sbrowser"
-
+    fun `foreground package cannot override exact owner package selection`() {
         assertEquals(
-            "com.android.chrome",
+            Chrome,
             selectAttributedWebsitePackage(
-                ownerPackages = setOf("com.android.chrome"),
-                selectedPackages = setOf(
-                    "com.android.chrome",
-                    foregroundPackage,
-                ),
+                ownerPackages = setOf(Chrome),
+                selectedPackages = SelectedBrowsers,
             ),
         )
     }
@@ -40,7 +175,7 @@ class WebsiteProtectionPackageAttributorTest {
         assertNull(
             selectAttributedWebsitePackage(
                 ownerPackages = setOf("com.instagram.android"),
-                selectedPackages = setOf("com.android.chrome"),
+                selectedPackages = setOf(Chrome),
             ),
         )
     }
@@ -49,55 +184,41 @@ class WebsiteProtectionPackageAttributorTest {
     fun `shared uid with multiple selected packages is ambiguous`() {
         assertNull(
             selectAttributedWebsitePackage(
-                ownerPackages = setOf(
-                    "com.example.one",
-                    "com.example.two",
-                ),
-                selectedPackages = setOf(
-                    "com.example.one",
-                    "com.example.two",
-                ),
+                ownerPackages = SelectedBrowsers,
+                selectedPackages = SelectedBrowsers,
             ),
         )
     }
 
-    @Test
-    fun `single selected app fallback is allowed only when vpn allowed set matches`() {
-        assertEquals(
-            "com.android.chrome",
-            selectSingleWebsitePackageFallback(
-                selectedPackages = setOf("com.android.chrome"),
-                vpnAllowedPackages = setOf("com.android.chrome"),
-            ),
+    private fun decide(
+        exactAttribution: ExactWebsitePackageAttribution,
+        currentForegroundPackage: String?,
+        recentForegroundBrowser: RecentForegroundWebsiteBrowser? = null,
+        websiteProtectedPackages: Set<String> = SelectedBrowsers,
+        vpnAllowedPackages: Set<String> = SelectedBrowsers,
+    ): WebsiteIncidentAttributionDecision =
+        decideWebsiteIncidentAttribution(
+            exactAttribution = exactAttribution,
+            currentForegroundPackage = currentForegroundPackage,
+            recentForegroundBrowser = recentForegroundBrowser,
+            websiteProtectedPackages = websiteProtectedPackages,
+            vpnAllowedPackages = vpnAllowedPackages,
+            nowEpochMillis = Now,
         )
-    }
 
-    @Test
-    fun `multiple selected apps with unknown owner have no fallback attribution`() {
-        assertNull(
-            selectSingleWebsitePackageFallback(
-                selectedPackages = setOf(
-                    "com.android.chrome",
-                    "com.sec.android.app.sbrowser",
-                ),
-                vpnAllowedPackages = setOf(
-                    "com.android.chrome",
-                    "com.sec.android.app.sbrowser",
-                ),
-            ),
-        )
-    }
+    private fun exact(packageName: String) =
+        ExactWebsitePackageAttribution.SelectedPackage(packageName)
 
-    @Test
-    fun `single selected app fallback is rejected when vpn allowed set differs`() {
-        assertNull(
-            selectSingleWebsitePackageFallback(
-                selectedPackages = setOf("com.android.chrome"),
-                vpnAllowedPackages = setOf(
-                    "com.android.chrome",
-                    "com.example.other",
-                ),
-            ),
+    private fun recent(packageName: String) =
+        RecentForegroundWebsiteBrowser(
+            packageName = packageName,
+            observedAtEpochMillis = Now - 1_000L,
         )
+
+    private companion object {
+        const val Now = 100_000L
+        const val Chrome = "com.android.chrome"
+        const val Brave = "com.brave.browser"
+        val SelectedBrowsers = setOf(Chrome, Brave)
     }
 }

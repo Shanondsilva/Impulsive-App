@@ -7,11 +7,13 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.impulsive.app.backend.data.local.dao.BlockedDomainDao
+import com.impulsive.app.backend.data.local.dao.CloudRestoreReceiptDao
 import com.impulsive.app.backend.data.local.dao.FeedbackResponseDao
 import com.impulsive.app.backend.data.local.dao.JournalNoteDao
 import com.impulsive.app.backend.data.local.dao.RecoverySessionDao
 import com.impulsive.app.backend.data.local.dao.SyncTombstoneDao
 import com.impulsive.app.backend.data.local.entity.BlockedDomainEntity
+import com.impulsive.app.backend.data.local.entity.CloudRestoreReceiptEntity
 import com.impulsive.app.backend.data.local.entity.FeedbackResponseEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
@@ -28,8 +30,9 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         BlockedDomainEntity::class,
         FeedbackResponseEntity::class,
         SyncTombstoneEntity::class,
+        CloudRestoreReceiptEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +41,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun blockedDomainDao(): BlockedDomainDao
     abstract fun feedbackResponseDao(): FeedbackResponseDao
     abstract fun syncTombstoneDao(): SyncTombstoneDao
+    abstract fun cloudRestoreReceiptDao(): CloudRestoreReceiptDao
 
     companion object {
         private const val DatabaseName = "impulsive.db"
@@ -176,6 +180,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val Migration6To7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cloud_restore_receipts (
+                        receiptId TEXT NOT NULL PRIMARY KEY,
+                        payloadSha256 TEXT NOT NULL,
+                        proofType TEXT NOT NULL,
+                        previousUid TEXT,
+                        previousGoogleSubjectHash TEXT,
+                        currentUid TEXT NOT NULL,
+                        currentGoogleSubjectHash TEXT,
+                        importedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -204,6 +227,7 @@ abstract class AppDatabase : RoomDatabase() {
                             Migration3To4,
                             Migration4To5,
                             Migration5To6,
+                            Migration6To7,
                         )
                         .build()
                         .also { database ->

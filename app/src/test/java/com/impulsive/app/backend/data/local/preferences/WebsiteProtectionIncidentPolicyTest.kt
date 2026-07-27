@@ -1,5 +1,6 @@
 package com.impulsive.app.backend.data.local.preferences
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -7,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebsiteProtectionIncidentPolicyTest {
+
     @Test
     fun `new adult incident starts active lease at zero`() {
         val record = newFriction(now = 0L)
@@ -18,6 +20,7 @@ class WebsiteProtectionIncidentPolicyTest {
         assertNull(record.pausedAtEpochMillis)
         assertNull(record.cooldownStartedAtEpochMillis)
         assertNull(record.cooldownUntilEpochMillis)
+        assertEquals(0L, record.incidentStartedAtEpochMillis)
     }
 
     @Test
@@ -126,6 +129,7 @@ class WebsiteProtectionIncidentPolicyTest {
         assertEquals(WebsiteProtectionIncidentPhase.Cooldown, cooldown.phase)
         assertEquals(30_000L, cooldown.cooldownStartedAtEpochMillis)
         assertEquals(450_000L, cooldown.cooldownUntilEpochMillis)
+        assertEquals(0L, cooldown.incidentStartedAtEpochMillis)
         assertTrue(cooldown.isCooldownActive(449_999L))
         assertFalse(cooldown.isCooldownActive(450_000L))
     }
@@ -166,6 +170,53 @@ class WebsiteProtectionIncidentPolicyTest {
     }
 
     @Test
+    fun `adult activity updates and friction to cooldown preserve first incident timestamp`() {
+        val initial = newFriction(now = 5_000L)
+        val refreshed = initial.adultActivityAt(15_000L)
+        val cooldown = refreshed
+            .adultActivityAt(25_000L)
+            .adultActivityAt(35_000L)
+
+        assertEquals(5_000L, refreshed.incidentStartedAtEpochMillis)
+        assertEquals(WebsiteProtectionIncidentPhase.Cooldown, cooldown.phase)
+        assertEquals(5_000L, cooldown.incidentStartedAtEpochMillis)
+    }
+
+    @Test
+    fun `legacy incident start migration uses required safe precedence`() {
+        assertEquals(
+            1_000L,
+            deriveStart(
+                explicit = 1_000L,
+                active = 2_000L,
+                lastAdult = 3_000L,
+                cooldown = 40_000L,
+                accumulated = 30_000L,
+            ),
+        )
+        assertEquals(2_000L, deriveStart(active = 2_000L, lastAdult = 3_000L))
+        assertEquals(3_000L, deriveStart(lastAdult = 3_000L))
+        assertEquals(
+            10_000L,
+            deriveStart(cooldown = 40_000L, accumulated = 30_000L),
+        )
+        assertEquals(99_000L, deriveStart())
+    }
+
+    @Test
+    fun `incident start is encoded and legacy decode derives safe fallback`() {
+        val source = File(
+            "src/main/java/com/impulsive/app/backend/data/local/preferences/" +
+                "WebsiteProtectionIncidentDataSource.kt",
+        ).readText()
+
+        assertTrue(source.contains("IncidentStartedAtKey"))
+        assertTrue(source.contains("record.incidentStartedAtEpochMillis"))
+        assertTrue(source.contains("optionalLong(json, IncidentStartedAtKey)"))
+        assertTrue(source.contains("deriveWebsiteProtectionIncidentStartedAt("))
+    }
+
+    @Test
     fun `friction record without adult activity timestamp is rejected`() {
         val malformed = newFriction(now = 0L).copy(
             lastAdultActivityAtEpochMillis = null,
@@ -177,6 +228,22 @@ class WebsiteProtectionIncidentPolicyTest {
             ),
         )
     }
+
+    private fun deriveStart(
+        explicit: Long? = null,
+        active: Long? = null,
+        lastAdult: Long? = null,
+        cooldown: Long? = null,
+        accumulated: Long = 0L,
+    ): Long =
+        deriveWebsiteProtectionIncidentStartedAt(
+            explicitIncidentStartedAtEpochMillis = explicit,
+            activeSegmentStartedAtEpochMillis = active,
+            lastAdultActivityAtEpochMillis = lastAdult,
+            cooldownStartedAtEpochMillis = cooldown,
+            accumulatedFrictionMillis = accumulated,
+            nowEpochMillis = 99_000L,
+        )
 
     private fun assertPausedProgressAt(
         nowEpochMillis: Long,
@@ -248,6 +315,8 @@ class WebsiteProtectionIncidentPolicyTest {
             pausedAtEpochMillis = null,
             cooldownStartedAtEpochMillis = startedAt,
             cooldownUntilEpochMillis = startedAt + WebsiteProtectionIncidentPolicy.CooldownMillis,
+            incidentStartedAtEpochMillis =
+                startedAt - WebsiteProtectionIncidentPolicy.FrictionMillis,
         )
 
     private companion object {

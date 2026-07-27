@@ -13,9 +13,12 @@ import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.IntentSenderRequest
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryRestoreCoordinator
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOwnerConfirmation
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOwnerConfirmationKind
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryRestoreDiscovery
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryRestoreResult
 import com.impulsive.app.backend.data.restore.cloud.DriveAppDataAuthorization
@@ -30,6 +33,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,9 +47,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -76,6 +82,7 @@ import com.impulsive.app.backend.session.onboarding.AccountLocalDataResetState
 import com.impulsive.app.backend.session.onboarding.OnboardingAccountResolutionState
 import com.impulsive.app.backend.session.onboarding.OnboardingCompletionState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
+import com.impulsive.app.backend.session.onboarding.RestoredAccountMigrationUiState
 import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.screens.dashboard.HomeScreen
@@ -218,6 +225,8 @@ fun AppNavHost(
     val onboardingAccountResolutionState by
         onboardingViewModel.accountResolutionState.collectAsStateWithLifecycle()
     val accountRestoreState by onboardingViewModel.accountRestoreState.collectAsStateWithLifecycle()
+    val restoredAccountMigrationState by
+        onboardingViewModel.restoredAccountMigrationState.collectAsStateWithLifecycle()
     val accountLocalDataResetState by
         onboardingViewModel
             .accountLocalDataResetState
@@ -498,6 +507,9 @@ fun AppNavHost(
     }
 
     if (state.isLoading) {
+        ImpulsiveLoadingSurface(
+            blockRequestPending = initialBlockRequest != null,
+        )
         return
     }
 
@@ -534,23 +546,55 @@ fun AppNavHost(
         }
     }
 
-    LaunchedEffect(initialBlockRequest, mainGraphAllowed) {
+    LaunchedEffect(
+        initialBlockRequest,
+        mainGraphAllowed,
+        bottomNavCurrentEntry,
+    ) {
         val request = initialBlockRequest
-        if (request != null && mainGraphAllowed) {
-            val targetRoute = when (request.launchTarget) {
-                BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
-                BlockLaunchTarget.RandomRecoveryGame ->
-                    AppRoutes.randomRecoveryGame(request.sourcePackageName)
-                BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
-                BlockLaunchTarget.BlockScreen -> AppRoutes.impulsiveBlock(
-                    sourcePackageName = request.sourcePackageName,
-                    sourceLabel = request.sourceLabel,
+        val currentEntry = bottomNavCurrentEntry
+        if (
+            request != null &&
+            mainGraphAllowed &&
+            currentEntry != null
+        ) {
+            val currentRoutePattern = currentEntry.destination.route
+            val currentSourcePackageName =
+                if (
+                    currentRoutePattern == AppRoutes.RandomRecoveryGame ||
+                    currentRoutePattern == AppRoutes.ImpulsiveBlock
+                ) {
+                    Uri.decode(
+                        currentEntry.arguments
+                            ?.getString("sourcePackageName")
+                            .orEmpty(),
+                    )
+                } else {
+                    null
+                }
+            val currentSourceLabel =
+                if (currentRoutePattern == AppRoutes.ImpulsiveBlock) {
+                    Uri.decode(
+                        currentEntry.arguments
+                            ?.getString("sourceLabel")
+                            .orEmpty(),
+                    )
+                } else {
+                    null
+                }
+
+            if (
+                !blockRequestDestinationMatches(
+                    currentRoutePattern = currentRoutePattern,
+                    currentSourcePackageName = currentSourcePackageName,
+                    currentSourceLabel = currentSourceLabel,
+                    request = request,
                 )
+            ) {
+                navController.navigate(blockRequestDestinationRoute(request)) {
+                    launchSingleTop = true
+                }
             }
-            navController.navigate(targetRoute) {
-                launchSingleTop = true
-            }
-            onBlockRequestConsumed()
         }
     }
 
@@ -583,25 +627,6 @@ fun AppNavHost(
             navController.navigate(OnboardingRoutes.LoginSignupGuest) {
                 launchSingleTop = true
             }
-        }
-    }
-
-    // When the app was launched by a block, start the main graph directly on the
-    // pause screen (or the focus recovery screen) so the dark home background does
-    // not flash before the navigation lands on it. Computed once after loading.
-    val mainStartDestination = remember(mainGraphAllowed) {
-        val request = initialBlockRequest
-        when {
-            !mainGraphAllowed -> AppRoutes.Home
-            request == null -> AppRoutes.Home
-            request.launchTarget == BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
-            request.launchTarget == BlockLaunchTarget.RandomRecoveryGame ->
-                AppRoutes.randomRecoveryGame(request.sourcePackageName)
-            request.launchTarget == BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
-            else -> AppRoutes.impulsiveBlock(
-                sourcePackageName = request.sourcePackageName,
-                sourceLabel = request.sourceLabel,
-            )
         }
     }
 
@@ -719,6 +744,28 @@ fun AppNavHost(
                 AuthenticatedOnboardingDecisionDialog(
                     decision = pendingAccountDecision,
                     onTryAgain = ::resolveOnboardingForAuthenticatedAccount,
+                    onConfirmSameGoogleRestore = {
+                        onboardingViewModel.confirmRestoredSameGoogleIdentity(
+                            onReady = {
+                                pendingAccountDecision = null
+                                resolveOnboardingForAuthenticatedAccount()
+                            },
+                            onLegacyCloudVerificationRequired = {
+                                pendingAccountDecision =
+                                    AuthenticatedOnboardingNavigationDecision
+                                        .ShowRestoredLegacyDriveVerification
+                            },
+                        )
+                    },
+                    sameGoogleRestoreInProgress =
+                        restoredAccountMigrationState is
+                            RestoredAccountMigrationUiState.Restoring,
+                    onCloudRestoreRequiresOnboardingSetup = {
+                        pendingAccountDecision = null
+                        navController.navigateOnboarding(
+                            OnboardingRoutes.WelcomePrivacy,
+                        )
+                    },
                     onSetUpAgain = {
                         pendingAccountDecision = null
                         onboardingViewModel.clearAnswers {
@@ -740,6 +787,61 @@ fun AppNavHost(
                     suppressUnusableLocalDataDialog =
                         suppressUnusableLocalDataDialog,
                 )
+
+                RestoredAccountMigrationMessage(
+                    state = restoredAccountMigrationState,
+                    onDismiss =
+                        onboardingViewModel::
+                            dismissRestoredAccountMigrationMessage,
+                    onUseAnotherAccount = {
+                        pendingAccountDecision = null
+                        authViewModel.signOut()
+                        navController.navigateOnboarding(
+                            OnboardingRoutes.LoginSignupGuest,
+                        )
+                    },
+                )
+
+                LaunchedEffect(restoredAccountMigrationState) {
+                    if (
+                        restoredAccountMigrationState is
+                        RestoredAccountMigrationUiState.RefreshPending
+                    ) {
+                        Toast.makeText(
+                            context,
+                            "Your data is ready. Encrypted backup refresh will retry automatically.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        onboardingViewModel
+                            .dismissRestoredAccountMigrationMessage()
+                    }
+                }
+
+                LaunchedEffect(onboardingAccountResolutionState) {
+                    val message =
+                        when (onboardingAccountResolutionState) {
+                            OnboardingAccountResolutionState
+                                .CloudRestoreRefreshPending ->
+                                "Your restored data is ready. Backup refresh will retry automatically."
+                            OnboardingAccountResolutionState
+                                .CloudRecoverySetupRequired ->
+                                "Your restored data is ready. Re-enable encrypted cloud recovery in Settings."
+                            OnboardingAccountResolutionState.Idle,
+                            OnboardingAccountResolutionState.Loading,
+                            is OnboardingAccountResolutionState
+                                .RetryableFailure,
+                            -> null
+                        }
+                    if (message != null) {
+                        Toast.makeText(
+                            context,
+                            message,
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        onboardingViewModel
+                            .clearAccountResolutionFailure()
+                    }
+                }
 
                 AccountLocalDataResetDialog(
                     state = accountLocalDataResetState,
@@ -940,7 +1042,7 @@ fun AppNavHost(
 
         navigation(
             route = AppRoutes.Graph,
-            startDestination = mainStartDestination,
+            startDestination = AppRoutes.Home,
         ) {
             composable(AppRoutes.Home) {
                 HomeScreen(
@@ -1006,7 +1108,14 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.FocusRecovery) {
+            composable(AppRoutes.FocusRecovery) { backStackEntry ->
+                BlockRequestDestinationReadyEffect(
+                    pendingRequest = initialBlockRequest,
+                    expectedTarget = BlockLaunchTarget.FocusRecovery,
+                    expectedRoutePattern = AppRoutes.FocusRecovery,
+                    currentRoutePattern = backStackEntry.destination.route,
+                    onBlockRequestConsumed = onBlockRequestConsumed,
+                )
                 FocusRecoveryScreen(
                     onReturnToFocus = {
                         navController.navigateMainTop(AppRoutes.Focus)
@@ -1032,7 +1141,23 @@ fun AppNavHost(
                             .orEmpty(),
                     )
 
-                LaunchedEffect(sourcePackageName) {
+                BlockRequestDestinationReadyEffect(
+                    pendingRequest = initialBlockRequest,
+                    expectedTarget = BlockLaunchTarget.RandomRecoveryGame,
+                    expectedRoutePattern = AppRoutes.RandomRecoveryGame,
+                    currentRoutePattern = backStackEntry.destination.route,
+                    sourcePackageName = sourcePackageName,
+                    onBlockRequestConsumed = onBlockRequestConsumed,
+                )
+
+                LaunchedEffect(sourcePackageName, initialBlockRequest) {
+                    if (
+                        initialBlockRequest?.launchTarget ==
+                        BlockLaunchTarget.RandomRecoveryGame &&
+                        initialBlockRequest.sourcePackageName == sourcePackageName
+                    ) {
+                        return@LaunchedEffect
+                    }
                     if (sourcePackageName.isBlank()) {
                         navController.navigateBackToHome()
                         return@LaunchedEffect
@@ -1491,7 +1616,14 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.ResetReadFallbackTask) {
+            composable(AppRoutes.ResetReadFallbackTask) { backStackEntry ->
+                BlockRequestDestinationReadyEffect(
+                    pendingRequest = initialBlockRequest,
+                    expectedTarget = BlockLaunchTarget.ReadingReset,
+                    expectedRoutePattern = AppRoutes.ResetReadFallbackTask,
+                    currentRoutePattern = backStackEntry.destination.route,
+                    onBlockRequestConsumed = onBlockRequestConsumed,
+                )
                 ResetReadScreen(
                     launchMode = ResetReadLaunchMode.Fallback,
                     onExit = { navController.exitRecoveryFlowSafely() },
@@ -1567,6 +1699,15 @@ fun AppNavHost(
                     Uri.decode(backStackEntry.arguments?.getString("sourcePackageName").orEmpty())
                 val sourceLabel =
                     Uri.decode(backStackEntry.arguments?.getString("sourceLabel").orEmpty())
+                BlockRequestDestinationReadyEffect(
+                    pendingRequest = initialBlockRequest,
+                    expectedTarget = BlockLaunchTarget.BlockScreen,
+                    expectedRoutePattern = AppRoutes.ImpulsiveBlock,
+                    currentRoutePattern = backStackEntry.destination.route,
+                    sourcePackageName = sourcePackageName,
+                    sourceLabel = sourceLabel,
+                    onBlockRequestConsumed = onBlockRequestConsumed,
+                )
                 val appLockDataSource = remember(context) {
                     com.impulsive.app.backend.data.local.preferences.AppLockPreferencesDataSource(context)
                 }
@@ -1674,13 +1815,124 @@ fun AppNavHost(
                     },
                 )
             }
+    }
+}
+
+@Composable
+private fun ImpulsiveLoadingSurface(
+    blockRequestPending: Boolean,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            CircularProgressIndicator()
+            Text(
+                if (blockRequestPending) {
+                    "Opening your reset…"
+                } else {
+                    "Loading Impulsive…"
+                },
+                color = MaterialTheme.colorScheme.onBackground,
+            )
         }
+    }
+}
+
+@Composable
+private fun BlockRequestDestinationReadyEffect(
+    pendingRequest: BlockRequest?,
+    expectedTarget: BlockLaunchTarget,
+    expectedRoutePattern: String,
+    currentRoutePattern: String?,
+    sourcePackageName: String? = null,
+    sourceLabel: String? = null,
+    onBlockRequestConsumed: () -> Unit,
+) {
+    var lastReadyRequest by remember { mutableStateOf<BlockRequest?>(null) }
+    val latestRequest by rememberUpdatedState(pendingRequest)
+    val latestOnBlockRequestConsumed by rememberUpdatedState(onBlockRequestConsumed)
+
+    LaunchedEffect(
+        pendingRequest,
+        currentRoutePattern,
+        sourcePackageName,
+        sourceLabel,
+    ) {
+        val request = pendingRequest ?: return@LaunchedEffect
+        val matchesDestination =
+            request.launchTarget == expectedTarget &&
+                currentRoutePattern == expectedRoutePattern &&
+                (sourcePackageName == null || request.sourcePackageName == sourcePackageName) &&
+                (sourceLabel == null || request.sourceLabel == sourceLabel)
+
+        if (!matchesDestination || lastReadyRequest == request) {
+            return@LaunchedEffect
+        }
+
+        withFrameNanos { }
+
+        if (latestRequest == request && lastReadyRequest != request) {
+            lastReadyRequest = request
+            latestOnBlockRequestConsumed()
+        }
+    }
+}
+
+internal fun blockRequestDestinationRoute(request: BlockRequest): String =
+    when (request.launchTarget) {
+        BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
+        BlockLaunchTarget.RandomRecoveryGame ->
+            AppRoutes.randomRecoveryGame(request.sourcePackageName)
+        BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
+        BlockLaunchTarget.BlockScreen -> AppRoutes.impulsiveBlock(
+            sourcePackageName = request.sourcePackageName,
+            sourceLabel = request.sourceLabel,
+        )
+    }
+
+internal fun blockRequestDestinationRoutePattern(request: BlockRequest): String =
+    when (request.launchTarget) {
+        BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
+        BlockLaunchTarget.RandomRecoveryGame -> AppRoutes.RandomRecoveryGame
+        BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
+        BlockLaunchTarget.BlockScreen -> AppRoutes.ImpulsiveBlock
+    }
+
+internal fun blockRequestDestinationMatches(
+    currentRoutePattern: String?,
+    currentSourcePackageName: String?,
+    currentSourceLabel: String?,
+    request: BlockRequest,
+): Boolean =
+    when (request.launchTarget) {
+        BlockLaunchTarget.RandomRecoveryGame ->
+            currentRoutePattern == AppRoutes.RandomRecoveryGame &&
+                currentSourcePackageName == request.sourcePackageName
+
+        BlockLaunchTarget.BlockScreen ->
+            currentRoutePattern == AppRoutes.ImpulsiveBlock &&
+                currentSourcePackageName == request.sourcePackageName &&
+                currentSourceLabel == request.sourceLabel
+
+        BlockLaunchTarget.ReadingReset ->
+            currentRoutePattern == AppRoutes.ResetReadFallbackTask
+
+        BlockLaunchTarget.FocusRecovery ->
+            currentRoutePattern == AppRoutes.FocusRecovery
     }
 
 @Composable
 private fun CloudRestoreDialog(
     onDismiss: () -> Unit,
-    onSuccess: () -> Unit,
+    onReadyForHome: () -> Unit,
+    onRequiresOnboardingSetup: () -> Unit,
 ) {
     val context =
         LocalContext.current
@@ -1734,14 +1986,14 @@ private fun CloudRestoreDialog(
             )
         }
 
-    var showOwnerMigrationConfirmation by
+    var ownerConfirmationKind by
         remember {
-            mutableStateOf(false)
+            mutableStateOf<CloudRecoveryOwnerConfirmationKind?>(null)
         }
 
-    var ownerMigrationConfirmed by
+    var ownerConfirmation by
         remember {
-            mutableStateOf(false)
+            mutableStateOf<CloudRecoveryOwnerConfirmation>(CloudRecoveryOwnerConfirmation.None)
         }
 
     var showReplace by
@@ -1767,11 +2019,15 @@ private fun CloudRestoreDialog(
             null
     }
 
+    fun resetOwnerConfirmation() {
+        ownerConfirmationKind = null
+        ownerConfirmation = CloudRecoveryOwnerConfirmation.None
+    }
+
     fun restore(
         replace:
             Boolean,
-        ownerMigrationConfirmed:
-            Boolean = false,
+        ownerConfirmation: CloudRecoveryOwnerConfirmation = CloudRecoveryOwnerConfirmation.None,
     ) {
         val bytes =
             envelope
@@ -1785,7 +2041,7 @@ private fun CloudRestoreDialog(
 
         scope.launch {
             when (
-                coordinator.restore(
+                val result = coordinator.restore(
                     downloadedEnvelope =
                         bytes,
 
@@ -1795,13 +2051,18 @@ private fun CloudRestoreDialog(
                     replaceExistingData =
                         replace,
 
-                    ownerMigrationConfirmed =
-                        ownerMigrationConfirmed,
+                    ownerConfirmation = ownerConfirmation,
                 )
             ) {
                 CloudRecoveryRestoreResult.Success -> {
                     clearEnvelope()
-                    onSuccess()
+                    resetOwnerConfirmation()
+                    dispatchCloudRestoreSuccess(
+                        requiresOnboardingSetup = false,
+                        onReadyForHome = onReadyForHome,
+                        onRequiresOnboardingSetup =
+                            onRequiresOnboardingSetup,
+                    )
                 }
 
                 CloudRecoveryRestoreResult.SuccessBackupRefreshPending -> {
@@ -1814,7 +2075,13 @@ private fun CloudRestoreDialog(
                         Toast.LENGTH_LONG,
                     ).show()
 
-                    onSuccess()
+                    resetOwnerConfirmation()
+                    dispatchCloudRestoreSuccess(
+                        requiresOnboardingSetup = false,
+                        onReadyForHome = onReadyForHome,
+                        onRequiresOnboardingSetup =
+                            onRequiresOnboardingSetup,
+                    )
                 }
                 CloudRecoveryRestoreResult.RestoredButCloudRecoverySetupFailed -> {
                     clearEnvelope()
@@ -1827,7 +2094,52 @@ private fun CloudRestoreDialog(
                         Toast.LENGTH_LONG,
                     ).show()
 
-                    onSuccess()
+                    resetOwnerConfirmation()
+                    dispatchCloudRestoreSuccess(
+                        requiresOnboardingSetup = false,
+                        onReadyForHome = onReadyForHome,
+                        onRequiresOnboardingSetup =
+                            onRequiresOnboardingSetup,
+                    )
+                }
+
+                CloudRecoveryRestoreResult.SuccessRequiresOnboardingSetup -> {
+                    clearEnvelope()
+                    resetOwnerConfirmation()
+                    dispatchCloudRestoreSuccess(
+                        requiresOnboardingSetup = true,
+                        onReadyForHome = onReadyForHome,
+                        onRequiresOnboardingSetup =
+                            onRequiresOnboardingSetup,
+                    )
+                }
+
+                CloudRecoveryRestoreResult
+                    .SuccessRequiresOnboardingSetupCloudRecoverySetupFailed -> {
+                    clearEnvelope()
+                    resetOwnerConfirmation()
+                    Toast.makeText(
+                        context,
+                        "Your recovery data was restored, but automatic cloud " +
+                            "recovery could not be re-enabled. Finish setting up " +
+                            "this device, then turn cloud recovery on in Settings.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    dispatchCloudRestoreSuccess(
+                        requiresOnboardingSetup = true,
+                        onReadyForHome = onReadyForHome,
+                        onRequiresOnboardingSetup =
+                            onRequiresOnboardingSetup,
+                    )
+                }
+
+                CloudRecoveryRestoreResult.RestoredButOwnershipFinalizationPending -> {
+                    clearEnvelope()
+                    resetOwnerConfirmation()
+                    message =
+                        "Your recovery data was restored, but Impulsive could not " +
+                            "finish binding it to the signed-in account. Keep this " +
+                            "account signed in and try recovery again."
                 }
 
                 CloudRecoveryRestoreResult.IncorrectPassword -> {
@@ -1836,13 +2148,14 @@ private fun CloudRestoreDialog(
                 }
 
                 CloudRecoveryRestoreResult.AccountMismatch -> {
+                    resetOwnerConfirmation()
                     message =
                         "This recovery backup belongs to a different " +
                             "Impulsive account."
                 }
 
                 is CloudRecoveryRestoreResult.OwnerMigrationConfirmationRequired -> {
-                    showOwnerMigrationConfirmation = true
+                    ownerConfirmationKind = result.kind
                 }
 
                 CloudRecoveryRestoreResult.ReplacementConfirmationRequired -> {
@@ -1883,6 +2196,7 @@ private fun CloudRestoreDialog(
             ) {
                 is CloudRecoveryRestoreDiscovery.Downloaded -> {
                     clearEnvelope()
+                    resetOwnerConfirmation()
 
                     envelope =
                         result.bytes
@@ -1966,6 +2280,7 @@ private fun CloudRestoreDialog(
                 ""
 
             clearEnvelope()
+            resetOwnerConfirmation()
 
             onDismiss()
         },
@@ -2035,6 +2350,7 @@ private fun CloudRestoreDialog(
                         ""
 
                     clearEnvelope()
+                    resetOwnerConfirmation()
 
                     onDismiss()
                 },
@@ -2058,6 +2374,7 @@ private fun CloudRestoreDialog(
                     ""
 
                 clearEnvelope()
+                resetOwnerConfirmation()
             },
 
             title = {
@@ -2110,7 +2427,7 @@ private fun CloudRestoreDialog(
                             restore(
                                 replace =
                                     false,
-                                ownerMigrationConfirmed = ownerMigrationConfirmed,
+                                ownerConfirmation = ownerConfirmation,
                             )
                         }
                     },
@@ -2131,6 +2448,7 @@ private fun CloudRestoreDialog(
                             ""
 
                         clearEnvelope()
+                        resetOwnerConfirmation()
                     },
                 ) {
                     Text(
@@ -2141,20 +2459,32 @@ private fun CloudRestoreDialog(
         )
     }
 
-    if (showOwnerMigrationConfirmation) {
+    val pendingOwnerConfirmationKind = ownerConfirmationKind
+    if (pendingOwnerConfirmationKind != null) {
         AlertDialog(
-            onDismissRequest = { showOwnerMigrationConfirmation = false },
+            onDismissRequest = { resetOwnerConfirmation() },
             title = { Text("Restore saved data?") },
-            text = { Text("The Firebase account identifier changed, but the encrypted recovery copy matches this linked Google identity. Confirm to restore it.") },
+            text = {
+                Text(
+                    cloudRecoveryOwnerConfirmationCopy(
+                        pendingOwnerConfirmationKind,
+                    ),
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    showOwnerMigrationConfirmation = false
-                    ownerMigrationConfirmed = true
+                    ownerConfirmationKind = null
+                    ownerConfirmation =
+                        cloudRecoveryOwnerConfirmationFor(
+                            pendingOwnerConfirmationKind,
+                        )
                     showPassword = true
                 }) { Text("Restore data") }
             },
             dismissButton = {
-                TextButton(onClick = { showOwnerMigrationConfirmation = false }) { Text("Cancel") }
+                TextButton(onClick = { resetOwnerConfirmation() }) {
+                    Text("Cancel")
+                }
             },
         )
     }
@@ -2171,6 +2501,7 @@ private fun CloudRestoreDialog(
                     ""
 
                 clearEnvelope()
+                resetOwnerConfirmation()
             },
 
             title = {
@@ -2196,7 +2527,7 @@ private fun CloudRestoreDialog(
                         restore(
                             replace =
                                 true,
-                            ownerMigrationConfirmed = ownerMigrationConfirmed,
+                            ownerConfirmation = ownerConfirmation,
                         )
                     },
                 ) {
@@ -2364,9 +2695,94 @@ private fun AccountRestoreDialog(
 
 
 @Composable
+private fun RestoredAccountMigrationMessage(
+    state: RestoredAccountMigrationUiState,
+    onDismiss: () -> Unit,
+    onUseAnotherAccount: () -> Unit,
+) {
+    when (state) {
+        RestoredAccountMigrationUiState.Idle,
+        RestoredAccountMigrationUiState.Restoring,
+        RestoredAccountMigrationUiState.RefreshPending,
+        RestoredAccountMigrationUiState.LegacyCloudVerificationRequired,
+        -> Unit
+
+        RestoredAccountMigrationUiState.OwnershipChanged -> {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Account ownership changed") },
+                text = {
+                    Text(
+                        "Impulsive could not verify that the restored data still " +
+                            "belongs to the currently signed-in account.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = onUseAnotherAccount) {
+                        Text("Use another account")
+                    }
+                },
+            )
+        }
+
+        RestoredAccountMigrationUiState.ExistingLocalData -> {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Local data already exists") },
+                text = {
+                    Text(
+                        "Impulsive did not replace the data already on this device " +
+                            "or change its account ownership.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = onUseAnotherAccount) {
+                        Text("Use another account")
+                    }
+                },
+            )
+        }
+
+        RestoredAccountMigrationUiState.InvalidBackup -> {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Restore copy is invalid") },
+                text = {
+                    Text(
+                        "The restored Android backup could not be verified, so " +
+                            "Impulsive did not change local account ownership.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = onUseAnotherAccount) {
+                        Text("Use another account")
+                    }
+                },
+            )
+        }
+
+        is RestoredAccountMigrationUiState.Failed -> {
+            AlertDialog(
+                onDismissRequest = onDismiss,
+                title = { Text("Restore not finished") },
+                text = { Text(state.message) },
+                confirmButton = {
+                    TextButton(onClick = onDismiss) {
+                        Text("Try again")
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
 private fun AuthenticatedOnboardingDecisionDialog(
     decision: AuthenticatedOnboardingNavigationDecision?,
     onTryAgain: () -> Unit,
+    onConfirmSameGoogleRestore: () -> Unit,
+    sameGoogleRestoreInProgress: Boolean,
+    onCloudRestoreRequiresOnboardingSetup: () -> Unit,
     onSetUpAgain: () -> Unit,
     onUseAnotherAccount: () -> Unit,
     onEraseSavedData: () -> Unit,
@@ -2388,14 +2804,26 @@ private fun AuthenticatedOnboardingDecisionDialog(
                 text = {
                     Column {
                         Text("Your account was found, but this device doesn't currently have your saved Impulsive setup. You can restore an encrypted cloud recovery backup, try Android backup again, or set up this device again.")
-                        TextButton(onClick = onTryAgain) { Text("Try Android backup again") }
+                        TextButton(onClick = { onTryAgain() }) {
+                            Text("Try Android backup again")
+                        }
                     }
                 },
                 confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from cloud backup") } },
                 dismissButton = { TextButton(onClick = onSetUpAgain) { Text("Set up again") } },
             )
             if (showCloudRestore) {
-                CloudRestoreDialog(onDismiss = { showCloudRestore = false }, onSuccess = { showCloudRestore = false; onTryAgain() })
+                CloudRestoreDialog(
+                    onDismiss = { showCloudRestore = false },
+                    onReadyForHome = {
+                        showCloudRestore = false
+                        onTryAgain()
+                    },
+                    onRequiresOnboardingSetup = {
+                        showCloudRestore = false
+                        onCloudRestoreRequiresOnboardingSetup()
+                    },
+                )
             }
         }
         AuthenticatedOnboardingNavigationDecision.ShowRestoredSameGoogleIdentityConfirmation -> {
@@ -2403,7 +2831,26 @@ private fun AuthenticatedOnboardingDecisionDialog(
                 onDismissRequest = { },
                 title = { Text("Restore saved data?") },
                 text = { Text("Android restored Impulsive data from the same linked Google identity, but the Firebase account identifier changed.") },
-                confirmButton = { TextButton(onClick = onTryAgain) { Text("Restore data") } },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            performSameGoogleRestore(
+                                onConfirmSameGoogleRestore,
+                            )
+                        },
+                        enabled = sameGoogleRestoreButtonEnabled(
+                            sameGoogleRestoreInProgress,
+                        ),
+                    ) {
+                        Text(
+                            if (sameGoogleRestoreInProgress) {
+                                "Restoring…"
+                            } else {
+                                "Restore data"
+                            },
+                        )
+                    }
+                },
                 dismissButton = { TextButton(onClick = onUseAnotherAccount) { Text("Use another account") } },
             )
         }
@@ -2416,7 +2863,19 @@ private fun AuthenticatedOnboardingDecisionDialog(
                 confirmButton = { TextButton(onClick = { showCloudRestore = true }) { Text("Restore from cloud backup") } },
                 dismissButton = { TextButton(onClick = onUseAnotherAccount) { Text("Use another account") } },
             )
-            if (showCloudRestore) CloudRestoreDialog(onDismiss = { showCloudRestore = false }, onSuccess = { showCloudRestore = false; onTryAgain() })
+            if (showCloudRestore) {
+                CloudRestoreDialog(
+                    onDismiss = { showCloudRestore = false },
+                    onReadyForHome = {
+                        showCloudRestore = false
+                        onTryAgain()
+                    },
+                    onRequiresOnboardingSetup = {
+                        showCloudRestore = false
+                        onCloudRestoreRequiresOnboardingSetup()
+                    },
+                )
+            }
         }
         AuthenticatedOnboardingNavigationDecision.ShowAccountMismatch -> {
             if (!suppressUnusableLocalDataDialog) {

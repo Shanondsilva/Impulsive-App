@@ -10,10 +10,10 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-public class CloudRecoveryCrypto(
+public open class CloudRecoveryCrypto(
     private val random: SecureRandom = SecureRandom(),
 ) {
-public fun createNewRecovery(
+public open fun createNewRecovery(
     ownerUid: String,
     ownerGoogleSubjectHash: String? = null,
     payloadJson: String,
@@ -132,10 +132,16 @@ public fun createNewRecovery(
         require(existingWrappedKeyMetadata.wrappedDekIv.size == CloudRecoveryIvBytes)
         require(existingWrappedKeyMetadata.wrappedDekCipherText.size >= CloudRecoveryGcmTagBytes)
 
-        val normalizedSubjectHash = ownerGoogleSubjectHash?.takeIf(::isValidGoogleSubjectHash)
+        require(
+            ownerGoogleSubjectHash == null ||
+                isValidGoogleSubjectHash(ownerGoogleSubjectHash)
+        ) {
+            "Invalid Google subject hash."
+        }
+
         val plainPayload = buildCloudRecoveryPayloadJson(
             ownerUid = normalizedOwnerUid,
-            ownerGoogleSubjectHash = normalizedSubjectHash,
+            ownerGoogleSubjectHash = ownerGoogleSubjectHash,
             payloadJson = payloadJson,
             createdAtMillis = System.currentTimeMillis(),
         ).toByteArray(Charsets.UTF_8)

@@ -19,6 +19,7 @@ data class WebsiteProtectionIncidentRecord(
     val pausedAtEpochMillis: Long?,
     val cooldownStartedAtEpochMillis: Long?,
     val cooldownUntilEpochMillis: Long?,
+    val incidentStartedAtEpochMillis: Long,
 ) {
     fun frictionElapsedMillis(
         nowEpochMillis: Long,
@@ -89,6 +90,29 @@ data class WebsiteProtectionIncidentRecord(
         }
 }
 
+internal fun deriveWebsiteProtectionIncidentStartedAt(
+    explicitIncidentStartedAtEpochMillis: Long?,
+    activeSegmentStartedAtEpochMillis: Long?,
+    lastAdultActivityAtEpochMillis: Long?,
+    cooldownStartedAtEpochMillis: Long?,
+    accumulatedFrictionMillis: Long,
+    nowEpochMillis: Long,
+): Long =
+    explicitIncidentStartedAtEpochMillis
+        ?.takeIf { it >= 0L }
+        ?: activeSegmentStartedAtEpochMillis
+            ?.takeIf { it >= 0L }
+        ?: lastAdultActivityAtEpochMillis
+            ?.takeIf { it >= 0L }
+        ?: cooldownStartedAtEpochMillis
+            ?.takeIf {
+                accumulatedFrictionMillis in
+                    0L..WebsiteProtectionIncidentPolicy.FrictionMillis &&
+                    it >= accumulatedFrictionMillis
+            }
+            ?.minus(accumulatedFrictionMillis)
+        ?: nowEpochMillis
+
 object WebsiteProtectionIncidentPolicy {
     const val FrictionMillis =
         30_000L
@@ -98,6 +122,7 @@ object WebsiteProtectionIncidentPolicy {
 
     const val CooldownMillis =
         7 * 60_000L
+
 
     fun createFriction(
         packageName: String,
@@ -128,6 +153,8 @@ object WebsiteProtectionIncidentPolicy {
                 null,
             cooldownUntilEpochMillis =
                 null,
+            incidentStartedAtEpochMillis =
+                nowEpochMillis,
         )
 
     fun onAdultActivity(
@@ -208,6 +235,7 @@ object WebsiteProtectionIncidentPolicy {
         }
 
         if (
+            record.incidentStartedAtEpochMillis < 0L ||
             record.accumulatedFrictionMillis < 0L ||
             record.accumulatedFrictionMillis > FrictionMillis
         ) {
@@ -544,7 +572,8 @@ class WebsiteProtectionIncidentDataSource(
 
         val decoded =
             decode(
-                raw,
+                raw = raw,
+                nowEpochMillis = nowEpochMillis,
             )
 
         if (decoded == null) {
@@ -659,6 +688,10 @@ class WebsiteProtectionIncidentDataSource(
                     AccumulatedFrictionKey,
                     record.accumulatedFrictionMillis,
                 )
+                .put(
+                    IncidentStartedAtKey,
+                    record.incidentStartedAtEpochMillis,
+                )
 
         record
             .lastAdultActivityAtEpochMillis
@@ -710,6 +743,7 @@ class WebsiteProtectionIncidentDataSource(
 
     private fun decode(
         raw: String,
+        nowEpochMillis: Long,
     ): WebsiteProtectionIncidentRecord? =
         runCatching {
             val json =
@@ -780,6 +814,21 @@ class WebsiteProtectionIncidentDataSource(
                                 key =
                                     CooldownUntilKey,
                             ),
+                        incidentStartedAtEpochMillis =
+                            deriveWebsiteProtectionIncidentStartedAt(
+                                explicitIncidentStartedAtEpochMillis =
+                                    optionalLong(json, IncidentStartedAtKey),
+                                activeSegmentStartedAtEpochMillis =
+                                    optionalLong(json, ActiveSegmentStartedAtKey),
+                                lastAdultActivityAtEpochMillis =
+                                    optionalLong(json, LastAdultActivityAtKey),
+                                cooldownStartedAtEpochMillis =
+                                    optionalLong(json, CooldownStartedAtKey),
+                                accumulatedFrictionMillis =
+                                    json.getLong(AccumulatedFrictionKey),
+                                nowEpochMillis =
+                                    nowEpochMillis,
+                            ),
                     ),
                 )
         }.getOrNull()
@@ -827,6 +876,9 @@ class WebsiteProtectionIncidentDataSource(
 
         const val AccumulatedFrictionKey =
             "accumulatedFrictionMillis"
+
+        const val IncidentStartedAtKey =
+            "incidentStartedAtEpochMillis"
 
         const val LastAdultActivityAtKey =
             "lastAdultActivityAtEpochMillis"

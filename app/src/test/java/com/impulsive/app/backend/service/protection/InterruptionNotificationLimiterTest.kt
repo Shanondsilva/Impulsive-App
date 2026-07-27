@@ -1,5 +1,8 @@
 package com.impulsive.app.backend.service.protection
 
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,8 +33,8 @@ class InterruptionNotificationLimiterTest {
     }
 
     @Test
-    fun laterFallbackClaimsInSameEncounterAreSuppressed() {
-        val packageName = "com.example.single.fallback"
+    fun appIncidentSubmitsOnlyAtZeroTwentyAndFortySeconds() {
+        val packageName = "com.example.bounded.fallback"
         val message = InterruptionNotificationLimiter.messageForApp(packageName, 10_000L) {
             "Stable message"
         }
@@ -39,12 +42,86 @@ class InterruptionNotificationLimiterTest {
         assertPost(
             InterruptionNotificationLimiter.decideNotificationForApp(packageName, 10_000L),
             message,
+            InterruptionNotificationStage.Initial,
+        )
+        assertSuppressed(
+            InterruptionNotificationLimiter.decideNotificationForApp(packageName, 29_999L),
+        )
+        assertPost(
+            InterruptionNotificationLimiter.decideNotificationForApp(packageName, 30_000L),
+            message,
+            InterruptionNotificationStage.TwentySeconds,
         )
         assertSuppressed(
             InterruptionNotificationLimiter.decideNotificationForApp(packageName, 30_000L),
         )
         assertSuppressed(
+            InterruptionNotificationLimiter.decideNotificationForApp(packageName, 49_999L),
+        )
+        assertPost(
+            InterruptionNotificationLimiter.decideNotificationForApp(packageName, 50_000L),
+            message,
+            InterruptionNotificationStage.FortySeconds,
+        )
+        assertSuppressed(
             InterruptionNotificationLimiter.decideNotificationForApp(packageName, 200_000L),
+        )
+    }
+
+    @Test
+    fun concurrentEquivalentStageClaimsSubmitOnlyOnce() {
+        val packageName = "com.example.concurrent.fallback"
+        val message = InterruptionNotificationLimiter.messageForApp(packageName, 1_000L) {
+            "Stable message"
+        }
+
+        val decisions = Collections.synchronizedList(
+            mutableListOf<InterruptionNotificationDecision>(),
+        )
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(20)
+        val executor = Executors.newFixedThreadPool(8)
+        repeat(20) {
+            executor.execute {
+                start.await()
+                decisions += InterruptionNotificationLimiter
+                    .decideNotificationForApp(packageName, 1_000L)
+                done.countDown()
+            }
+        }
+        start.countDown()
+        done.await()
+        executor.shutdownNow()
+
+        assertEquals(1, decisions.count { it is InterruptionNotificationDecision.Post })
+        assertPost(
+            decisions.first { it is InterruptionNotificationDecision.Post },
+            message,
+            InterruptionNotificationStage.Initial,
+        )
+    }
+
+    @Test
+    fun persistedIncidentStartDoesNotRestartStagesOnRepeatedEvaluation() {
+        val packageName = "com.example.persisted.fallback"
+        val message = InterruptionNotificationLimiter.messageForApp(
+            packageName = packageName,
+            nowMillis = 25_000L,
+            incidentStartedAtMillis = 5_000L,
+        ) { "Stable message" }
+
+        assertPost(
+            InterruptionNotificationLimiter.decideNotificationForApp(packageName, 25_000L),
+            message,
+            InterruptionNotificationStage.TwentySeconds,
+        )
+        InterruptionNotificationLimiter.messageForApp(
+            packageName = packageName,
+            nowMillis = 25_001L,
+            incidentStartedAtMillis = 5_000L,
+        ) { "Replacement message" }
+        assertSuppressed(
+            InterruptionNotificationLimiter.decideNotificationForApp(packageName, 25_001L),
         )
     }
 
@@ -114,12 +191,15 @@ class InterruptionNotificationLimiterTest {
     private fun assertPost(
         decision: InterruptionNotificationDecision,
         expectedMessage: String,
+        expectedStage: InterruptionNotificationStage =
+            InterruptionNotificationStage.Initial,
     ) {
         assertTrue(decision is InterruptionNotificationDecision.Post)
         assertEquals(
             expectedMessage,
             (decision as InterruptionNotificationDecision.Post).message,
         )
+        assertEquals(expectedStage, decision.stage)
     }
 
     private fun assertSuppressed(decision: InterruptionNotificationDecision) {

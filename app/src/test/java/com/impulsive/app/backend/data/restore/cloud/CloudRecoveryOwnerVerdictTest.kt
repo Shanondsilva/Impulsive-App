@@ -28,6 +28,74 @@ class CloudRecoveryOwnerVerdictTest {
         CloudRecoveryOwnerVerdict.LegacyEnvelope, "old", null, "new", "a".repeat(64),
     )
 
+    @Test
+    fun exactUidNeedsNoConfirmation() {
+        assertEquals(
+            CloudRecoveryOwnerAuthorization.Authorized,
+            cloudRecoveryOwnerAuthorization(
+                CloudRecoveryOwnerVerdict.ExactUidMatch,
+                CloudRecoveryOwnerConfirmation.None,
+            ),
+        )
+    }
+
+    @Test
+    fun sameGoogleAcceptsOnlySameGoogleConfirmation() {
+        assertEquals(
+            CloudRecoveryOwnerAuthorization.Authorized,
+            cloudRecoveryOwnerAuthorization(
+                CloudRecoveryOwnerVerdict.SameGoogleIdentityNewFirebaseUid,
+                CloudRecoveryOwnerConfirmation.ConfirmedSameGoogleIdentity,
+            ),
+        )
+        assertEquals(
+            CloudRecoveryOwnerAuthorization.ConfirmationRequired(
+                CloudRecoveryOwnerConfirmationKind.SameGoogleIdentity,
+            ),
+            cloudRecoveryOwnerAuthorization(
+                CloudRecoveryOwnerVerdict.SameGoogleIdentityNewFirebaseUid,
+                CloudRecoveryOwnerConfirmation.ConfirmedLegacyEnvelope,
+            ),
+        )
+    }
+
+    @Test
+    fun legacyAcceptsOnlyLegacyConfirmation() {
+        assertEquals(
+            CloudRecoveryOwnerAuthorization.Authorized,
+            cloudRecoveryOwnerAuthorization(
+                CloudRecoveryOwnerVerdict.LegacyEnvelope,
+                CloudRecoveryOwnerConfirmation.ConfirmedLegacyEnvelope,
+            ),
+        )
+        assertEquals(
+            CloudRecoveryOwnerAuthorization.ConfirmationRequired(
+                CloudRecoveryOwnerConfirmationKind.LegacyEnvelope,
+            ),
+            cloudRecoveryOwnerAuthorization(
+                CloudRecoveryOwnerVerdict.LegacyEnvelope,
+                CloudRecoveryOwnerConfirmation.ConfirmedSameGoogleIdentity,
+            ),
+        )
+    }
+
+    @Test
+    fun differentAccountCannotBeBypassedByEitherConfirmation() {
+        listOf(
+            CloudRecoveryOwnerConfirmation.None,
+            CloudRecoveryOwnerConfirmation.ConfirmedSameGoogleIdentity,
+            CloudRecoveryOwnerConfirmation.ConfirmedLegacyEnvelope,
+        ).forEach { confirmation ->
+            assertEquals(
+                CloudRecoveryOwnerAuthorization.Blocked,
+                cloudRecoveryOwnerAuthorization(
+                    CloudRecoveryOwnerVerdict.DifferentAccount,
+                    confirmation,
+                ),
+            )
+        }
+    }
+
     private fun assertVerdict(expected: CloudRecoveryOwnerVerdict, ownerUid: String, ownerHash: String?, currentUid: String, currentHash: String?) {
         assertEquals(expected, cloudRecoveryOwnerVerdict(ownerUid, ownerHash, currentUid, currentHash))
     }

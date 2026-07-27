@@ -32,16 +32,21 @@ class PremiumRepository(context: Context) {
                     while (currentCoroutineContext().isActive) {
                         val nowMillis = System.currentTimeMillis()
 
-                        val available = cachedEntitlement.hasFeatureAt(
+                        val realBillingEntitlement = cachedEntitlement.hasFeatureAt(
                             feature = feature,
                             nowMillis = nowMillis,
-                            allowDebugEntitlement = BuildConfig.DEBUG,
+                            allowDebugEntitlement = false,
+                        )
+                        val available = resolvePlusAccess(
+                            isDebugBuild = BuildConfig.DEBUG,
+                            realBillingEntitlement = realBillingEntitlement,
                         )
 
                         emit(available)
 
                         if (
-                            !available ||
+                            BuildConfig.DEBUG ||
+                            !realBillingEntitlement ||
                             cachedEntitlement.source != EntitlementSource.PlayBilling
                         ) {
                             break
@@ -87,3 +92,12 @@ class PremiumRepository(context: Context) {
         dataSource.setEntitlement(entitlement)
     }
 }
+internal fun resolvePlusAccess(
+    isDebugBuild: Boolean,
+    realBillingEntitlement: Boolean,
+): Boolean =
+    if (isDebugBuild) {
+        true
+    } else {
+        realBillingEntitlement
+    }

@@ -130,16 +130,27 @@ internal fun buildCloudRecoveryPayloadJson(
     ownerGoogleSubjectHash: String?,
     payloadJson: String,
     createdAtMillis: Long,
-): String = buildJsonObject(
-    *listOfNotNull(
+): String {
+    val fields = mutableListOf<Pair<String, Any>>(
         "cloudPayloadVersion" to CloudRecoveryPayloadVersion,
         "ownerUid" to ownerUid,
-        ownerGoogleSubjectHash?.let { hash -> "ownerGoogleSubjectHash" to hash },
+    )
+
+    ownerGoogleSubjectHash?.let { hash ->
+        require(isValidGoogleSubjectHash(hash)) {
+            "Invalid Google subject hash."
+        }
+        fields += "ownerGoogleSubjectHash" to hash
+    }
+
+    fields += listOf(
         "schemaVersion" to CloudRecoverySchemaVersion,
         "createdAtMillis" to createdAtMillis,
         "payloadJson" to payloadJson,
-    ).toTypedArray(),
-)
+    )
+
+    return buildJsonObject(*fields.toTypedArray())
+}
 
 internal fun parseCloudRecoveryEnvelope(bytes: ByteArray): CloudRecoveryEnvelopeParseResult {
     if (bytes.size > CloudRecoveryMaxEnvelopeBytes) return CloudRecoveryEnvelopeParseResult.Malformed

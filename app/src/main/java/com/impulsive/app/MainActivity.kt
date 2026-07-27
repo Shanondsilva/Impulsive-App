@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -33,6 +34,9 @@ import com.impulsive.app.backend.domain.model.protection.BlockRequest
 import com.impulsive.app.backend.domain.model.protection.BlockLaunchTarget
 import com.google.firebase.auth.FirebaseAuth
 import com.impulsive.app.backend.service.protection.ProtectionInterruptionOverlay
+import com.impulsive.app.backend.service.protection.InterruptionNotificationLimiter
+import com.impulsive.app.backend.service.protection.AppMonitorService
+import com.impulsive.app.backend.service.protection.ProtectionNotificationHelper
 import com.impulsive.app.backend.service.billing.BillingManager
 import com.impulsive.app.backend.service.billing.shouldReconcileBillingAfterAuthChange
 import com.impulsive.app.backend.session.auth.AuthViewModel
@@ -82,10 +86,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        endFallbackNotificationIfRequested(intent)
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
         pendingJournalNoteId.value = intent.openJournalNoteIdOrNull()
         if (pendingBlockRequest.value != null) {
-            cancelBlockedAttemptNotification()
+            cancelBlockedAttemptNotification(
+                pendingBlockRequest.value?.sourcePackageName,
+            )
         }
         refreshEmailVerificationIfReturnIntent(intent)
         billingManager.connect()
@@ -144,6 +151,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
             val locked = appLockEnabled && !unlocked
 
+            LaunchedEffect(locked, pendingBlockRequest.value) {
+                if (locked && pendingBlockRequest.value != null) {
+                    ProtectionInterruptionOverlay.dismissAny()
+                }
+            }
+
             ImpulsiveTheme(darkTheme = useDark) {
                 if (locked) {
                     AppLockGateScreen(
@@ -155,7 +168,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         authViewModel = authViewModel,
                         billingManager = billingManager,
                         initialBlockRequest = if (!locked) pendingBlockRequest.value else null,
-                        onBlockRequestConsumed = { pendingBlockRequest.value = null },
+                        onBlockRequestConsumed = {
+                            if (pendingBlockRequest.value != null) {
+                                ProtectionInterruptionOverlay.dismissAny()
+                                pendingBlockRequest.value = null
+                            }
+                        },
                         initialJournalNoteId = pendingJournalNoteId.value,
                         onJournalNoteConsumed = { pendingJournalNoteId.value = null },
                     )
@@ -189,10 +207,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        endFallbackNotificationIfRequested(intent)
         pendingBlockRequest.value = intent.toBlockRequestOrNull()
         pendingJournalNoteId.value = intent.openJournalNoteIdOrNull()
         if (pendingBlockRequest.value != null) {
-            cancelBlockedAttemptNotification()
+            cancelBlockedAttemptNotification(
+                pendingBlockRequest.value?.sourcePackageName,
+            )
         }
         refreshEmailVerificationIfReturnIntent(intent)
     }
@@ -202,7 +223,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
         billingManager.onAppForegrounded()
 
-        ProtectionInterruptionOverlay.dismissAny()
+        if (pendingBlockRequest.value == null) {
+            ProtectionInterruptionOverlay.dismissAny()
+        }
 
         checkForRemoteAccountDeletion()
 
@@ -389,13 +412,34 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         runCatching { startActivity(intent) }
     }
 
-    private fun cancelBlockedAttemptNotification() {
+    private fun endFallbackNotificationIfRequested(intent: Intent?) {
+        if (intent?.action != ProtectionNotificationHelper.ActionOpenInterruptionHome) {
+            return
+        }
+
+        cancelBlockedAttemptNotification(
+            intent.getStringExtra(AppMonitorService.ExtraFallbackIncidentPackageName),
+        )
+    }
+
+    private fun cancelBlockedAttemptNotification(sourcePackageName: String?) {
         runCatching {
-            com.impulsive.app.backend.service.protection.ProtectionNotificationHelper(applicationContext)
+            sourcePackageName?.let { packageName ->
+                InterruptionNotificationLimiter.endAppEncounter(packageName)
+                startService(
+                    Intent(applicationContext, AppMonitorService::class.java).apply {
+                        action = AppMonitorService.ActionEndFallbackNotificationIncident
+                        putExtra(
+                            AppMonitorService.ExtraFallbackIncidentPackageName,
+                            packageName,
+                        )
+                    },
+                )
+            }
+            ProtectionNotificationHelper(applicationContext)
                 .cancelBlockedAttemptNotification()
         }
     }
-
     companion object {
         fun createHomeIntent(context: Context): Intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or

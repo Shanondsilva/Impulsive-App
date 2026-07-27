@@ -109,6 +109,60 @@ class CloudRecoveryRestoreSafetySourceTest {
     }
 
     @Test
+    fun `durable authorization and session check precede Room import`() {
+        val source =
+            File(
+                "src/main/java/com/impulsive/app/backend/data/restore/cloud/CloudRecoveryRestoreCoordinator.kt",
+            ).readText()
+
+        val authorizationWrite =
+            source.indexOf(
+                "pendingAuthorizationStore::write",
+            )
+        val freshSessionCheck =
+            source.indexOf(
+                "activationSessionProvider.currentAccount()",
+                authorizationWrite,
+            )
+        val roomImport =
+            source.indexOf(
+                "importer.importPayload",
+                freshSessionCheck,
+            )
+
+        assertTrue(authorizationWrite >= 0)
+        assertTrue(freshSessionCheck > authorizationWrite)
+        assertTrue(roomImport > freshSessionCheck)
+        assertTrue(
+            source.indexOf(
+                "cloudRestoreReceipt =",
+                roomImport,
+            ) > roomImport,
+        )
+    }
+
+    @Test
+    fun `transactional receipt is inserted after restored data`() {
+        val source =
+            File(
+                "src/main/java/com/impulsive/app/backend/data/restore/RestoreBundleImporter.kt",
+            ).readText()
+        val importMethod = source.substring(
+            source.indexOf("suspend fun importPayload"),
+        )
+        val restoredDomainInsert =
+            importMethod.indexOf("blockedDomainDao.insertForRestore")
+        val receiptInsert =
+            importMethod.indexOf(
+                "database.cloudRestoreReceiptDao().insert",
+            )
+
+        assertTrue(restoredDomainInsert >= 0)
+        assertTrue(receiptInsert > restoredDomainInsert)
+        assertTrue(importMethod.contains("database.withTransaction"))
+    }
+
+    @Test
     fun `scheduler failure does not share activation rollback block`() {
         val source =
             File(

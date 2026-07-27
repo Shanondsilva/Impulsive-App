@@ -227,7 +227,7 @@ public class CloudRecoveryUploadCoordinator internal constructor(
                     }
                 val payloadJson =
                     payloadProvider
-                        .buildPayloadJson()
+                        .buildPayloadJson(account.uid)
 
                 val envelopeBytes =
                     envelopeEncryptor.encrypt(
@@ -418,7 +418,7 @@ internal interface CloudRecoveryUploadOwnerStateDataSource {
 }
 
 internal fun interface CloudRecoveryUploadPayloadProvider {
-    suspend fun buildPayloadJson():
+    suspend fun buildPayloadJson(ownerUid: String):
         String
 }
 
@@ -558,9 +558,9 @@ private class RestoreBundleCloudRecoveryUploadPayloadProvider(
     private val writer:
         RestoreBundleWriter,
 ) : CloudRecoveryUploadPayloadProvider {
-    override suspend fun buildPayloadJson():
+    override suspend fun buildPayloadJson(ownerUid: String):
         String =
-        writer.buildPayloadJson()
+        writer.buildPayloadJson(ownerUid)
 }
 
 private class LocalCloudRecoveryUploadKeyMaterialSource(

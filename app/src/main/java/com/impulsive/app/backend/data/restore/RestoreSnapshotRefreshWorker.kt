@@ -38,7 +38,8 @@ class RestoreSnapshotRefreshWorker(
             RestoreSnapshotRefreshResult.NoAuthenticatedAccount,
             RestoreSnapshotRefreshResult.GuestNotApplicable,
             RestoreSnapshotRefreshResult.NoOwnedCompletedData,
-            RestoreSnapshotRefreshResult.AccountMismatch ->
+            RestoreSnapshotRefreshResult.AccountMismatch,
+            RestoreSnapshotRefreshResult.GoogleIdentityUnavailable ->
                 Result.success()
 
             is RestoreSnapshotRefreshResult.Failed ->

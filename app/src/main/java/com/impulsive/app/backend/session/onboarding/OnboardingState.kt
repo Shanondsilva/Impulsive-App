@@ -12,6 +12,10 @@ data class OnboardingState(
 sealed interface OnboardingAccountResolutionState {
     data object Idle : OnboardingAccountResolutionState
     data object Loading : OnboardingAccountResolutionState
+    data object CloudRestoreRefreshPending :
+        OnboardingAccountResolutionState
+    data object CloudRecoverySetupRequired :
+        OnboardingAccountResolutionState
 
     data class RetryableFailure(
         val message: String = "Impulsive couldn't check your account setup right now. Check your connection and try again.",
@@ -27,6 +31,20 @@ sealed interface AccountRestoreState {
 
     data object AccountMismatch : AccountRestoreState
     data object LocalBackupUnavailable : AccountRestoreState
+}
+
+internal sealed interface RestoredAccountMigrationUiState {
+    data object Idle : RestoredAccountMigrationUiState
+    data object Restoring : RestoredAccountMigrationUiState
+    data object RefreshPending : RestoredAccountMigrationUiState
+    data object LegacyCloudVerificationRequired : RestoredAccountMigrationUiState
+    data object OwnershipChanged : RestoredAccountMigrationUiState
+    data object ExistingLocalData : RestoredAccountMigrationUiState
+    data object InvalidBackup : RestoredAccountMigrationUiState
+
+    data class Failed(
+        val message: String,
+    ) : RestoredAccountMigrationUiState
 }
 
 sealed interface AccountLocalDataResetState {

@@ -1,6 +1,8 @@
 package com.impulsive.app.frontend.navigation
 
 import com.impulsive.app.backend.data.repository.AuthenticatedOnboardingResolution
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOwnerConfirmation
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOwnerConfirmationKind
 
 internal enum class StartupGraphDecision {
     Main,
@@ -95,4 +97,50 @@ internal fun authenticatedOnboardingNavigationDecision(
 
     is AuthenticatedOnboardingResolution.RetryableFailure ->
         AuthenticatedOnboardingNavigationDecision.AwaitRetry
+}
+
+internal fun cloudRecoveryOwnerConfirmationFor(
+    kind: CloudRecoveryOwnerConfirmationKind,
+): CloudRecoveryOwnerConfirmation =
+    when (kind) {
+        CloudRecoveryOwnerConfirmationKind.SameGoogleIdentity ->
+            CloudRecoveryOwnerConfirmation.ConfirmedSameGoogleIdentity
+        CloudRecoveryOwnerConfirmationKind.LegacyEnvelope ->
+            CloudRecoveryOwnerConfirmation.ConfirmedLegacyEnvelope
+    }
+
+internal fun cloudRecoveryOwnerConfirmationCopy(
+    kind: CloudRecoveryOwnerConfirmationKind,
+): String =
+    when (kind) {
+        CloudRecoveryOwnerConfirmationKind.SameGoogleIdentity ->
+            "This encrypted recovery copy was created with the same linked " +
+                "Google identity, but the Firebase account identifier changed. " +
+                "Restore and move it to the currently signed-in account?"
+        CloudRecoveryOwnerConfirmationKind.LegacyEnvelope ->
+            "This encrypted recovery copy was created before Impulsive stored " +
+                "a linked-account identity claim. The recovery password verified " +
+                "the copy. Restore and move it to the currently signed-in account?"
+    }
+
+internal fun sameGoogleRestoreButtonEnabled(
+    migrationInProgress: Boolean,
+): Boolean = !migrationInProgress
+
+internal fun performSameGoogleRestore(
+    onConfirmSameGoogleRestore: () -> Unit,
+) {
+    onConfirmSameGoogleRestore()
+}
+
+internal fun dispatchCloudRestoreSuccess(
+    requiresOnboardingSetup: Boolean,
+    onReadyForHome: () -> Unit,
+    onRequiresOnboardingSetup: () -> Unit,
+) {
+    if (requiresOnboardingSetup) {
+        onRequiresOnboardingSetup()
+    } else {
+        onReadyForHome()
+    }
 }

@@ -12,7 +12,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CloudRecoveryUploadCoordinatorTest {
-        @Test
+    @Test
+    fun `authenticated UID is passed to payload creation`() =
+        runBlocking {
+            var receivedOwnerUid: String? = null
+            val result =
+                coordinator(
+                    payloadProvider =
+                        CloudRecoveryUploadPayloadProvider { ownerUid ->
+                            receivedOwnerUid = ownerUid
+                            "payload"
+                        },
+                ).uploadCurrentRecovery()
+
+            assertEquals(CloudRecoveryUploadResult.Uploaded, result)
+            assertEquals("user-a", receivedOwnerUid)
+        }
+
+    @Test
     fun `account without Google subject hash reaches normal upload path`() =
         runBlocking {
             val authorization = RecordingAuthorizationProvider()
@@ -922,6 +939,77 @@ class CloudRecoveryUploadCoordinatorTest {
         }
 
     @Test
+    fun `payload creation failure is never recorded as a successful upload`() =
+        runBlocking {
+            val failure =
+                IllegalStateException(
+                    "Completed onboarding snapshot unavailable",
+                )
+
+            val recorder =
+                RecordingStatusRecorder()
+
+            val transport =
+                RecordingTransport()
+
+            val result =
+                coordinator(
+                    payloadProvider =
+                        CloudRecoveryUploadPayloadProvider {
+                            throw failure
+                        },
+
+                    clock =
+                        FakeClock(
+                            1000L,
+                        ),
+
+                    transport =
+                        transport,
+
+                    statusRecorder =
+                        recorder,
+                ).uploadCurrentRecovery()
+
+            assertTrue(
+                result is
+                    CloudRecoveryUploadResult.PermanentFailure,
+            )
+
+            assertEquals(
+                failure,
+                (
+                    result as
+                        CloudRecoveryUploadResult.PermanentFailure
+                ).cause,
+            )
+
+            assertEquals(
+                0,
+                transport.findCalls,
+            )
+
+            assertEquals(
+                listOf(
+                    CloudRecoveryStoredUploadOutcome.PermanentFailure to
+                        1000L,
+                ),
+                recorder.outcomes,
+            )
+
+            assertFalse(
+                recorder.outcomes.any {
+                    it.first == CloudRecoveryStoredUploadOutcome.Uploaded
+                },
+            )
+
+            assertEquals(
+                null,
+                recorder.lastSuccessfulBackupEpochMillis,
+            )
+        }
+
+    @Test
     fun `permanent failure records attempt timestamp without successful timestamp`() =
         runBlocking {
             val recorder =
@@ -1101,6 +1189,10 @@ class CloudRecoveryUploadCoordinatorTest {
         statusRecorder:
             CloudRecoveryUploadStatusRecorder =
             RecordingStatusRecorder(),
+
+        payloadProvider:
+            CloudRecoveryUploadPayloadProvider? =
+            null,
     ): CloudRecoveryUploadCoordinator =
         CloudRecoveryUploadCoordinator(
             enabledStateProvider =
@@ -1122,7 +1214,7 @@ class CloudRecoveryUploadCoordinatorTest {
                     ownerUid,
                 ),
 
-            payloadProvider =
+            payloadProvider = payloadProvider ?:
                 CloudRecoveryUploadPayloadProvider {
                     "{\"payload\":true}"
                 },

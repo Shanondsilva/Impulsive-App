@@ -1,8 +1,14 @@
 package com.impulsive.app.backend.data.restore
 
 import android.content.Context
+import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
 import com.impulsive.app.backend.data.local.database.AppDatabase
+import com.impulsive.app.backend.data.local.onboarding.OnboardingPreferencesDataSource
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOnboardingSnapshotJsonKey
+import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOnboardingSnapshotCodec
+import com.impulsive.app.backend.data.restore.cloud.cloudRecoveryOnboardingSnapshotForBackup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,6 +39,7 @@ class RestoreBundleWriter(context: Context) {
 
     suspend fun writeBundle(
         ownerUid: String,
+        ownerGoogleSubjectHash: String?,
     ) = withContext(Dispatchers.IO) {
         val normalizedOwnerUid = ownerUid.trim()
 
@@ -44,9 +51,16 @@ class RestoreBundleWriter(context: Context) {
             "Automatic restore bundle owner UID is too long"
         }
 
-        val payloadJson = buildPayloadJson()
+        val normalizedGoogleSubjectHash = ownerGoogleSubjectHash?.also { hash ->
+            require(isValidGoogleSubjectHash(hash)) {
+                "Automatic restore bundle owner Google subject hash is invalid"
+            }
+        }
+
+        val payloadJson = buildPayloadJson(normalizedOwnerUid)
         val bundleJson = buildAutomaticBundleJson(
             ownerUid = normalizedOwnerUid,
+            ownerGoogleSubjectHash = normalizedGoogleSubjectHash,
             payloadJson = payloadJson,
             createdAtMillis = System.currentTimeMillis(),
         )
@@ -64,7 +78,9 @@ class RestoreBundleWriter(context: Context) {
         }
     }
 
-    suspend fun buildPayloadJson(): String = withContext(Dispatchers.IO) {
+    suspend fun buildPayloadJson(
+        verifiedOwnerUid: String? = null,
+    ): String = withContext(Dispatchers.IO) {
         val database = AppDatabase.getInstance(appContext)
         val journalNoteDao = database.journalNoteDao()
 
@@ -130,18 +146,79 @@ class RestoreBundleWriter(context: Context) {
             )
         }
 
-        JSONObject()
+        val payload = JSONObject()
             .put("journalNotes", notesArray)
             .put("checklistItems", checklistArray)
             .put("recoverySessions", sessionsArray)
             .put("blockedDomains", domainsArray)
-            .toString()
+
+        val normalizedVerifiedOwnerUid =
+            verifiedOwnerUid
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+
+        if (normalizedVerifiedOwnerUid != null) {
+            val onboardingPreferences =
+                OnboardingPreferencesDataSource(
+                    appContext,
+                )
+
+            val onboardingCompleted =
+                onboardingPreferences
+                    .isCompleted
+                    .first()
+
+            val completedAccountUid =
+                onboardingPreferences
+                    .completedAccountUid
+                    .first()
+
+            if (
+                onboardingCompleted &&
+                completedAccountUid ==
+                normalizedVerifiedOwnerUid
+            ) {
+                val onboardingSnapshot =
+                    requireNotNull(
+                        cloudRecoveryOnboardingSnapshotForBackup(
+                            verifiedOwnerUid =
+                                normalizedVerifiedOwnerUid,
+
+                            isCompleted =
+                                onboardingCompleted,
+
+                            completedAccountUid =
+                                completedAccountUid,
+
+                            answers =
+                                onboardingPreferences
+                                    .answers
+                                    .first(),
+                        ),
+                    ) {
+                        "Completed onboarding owned by the verified account " +
+                            "could not be encoded for cloud recovery."
+                    }
+
+                payload.put(
+                    CloudRecoveryOnboardingSnapshotJsonKey,
+                    CloudRecoveryOnboardingSnapshotCodec.encode(
+                        onboardingSnapshot,
+                    ),
+                )
+            }
+        }
+
+        payload.toString()
     }
 
     companion object {
         private const val MaxOwnerUidChars = 128
         const val SchemaVersion = 1
-        const val AutoBundleFormatVersion = 2
+        private const val AutomaticBundleFormatVersionV2 = 2
+        private const val AutomaticBundleFormatVersionV3 = 3
+        const val AutoBundleFormatVersion =
+            AutomaticBundleFormatVersionV3
         const val DirectoryName = "restore"
         const val FileName = "impulsive_restore_bundle_v1.json"
         const val TempFileName = "impulsive_restore_bundle_v1.json.tmp"
@@ -154,6 +231,7 @@ class RestoreBundleWriter(context: Context) {
 
         internal fun buildAutomaticBundleJson(
             ownerUid: String,
+            ownerGoogleSubjectHash: String?,
             payloadJson: String,
             createdAtMillis: Long,
         ): String {
@@ -167,21 +245,33 @@ class RestoreBundleWriter(context: Context) {
                 "Automatic restore bundle owner UID is too long"
             }
 
-            val checksumMaterial = automaticBundleChecksumMaterial(
+            val normalizedGoogleSubjectHash = ownerGoogleSubjectHash?.also { hash ->
+                require(isValidGoogleSubjectHash(hash)) {
+                    "Automatic restore bundle owner Google subject hash is invalid"
+                }
+            }
+
+            val checksumMaterial = automaticBundleChecksumMaterialV3(
                 ownerUid = normalizedOwnerUid,
+                ownerGoogleSubjectHash = normalizedGoogleSubjectHash,
                 payloadJson = payloadJson,
             )
 
             return JSONObject()
                 .put("autoBundleFormatVersion", AutoBundleFormatVersion)
                 .put("ownerUid", normalizedOwnerUid)
+                .put(
+                    "ownerGoogleSubjectHash",
+                    normalizedGoogleSubjectHash ?: JSONObject.NULL,
+                )
                 .put("schemaVersion", SchemaVersion)
                 .put("createdAtMillis", createdAtMillis)
                 .put("checksumSha256", sha256Hex(checksumMaterial))
                 .put("payloadJson", payloadJson)
                 .toString()
         }
-        internal fun automaticBundleChecksumMaterial(
+
+        internal fun automaticBundleChecksumMaterialV2(
             ownerUid: String,
             payloadJson: String,
         ): String =
@@ -191,6 +281,32 @@ class RestoreBundleWriter(context: Context) {
                     1,
             ) {
                 append(ownerUid)
+                append('\n')
+                append(payloadJson)
+            }
+
+        internal fun automaticBundleChecksumMaterialV3(
+            ownerUid: String,
+            ownerGoogleSubjectHash: String?,
+            payloadJson: String,
+        ): String =
+            buildString {
+                append(AutomaticBundleFormatVersionV3)
+                append('\n')
+
+                append(ownerUid.length)
+                append(':')
+                append(ownerUid)
+                append('\n')
+
+                if (ownerGoogleSubjectHash == null) {
+                    append("-1:")
+                } else {
+                    append(ownerGoogleSubjectHash.length)
+                    append(':')
+                    append(ownerGoogleSubjectHash)
+                }
+
                 append('\n')
                 append(payloadJson)
             }

@@ -2,6 +2,8 @@ package com.impulsive.app.frontend.screens.protection
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,6 +30,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -50,6 +57,12 @@ fun DnsFilterGateScreen(
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    var browserSecureDnsConfirmed by remember { mutableStateOf(false) }
+    val continueEnabled =
+        canContinueDnsFilterGate(
+            state = state,
+            browserSecureDnsConfirmed = browserSecureDnsConfirmed,
+        )
 
     LaunchedEffect(Unit) {
         onRefresh()
@@ -82,6 +95,9 @@ fun DnsFilterGateScreen(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 Text(
@@ -104,13 +120,29 @@ fun DnsFilterGateScreen(
                         body = if (state.privateDnsHostname != null) {
                             "It is set to " + state.privateDnsHostname + ". While Private DNS is on, " +
                                 "site checks are encrypted and Impulsive cannot read them. " +
-                                "Set it to Off or Automatic, then come back."
+                                "Set Private DNS to Off, then come back."
                         } else {
                             "While Private DNS is on, site checks are encrypted and Impulsive cannot " +
-                                "read them. Set it to Off or Automatic, then come back."
+                                "read them. Set Private DNS to Off, then come back."
                         },
                     )
                 }
+
+                GateCard(
+                    icon = Icons.Filled.Dns,
+                    title = "Browser Secure DNS",
+                    body =
+                        "Chrome and Brave can use their own encrypted DNS setting, which can bypass " +
+                            "Impulsive. Turn off Secure DNS in each protected browser before enabling " +
+                            "Website Protection.\n\n" +
+                            "Chrome:\nSettings → Privacy and security → Use Secure DNS → Off\n\n" +
+                            "Brave:\nSettings → Brave Shields & privacy → Use Secure DNS → Off",
+                )
+
+                BrowserSecureDnsConfirmationCard(
+                    checked = browserSecureDnsConfirmed,
+                    onCheckedChange = { browserSecureDnsConfirmed = it },
+                )
 
                 if (state.anotherVpnActive) {
                     GateCard(
@@ -129,7 +161,7 @@ fun DnsFilterGateScreen(
                     )
                 }
 
-                if (state.hasChecked && state.canEnable && !state.protectionOn) {
+                if (continueEnabled && !state.protectionOn) {
                     GateCard(
                         icon = Icons.Filled.CheckCircle,
                         title = "Nothing is in the way",
@@ -139,6 +171,7 @@ fun DnsFilterGateScreen(
             }
 
             Column(
+                modifier = Modifier.padding(top = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 when {
@@ -152,6 +185,7 @@ fun DnsFilterGateScreen(
                         PrimaryGateButton(
                             text = "Continue",
                             onClick = onContinue,
+                            enabled = continueEnabled,
                         )
                     }
                     state.privateDnsActive -> {
@@ -182,9 +216,11 @@ fun DnsFilterGateScreen(
 private fun PrimaryGateButton(
     text: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
         colors = ButtonDefaults.buttonColors(
             containerColor = ImpulsivePsychological,
@@ -192,6 +228,48 @@ private fun PrimaryGateButton(
         ),
     ) {
         Text(text)
+    }
+}
+
+internal fun canContinueDnsFilterGate(
+    state: DnsFilterGateUiState,
+    browserSecureDnsConfirmed: Boolean,
+): Boolean =
+    state.hasChecked &&
+        state.canEnable &&
+        browserSecureDnsConfirmed
+
+@Composable
+private fun BrowserSecureDnsConfirmationCard(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = ImpulsivePsychological.copy(alpha = 0.65f),
+                shape = RoundedCornerShape(28.dp),
+            )
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                shape = RoundedCornerShape(28.dp),
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+        Text(
+            text = "I turned off Secure DNS in my protected browsers",
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 

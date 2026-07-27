@@ -106,6 +106,9 @@ class ProtectionSetupViewModel(
                             .VisibleApp,
                 )
             } else {
+                ProtectionNotificationHelper(getApplication())
+                    .cancelBlockedAttemptNotification()
+                InterruptionNotificationLimiter.clearAppEncounters()
                 ImpulsiveVpnController.stop(getApplication())
             }
         }

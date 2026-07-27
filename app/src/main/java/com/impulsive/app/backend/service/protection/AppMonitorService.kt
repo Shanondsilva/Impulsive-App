@@ -22,7 +22,6 @@ import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationDataSource
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationState
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentDataSource
-import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentPhase
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentRecord
 import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.repository.PremiumRepository
@@ -105,6 +104,18 @@ class AppMonitorService : Service() {
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
     private val oneMinuteAccessDataSource by lazy { OneMinuteAccessDataSource(applicationContext) }
     private val websiteProtectionIncidentDataSource by lazy { WebsiteProtectionIncidentDataSource(applicationContext) }
+    private val fallbackReminderCoordinator by lazy {
+        InterruptionNotificationReminderCoordinator(
+            nowMillis = System::currentTimeMillis,
+            schedule = { delayMillis, action ->
+                serviceScope.launch {
+                    delay(delayMillis)
+                    action()
+                }
+            },
+            log = { message -> ProtectionLog.debug(message) },
+        )
+    }
 
     // Collected once into the service scope, with no per-tick disk reads.
     private val setupState by lazy {
@@ -158,6 +169,10 @@ class AppMonitorService : Service() {
     private var lastPrivateDnsCheckAtMillis: Long = 0L
     private var lastHandledPackageName: String? = null
     private var lastHandledAtMillis: Long = 0L
+    private var activeFallbackIncidentPackageName: String? = null
+    private var activeFallbackIncidentStartedAtMillis: Long? = null
+    private var activeFallbackIncidentIsWebsite: Boolean = false
+    private var activeFallbackIncidentIsFocus: Boolean = false
     // In-memory guards so window outcome recording does not write to DataStore
     // on every poll tick. lastUsedWindowKey prevents repeated used-writes while
     // the user stays inside a protected app during one release window.
@@ -225,6 +240,18 @@ class AppMonitorService : Service() {
                 if (shouldStopAfterDismiss && !keepForegroundMonitor) stopSelf()
                 return if (keepForegroundMonitor) START_STICKY else START_NOT_STICKY
             }
+            ActionEndFallbackNotificationIncident -> {
+                endFallbackNotificationIncident(
+                    packageName =
+                        intent.getStringExtra(ExtraFallbackIncidentPackageName),
+                    reason = "terminating notification action selected",
+                )
+                return START_STICKY
+            }
+            ActionFallbackNotificationDismissed -> {
+                recordFallbackNotificationDismissed(intent)
+                return START_STICKY
+            }
             ActionStop -> {
                 stopSelfSafely()
                 return START_NOT_STICKY
@@ -252,6 +279,7 @@ class AppMonitorService : Service() {
         ProtectionMonitorHealthRegistry.markStopped()
         ProtectionServiceOperationalStateStore.markStopped()
         ProtectionInterruptionOverlay.dismissOwned(ProtectionInterruptionOverlay.Owner.AppMonitor)
+        endFallbackNotificationIncident()
         notificationHelper.cancelOneMinuteAccessCountdown()
         unregisterReceiver(screenReceiver)
         serviceScope.cancel()
@@ -380,11 +408,13 @@ class AppMonitorService : Service() {
 
         if (!hasActiveProtectionReason()) {
             Log.i(Tag, "Stopping AppMonitorService because no protection reason is active")
+            endFallbackNotificationIncident()
             stopSelfSafely()
             return
         }
 
         if (!usageAccessChecker.hasUsageAccess()) {
+            endFallbackNotificationIncident()
             ProtectionLog.warnThrottled(
                 key = "usage_access_missing",
                 message = "Protection monitor skipped: Usage Access is not granted",
@@ -404,7 +434,8 @@ class AppMonitorService : Service() {
             notificationHelper.cancelUsageAccessLostNotification()
         }
 
-        val protectedPackages = setupState.value.selectedBlockedAppPackageNames
+        val currentSetup = setupState.value
+        val protectedPackages = currentSetup.selectedBlockedAppPackageNames
         handleWindowNotifications(windowSnapshot)
         sweepSkippedWindows(windowSnapshot.now)
         checkFocusSessionCompletion(windowSnapshot.now)
@@ -420,22 +451,60 @@ class AppMonitorService : Service() {
             )
 
         if (foregroundPackage == null) {
+            endFallbackNotificationIncident()
             ProtectionLog.warnThrottled(
                 key = "foreground_package_missing",
                 message = "Protection monitor skipped: unable to determine foreground package",
             )
             return
         }
+        if (foregroundPackage != activeFallbackIncidentPackageName) {
+            endFallbackNotificationIncident(reason = "foreground browser changed")
+        }
         if (foregroundPackage == applicationContext.packageName) return
 
         if (
-            currentWebsiteIncident?.phase ==
-            WebsiteProtectionIncidentPhase.Cooldown &&
-            currentWebsiteIncident.isCooldownActive(
-                websiteIncidentNow,
-            )
+            currentSetup.websiteProtectionEnabled &&
+            foregroundPackage in currentSetup.websiteProtectedAppPackageNames
         ) {
-            launchWebsiteProtectionCooldownOverlay(
+            RecentForegroundWebsiteBrowserRegistry.observe(
+                packageName = foregroundPackage,
+                observedAtEpochMillis = websiteIncidentNow,
+            )
+        } else if (!currentSetup.websiteProtectionEnabled) {
+            RecentForegroundWebsiteBrowserRegistry.clear()
+        }
+
+        currentFallbackIncidentId()
+            ?.takeIf { incidentId -> incidentId.isWebsiteIncident }
+            ?.let { incidentId ->
+                val cancellationReason = when {
+                    !currentSetup.websiteProtectionEnabled ->
+                        "Website Protection disabled"
+                    incidentId.packageName !in currentSetup.websiteProtectedAppPackageNames ->
+                        "browser no longer managed by Website Protection"
+                    windowSnapshot.isProtectionPaused &&
+                        !currentSetup.websiteProtectionAlwaysOn ->
+                        "Website Protection paused"
+                    ProtectionInterruptionOverlay.isShowing(applicationContext) ->
+                        "interruption overlay is showing"
+                    else -> null
+                }
+                if (cancellationReason != null) {
+                    endFallbackNotificationIncident(
+                        packageName = incidentId.packageName,
+                        reason = cancellationReason,
+                    )
+                }
+            }
+
+        if (
+            currentSetup.websiteProtectionEnabled &&
+            (!windowSnapshot.isProtectionPaused || currentSetup.websiteProtectionAlwaysOn) &&
+            currentWebsiteIncident != null &&
+            canStartWebsiteInterruption(currentWebsiteIncident.phase)
+        ) {
+            launchWebsiteProtectionIncidentSurface(
                 currentWebsiteIncident,
             )
             return
@@ -468,14 +537,22 @@ class AppMonitorService : Service() {
                 return
             }
         }
-        val currentSetup = setupState.value
         if (
             shouldBypassGenericAppInterceptionForWebsiteProtection(
                 foregroundPackage = foregroundPackage,
                 websiteProtectionEnabled = currentSetup.websiteProtectionEnabled,
-                websiteProtectedPackages = currentSetup.websiteProtectedAppPackageNames,
+                websiteProtectedPackages =
+                    currentSetup.websiteProtectedAppPackageNames,
             )
         ) {
+            currentFallbackIncidentId()
+                ?.takeIf { incidentId -> !incidentId.isWebsiteIncident }
+                ?.let { incidentId ->
+                    endFallbackNotificationIncident(
+                        packageName = incidentId.packageName,
+                        reason = "Website Protection owns managed browser",
+                    )
+                }
             ProtectionLog.debugThrottled(
                 key = "website_protected_package:$foregroundPackage",
                 message =
@@ -486,6 +563,7 @@ class AppMonitorService : Service() {
             return
         }
         if (!currentSetup.appProtectionMonitorEnabled) {
+            endFallbackNotificationIncident()
             ProtectionLog.debugThrottled(
                 key = "app_protection_disabled",
                 message = "Protection monitor skipped: App Protection monitor is disabled",
@@ -493,19 +571,24 @@ class AppMonitorService : Service() {
             return
         }
         if (protectedPackages.isEmpty()) {
+            endFallbackNotificationIncident()
             ProtectionLog.debugThrottled(
                 key = "protected_app_selection_empty",
                 message = "Protection monitor skipped: protected-app selection is empty",
             )
             return
         }
-        if (foregroundPackage !in protectedPackages) return
+        if (foregroundPackage !in protectedPackages) {
+            endFallbackNotificationIncident()
+            return
+        }
         ProtectionLog.debugThrottled(
             key = "protected_package:$foregroundPackage",
             message = "Protected package detected: $foregroundPackage",
             intervalMillis = 10_000L,
         )
         if (windowSnapshot.isProtectionPaused) {
+            endFallbackNotificationIncident()
             val pausedStart = windowSnapshot.pausedWindowStart
             if (pausedStart != null && pausedStart.toString() != lastUsedWindowKey) {
                 lastUsedWindowKey = pausedStart.toString()
@@ -522,6 +605,7 @@ class AppMonitorService : Service() {
                 persistedState = activeAllow,
             )
         ) {
+            endFallbackNotificationIncident()
             ensureOneMinuteCountdown(
                 packageName = foregroundPackage,
                 sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage),
@@ -568,23 +652,45 @@ class AppMonitorService : Service() {
         )
     }
 
-    private fun launchWebsiteProtectionCooldownOverlay(
-        cooldown: WebsiteProtectionIncidentRecord,
+    private fun launchWebsiteProtectionIncidentSurface(
+        incident: WebsiteProtectionIncidentRecord,
     ) {
-        val cooldownUntilEpochMillis =
-            cooldown.cooldownUntilEpochMillis
-                ?: return
+        if (
+            ProtectionInterruptionOverlay.isShowing(
+                applicationContext,
+            )
+        ) {
+            endFallbackNotificationIncident()
+            return
+        }
+
+        val nowMillis = System.currentTimeMillis()
+        val incidentStartedAtMillis = beginFallbackNotificationIncident(
+            packageName = incident.packageName,
+            nowMillis = nowMillis,
+            persistedStartedAtMillis = incident.incidentStartedAtEpochMillis,
+            isWebsiteIncident = true,
+        )
+        val message =
+            InterruptionNotificationLimiter.messageForApp(
+                packageName = incident.packageName,
+                nowMillis = nowMillis,
+                incidentStartedAtMillis = incidentStartedAtMillis,
+            ) {
+                InterruptionFallbackNotificationBody
+            }
 
         ProtectionInterruptionOverlay.show(
             context = applicationContext,
             owner = ProtectionInterruptionOverlay.Owner.Vpn,
-            sourcePackageName = cooldown.packageName,
-            sourceLabel = cooldown.sourceLabel,
-            message = "Impulsive caught the pattern.\n\n" +
-                "Website Protection blocked an adult-content attempt.\n" +
-                "This browser is taking a short cooldown so you can step away and reset.",
+            sourcePackageName = incident.packageName,
+            sourceLabel = incident.sourceLabel,
+            message = message,
             isFocusSession = false,
-            resetAtEpochMillis = cooldownUntilEpochMillis,
+            resetAtEpochMillis = incident.cooldownUntilEpochMillis,
+            onShown = {
+                endFallbackNotificationIncident(incident.packageName)
+            },
             onFailure = {
                 if (
                     notificationHelper.interruptionNotificationStatus() !=
@@ -593,11 +699,14 @@ class AppMonitorService : Service() {
                     return@show
                 }
 
-                notificationHelper.showInterruptionFallback(
-                    sourcePackageName = cooldown.packageName,
-                    sourceLabel = cooldown.sourceLabel,
-                    message = "Impulsive caught the pattern.",
-                    hideSensitive = hideSensitiveNotifications.value,
+                scheduleFallbackNotificationStages(
+                    incidentId = InterruptionNotificationIncidentId(
+                        packageName = incident.packageName,
+                        startedAtMillis = incidentStartedAtMillis,
+                        isWebsiteIncident = true,
+                        isFocusSession = false,
+                    ),
+                    sourceLabel = incident.sourceLabel,
                 )
             },
         )
@@ -799,41 +908,32 @@ class AppMonitorService : Service() {
             return
         }
 
-        val decision =
-            when (interruption.owner) {
-                ProtectionInterruptionOverlay.Owner.AppMonitor ->
-                    InterruptionNotificationLimiter.decideNotificationForApp(
-                        packageName =
-                        interruption.sourcePackageName,
-                        nowMillis =
-                        System.currentTimeMillis(),
-                    )
-
-                ProtectionInterruptionOverlay.Owner.Vpn ->
-                    InterruptionNotificationLimiter.decideNotificationForApp(
-                        packageName =
-                        interruption.sourcePackageName,
-                        nowMillis =
-                        System.currentTimeMillis(),
-                    )
-            }
-
-        if (decision !is InterruptionNotificationDecision.Post) {
-            return
+        val nowMillis = System.currentTimeMillis()
+        val isWebsiteIncident =
+            interruption.owner == ProtectionInterruptionOverlay.Owner.Vpn
+        val incidentStartedAtMillis = beginFallbackNotificationIncident(
+            packageName = interruption.sourcePackageName,
+            nowMillis = nowMillis,
+            isWebsiteIncident = isWebsiteIncident,
+            isFocusSession = interruption.isFocusSession,
+        )
+        InterruptionNotificationLimiter.messageForApp(
+            packageName = interruption.sourcePackageName,
+            nowMillis = nowMillis,
+            incidentStartedAtMillis = incidentStartedAtMillis,
+        ) {
+            interruption.message
         }
 
         ProtectionLog.warn("Invalidated overlay fallback notification path activated")
-        notificationHelper.showInterruptionFallback(
-            sourcePackageName =
-            interruption.sourcePackageName,
-            sourceLabel =
-            interruption.sourceLabel,
-            message =
-            decision.message,
-            hideSensitive =
-            hideSensitiveNotifications.value,
-            isFocusSession =
-            interruption.isFocusSession,
+        scheduleFallbackNotificationStages(
+            incidentId = InterruptionNotificationIncidentId(
+                packageName = interruption.sourcePackageName,
+                startedAtMillis = incidentStartedAtMillis,
+                isWebsiteIncident = isWebsiteIncident,
+                isFocusSession = interruption.isFocusSession,
+            ),
+            sourceLabel = interruption.sourceLabel,
         )
     }
 
@@ -852,10 +952,18 @@ class AppMonitorService : Service() {
 
         val nowMillis = System.currentTimeMillis()
 
+        val incidentStartedAtMillis = beginFallbackNotificationIncident(
+            packageName = sourcePackageName,
+            nowMillis = nowMillis,
+            isWebsiteIncident = false,
+            isFocusSession = isFocusSession,
+        )
+
         val message =
             InterruptionNotificationLimiter.messageForApp(
                 packageName = sourcePackageName,
                 nowMillis = nowMillis,
+                incidentStartedAtMillis = incidentStartedAtMillis,
                 selectMessage =
                 interruptionMessageSelector::select,
             )
@@ -880,7 +988,7 @@ class AppMonitorService : Service() {
             isFocusSession = isFocusSession,
             resetAtEpochMillis = normalResetAtEpochMillis,
             onShown = {
-                // An overlay is not a notification attempt.
+                endFallbackNotificationIncident(sourcePackageName)
             },
             onFailure = {
                 if (
@@ -890,41 +998,207 @@ class AppMonitorService : Service() {
                     return@show
                 }
 
-                when (
-                    val decision =
-                        InterruptionNotificationLimiter
-                            .decideNotificationForApp(
-                                packageName =
-                                sourcePackageName,
-                                nowMillis =
-                                System.currentTimeMillis(),
-                            )
-                ) {
-                    is InterruptionNotificationDecision.Post -> {
-                        ProtectionLog.warn(
-                            "Overlay unavailable; fallback notification path activated",
-                        )
-                        notificationHelper
-                            .showInterruptionFallback(
-                                sourcePackageName =
-                                sourcePackageName,
-                                sourceLabel =
-                                sourceLabel,
-                                message =
-                                decision.message,
-                                hideSensitive =
-                                hideSensitiveNotifications.value,
-                                isFocusSession =
-                                isFocusSession,
-                            )
-                    }
-
-                    InterruptionNotificationDecision.Suppress ->
-                        Unit
-                }
+                scheduleFallbackNotificationStages(
+                    incidentId = InterruptionNotificationIncidentId(
+                        packageName = sourcePackageName,
+                        startedAtMillis = incidentStartedAtMillis,
+                        isWebsiteIncident = false,
+                        isFocusSession = isFocusSession,
+                    ),
+                    sourceLabel = sourceLabel,
+                )
             },
         )
         ProtectionLog.debug("Overlay display requested for protected package: $sourcePackageName")
+    }
+
+    private fun scheduleFallbackNotificationStages(
+        incidentId: InterruptionNotificationIncidentId,
+        sourceLabel: String,
+    ) {
+        fallbackReminderCoordinator.startOrContinue(incidentId) { stage ->
+            if (!fallbackIncidentStillEligible(incidentId)) {
+                endFallbackNotificationIncident(
+                    packageName = incidentId.packageName,
+                    reason = "scheduled stage no longer eligible",
+                )
+                return@startOrContinue
+            }
+
+            if (stage == InterruptionNotificationStage.Initial) {
+                ProtectionLog.warn(
+                    "Overlay unavailable; fallback notification path activated",
+                )
+            }
+
+            notificationHelper.showInterruptionFallback(
+                sourcePackageName = incidentId.packageName,
+                sourceLabel = sourceLabel,
+                hideSensitive = hideSensitiveNotifications.value,
+                isFocusSession = incidentId.isFocusSession,
+                incidentStartedAtMillis = incidentId.startedAtMillis,
+                isWebsiteIncident = incidentId.isWebsiteIncident,
+                stage = stage,
+            )
+            ProtectionLog.debug(
+                "posted stage=$stage incident=$incidentId notificationId=" +
+                    ProtectionNotificationHelper.BlockedAttemptNotificationId,
+            )
+        }
+    }
+
+    private fun fallbackIncidentStillEligible(
+        incidentId: InterruptionNotificationIncidentId,
+    ): Boolean {
+        if (currentFallbackIncidentId() != incidentId) {
+            return false
+        }
+
+        val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage()
+        if (foregroundPackage != incidentId.packageName) {
+            return false
+        }
+        if (ProtectionInterruptionOverlay.isShowing(applicationContext)) {
+            return false
+        }
+
+        val currentSetup = setupState.value
+        val nowMillis = System.currentTimeMillis()
+        val windowSnapshot = currentProtectionWindowSnapshot()
+
+        if (incidentId.isWebsiteIncident) {
+            return isWebsiteFallbackIncidentEligible(
+                incidentMatches = currentFallbackIncidentId() == incidentId,
+                websiteProtectionEnabled = currentSetup.websiteProtectionEnabled,
+                sameBrowserForeground = foregroundPackage == incidentId.packageName,
+                browserIsWebsiteProtected =
+                    incidentId.packageName in currentSetup.websiteProtectedAppPackageNames,
+                protectionPaused = windowSnapshot.isProtectionPaused,
+                websiteProtectionAlwaysOn = currentSetup.websiteProtectionAlwaysOn,
+                overlayShowing =
+                    ProtectionInterruptionOverlay.isShowing(applicationContext),
+                terminatingActionSelected = false,
+            )
+        }
+
+        if (
+            shouldBypassGenericAppInterceptionForWebsiteProtection(
+                foregroundPackage = foregroundPackage,
+                websiteProtectionEnabled = currentSetup.websiteProtectionEnabled,
+                websiteProtectedPackages =
+                    currentSetup.websiteProtectedAppPackageNames,
+            )
+        ) {
+            return false
+        }
+
+        if (
+            oneMinuteAccessDataSource.isAllowActiveImmediately(
+                key = foregroundPackage,
+                nowEpochMillis = nowMillis,
+                persistedState = oneMinuteAccessState.value,
+            )
+        ) {
+            return false
+        }
+
+        if (incidentId.isFocusSession) {
+            val session = focusSession.value
+            val focusPackages =
+                focusConfiguredBlockedPackages.value
+                    ?: currentSetup.selectedBlockedAppPackageNames
+
+            return session?.phase == FocusSessionPhase.Running &&
+                foregroundPackage in focusPackages
+        }
+
+        return currentSetup.appProtectionMonitorEnabled &&
+            foregroundPackage in currentSetup.selectedBlockedAppPackageNames &&
+            !windowSnapshot.isProtectionPaused
+    }
+
+    private fun currentFallbackIncidentId(): InterruptionNotificationIncidentId? {
+        val packageName = activeFallbackIncidentPackageName ?: return null
+        val startedAtMillis = activeFallbackIncidentStartedAtMillis ?: return null
+
+        return InterruptionNotificationIncidentId(
+            packageName = packageName,
+            startedAtMillis = startedAtMillis,
+            isWebsiteIncident = activeFallbackIncidentIsWebsite,
+            isFocusSession = activeFallbackIncidentIsFocus,
+        )
+    }
+
+    private fun recordFallbackNotificationDismissed(intent: Intent) {
+        val packageName =
+            intent.getStringExtra(ExtraFallbackIncidentPackageName)
+                ?: return
+        val startedAtMillis =
+            intent.getLongExtra(ExtraFallbackIncidentStartedAtMillis, Long.MIN_VALUE)
+        val isWebsiteIncident =
+            intent.getBooleanExtra(ExtraFallbackIncidentIsWebsite, false)
+        val isFocusSession =
+            intent.getBooleanExtra(ExtraFallbackIncidentIsFocus, false)
+        val stage =
+            intent.getStringExtra(ExtraFallbackNotificationStage)
+                ?.let { stored ->
+                    InterruptionNotificationStage.entries.firstOrNull { candidate ->
+                        candidate.name == stored
+                    }
+                }
+                ?: return
+        val incidentId = InterruptionNotificationIncidentId(
+            packageName = packageName,
+            startedAtMillis = startedAtMillis,
+            isWebsiteIncident = isWebsiteIncident,
+            isFocusSession = isFocusSession,
+        )
+
+        fallbackReminderCoordinator.recordDismissed(incidentId, stage)
+    }
+    private fun beginFallbackNotificationIncident(
+        packageName: String,
+        nowMillis: Long,
+        persistedStartedAtMillis: Long? = null,
+        isWebsiteIncident: Boolean,
+        isFocusSession: Boolean = false,
+    ): Long {
+        val continuingIncident =
+            activeFallbackIncidentPackageName == packageName &&
+                activeFallbackIncidentIsWebsite == isWebsiteIncident &&
+                activeFallbackIncidentIsFocus == isFocusSession
+
+        if (!continuingIncident) {
+            endFallbackNotificationIncident()
+            activeFallbackIncidentPackageName = packageName
+            activeFallbackIncidentStartedAtMillis =
+                persistedStartedAtMillis ?: nowMillis
+            activeFallbackIncidentIsWebsite = isWebsiteIncident
+            activeFallbackIncidentIsFocus = isFocusSession
+        }
+
+        return requireNotNull(activeFallbackIncidentStartedAtMillis)
+    }
+
+    private fun endFallbackNotificationIncident(
+        packageName: String? = activeFallbackIncidentPackageName,
+        reason: String = "incident ended",
+    ) {
+        val endedPackageName = packageName ?: return
+        InterruptionNotificationLimiter.endAppEncounter(endedPackageName)
+
+        if (activeFallbackIncidentPackageName != endedPackageName) {
+            return
+        }
+
+        currentFallbackIncidentId()?.let { incidentId ->
+            fallbackReminderCoordinator.cancel(incidentId, reason)
+        }
+        activeFallbackIncidentPackageName = null
+        activeFallbackIncidentStartedAtMillis = null
+        activeFallbackIncidentIsWebsite = false
+        activeFallbackIncidentIsFocus = false
+        notificationHelper.cancelBlockedAttemptNotification()
     }
 
     private fun emptyTaskRewardStoreState() = TaskRewardStoreState(
@@ -947,6 +1221,7 @@ class AppMonitorService : Service() {
         ProtectionMonitorHealthRegistry.markStopped()
         ProtectionServiceOperationalStateStore.markStopped()
         cancelOneMinuteAccessCountdown()
+        endFallbackNotificationIncident()
         removeProtectionNotificationOnly()
         stopSelf()
     }
@@ -1070,6 +1345,20 @@ class AppMonitorService : Service() {
             "com.impulsive.app.action.CANCEL_PROTECTION_NOTIFICATION"
         const val ActionProtectionNotificationDismissed =
             "com.impulsive.app.action.PROTECTION_NOTIFICATION_DISMISSED"
+        const val ActionEndFallbackNotificationIncident =
+            "com.impulsive.app.action.END_FALLBACK_NOTIFICATION_INCIDENT"
+        const val ActionFallbackNotificationDismissed =
+            "com.impulsive.app.action.FALLBACK_NOTIFICATION_DISMISSED"
+        const val ExtraFallbackIncidentPackageName =
+            "com.impulsive.app.extra.FALLBACK_INCIDENT_PACKAGE_NAME"
+        const val ExtraFallbackIncidentStartedAtMillis =
+            "com.impulsive.app.extra.FALLBACK_INCIDENT_STARTED_AT_MILLIS"
+        const val ExtraFallbackIncidentIsWebsite =
+            "com.impulsive.app.extra.FALLBACK_INCIDENT_IS_WEBSITE"
+        const val ExtraFallbackIncidentIsFocus =
+            "com.impulsive.app.extra.FALLBACK_INCIDENT_IS_FOCUS"
+        const val ExtraFallbackNotificationStage =
+            "com.impulsive.app.extra.FALLBACK_NOTIFICATION_STAGE"
         const val ExtraShowTemporaryProtectionNotification =
             "com.impulsive.app.extra.SHOW_TEMPORARY_PROTECTION_NOTIFICATION"
         private const val CheckIntervalMillis = 1_200L
