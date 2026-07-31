@@ -16,6 +16,7 @@ class BlockRequestNavigationHandoffTest {
     @Test
     fun allBlockTargetsMapToTheirDestinationRoutePatterns() {
         assertEquals(AppRoutes.ImpulsiveBlock, pattern(BlockLaunchTarget.BlockScreen))
+        assertEquals(AppRoutes.AdaptiveMoment, pattern(BlockLaunchTarget.AdaptiveMoment))
         assertEquals(AppRoutes.RandomRecoveryGame, pattern(BlockLaunchTarget.RandomRecoveryGame))
         assertEquals(AppRoutes.ResetReadFallbackTask, pattern(BlockLaunchTarget.ReadingReset))
         assertEquals(AppRoutes.FocusRecovery, pattern(BlockLaunchTarget.FocusRecovery))
@@ -188,7 +189,7 @@ class BlockRequestNavigationHandoffTest {
         assertTrue(readyEffect.contains("withFrameNanos"))
         assertTrue(readyEffect.contains("lastReadyRequest"))
         assertTrue(readyEffect.contains("latestOnBlockRequestConsumed()"))
-        assertTrue(source.split("BlockRequestDestinationReadyEffect(").size - 1 == 5)
+        assertTrue(source.split("BlockRequestDestinationReadyEffect(").size - 1 == 6)
     }
 
     @Test

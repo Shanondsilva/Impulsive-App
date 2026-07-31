@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -51,12 +53,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,15 +72,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.impulsive.app.R
 import com.impulsive.app.backend.data.repository.ResetReadRepository
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
@@ -118,6 +134,10 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val ScoreStrongCoral = Color(0xFFEF6F72)
+private const val ScoreFlipInitialPauseMs = 15_000L
+private const val ScoreFlipDurationMs = 1_050
+private const val ScoreFlipPersonalBestHoldMs = 8_000L
+private val ScoreFlipCardHeight = 218.dp
 
 private data class ScoreScreenColors(
     val background: Color,
@@ -251,8 +271,9 @@ fun ProgressDashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
-                .padding(top = 18.dp, bottom = 132.dp),
+                .padding(top = 18.dp, bottom = bottomNavReservedSpace + 40.dp),
         ) {
             ScoreHeader(
                 colors = colors,
@@ -295,19 +316,31 @@ fun ProgressDashboardScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            ScoreRecordsCard(
-                personalBests = uiState.personalBests,
-                recentSessions = uiState.recentSessions,
-                colors = colors,
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ScoreFlipCardHeight),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ScoreRecordsCard(
+                    personalBests = uiState.personalBests,
+                    recentSessions = uiState.recentSessions,
+                    colors = colors,
+                    isActive = isActive,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
 
-            Spacer(modifier = Modifier.height(18.dp))
-
-            ResetReadingProgressCard(
-                stats = resetReadProgressStats,
-                colors = colors,
-                onOpenResetReadTask = onOpenResetReadTask,
-            )
+                ResetReadingProgressCard(
+                    stats = resetReadProgressStats,
+                    colors = colors,
+                    isActive = isActive,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
+            }
 
             Spacer(modifier = Modifier.height(26.dp))
 
@@ -1006,241 +1039,304 @@ private fun ScoreRecordsCard(
     personalBests: List<ScorePersonalBest>,
     recentSessions: List<ScoreTimelineItem>,
     colors: ScoreScreenColors,
+    isActive: Boolean,
+    modifier: Modifier = Modifier,
 ) {
-    val isDark = colors.background.luminance() < 0.5f
     val topBest = personalBests
         .filter { it.hasRecord }
         .maxByOrNull { it.bestScore }
-        ?: personalBests.firstOrNull()
+    val latestCompleted = recentSessions.firstOrNull {
+        it.outcome != ScoreSessionOutcome.Abandoned
+    }
     val accent = topBest?.gameType?.accentColor() ?: colors.lavenderGlow
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val density = LocalDensity.current.density
+    val scope = rememberCoroutineScope()
+    val reducedMotion = remember(context) {
+        android.provider.Settings.Global.getFloat(
+            context.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) == 0f
+    }
+    val touchExplorationEnabled = remember(context) {
+        context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+            ?.isTouchExplorationEnabled == true
+    }
+    var lifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ ->
+            lifecycleResumed =
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
-    Surface(
-        color = colors.mainCard,
-        shape = RoundedCornerShape(30.dp),
-        border = if (isDark) BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.58f)) else null,
-        modifier = Modifier
+    var showingBack by rememberSaveable { mutableStateOf(false) }
+    var autoCycleCompleted by rememberSaveable { mutableStateOf(false) }
+    var interactionGeneration by rememberSaveable { mutableIntStateOf(0) }
+    var isFlipping by remember { mutableStateOf(false) }
+    val rotation = remember { Animatable(if (showingBack) 180f else 0f) }
+    val frontVisible = rotation.value < 90f
+    val automaticFlipEnabled =
+        isActive && lifecycleResumed && !reducedMotion && !touchExplorationEnabled
+
+    LaunchedEffect(automaticFlipEnabled, autoCycleCompleted, interactionGeneration) {
+        if (!automaticFlipEnabled || autoCycleCompleted) return@LaunchedEffect
+        delay(ScoreFlipInitialPauseMs)
+        try {
+            isFlipping = true
+            rotation.animateTo(
+                targetValue = 180f,
+                animationSpec = tween(
+                    durationMillis = ScoreFlipDurationMs,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+            showingBack = true
+            isFlipping = false
+            delay(ScoreFlipPersonalBestHoldMs)
+            isFlipping = true
+            rotation.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = ScoreFlipDurationMs,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+            showingBack = false
+            autoCycleCompleted = true
+        } finally {
+            val resolvedBack = rotation.value >= 90f
+            rotation.snapTo(if (resolvedBack) 180f else 0f)
+            showingBack = resolvedBack
+            isFlipping = false
+        }
+    }
+
+    val faceLabel = stringResource(
+        if (frontVisible) R.string.v28_personal_best else R.string.v28_recent_session,
+    )
+    val actionLabel = stringResource(
+        if (frontVisible) R.string.v28_show_recent_session else R.string.v28_show_personal_best,
+    )
+    val requestManualFlip = {
+        if (!isFlipping) {
+            isFlipping = true
+            interactionGeneration += 1
+            autoCycleCompleted = true
+            val target = if (frontVisible) 180f else 0f
+            scope.launch {
+                try {
+                    if (reducedMotion) {
+                        rotation.snapTo(target)
+                    } else {
+                        rotation.animateTo(
+                            targetValue = target,
+                            animationSpec = tween(
+                                durationMillis = ScoreFlipDurationMs,
+                                easing = FastOutSlowInEasing,
+                            ),
+                        )
+                    }
+                    showingBack = target == 180f
+                } finally {
+                    isFlipping = false
+                }
+            }
+        }
+    }
+    val cardShape = RoundedCornerShape(30.dp)
+    val isDark = colors.background.luminance() < 0.5f
+
+    Box(
+        modifier = modifier
             .fillMaxWidth()
+            .height(ScoreFlipCardHeight)
             .shadow(
                 elevation = 12.dp,
-                shape = RoundedCornerShape(30.dp),
+                shape = cardShape,
                 clip = false,
                 ambientColor = accent.copy(alpha = 0.12f),
                 spotColor = accent.copy(alpha = 0.10f),
-            ),
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClickLabel = actionLabel,
+                onClick = requestManualFlip,
+            )
+            .semantics(mergeDescendants = true) {
+                contentDescription = faceLabel
+            },
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ScoreIconBadge(
-                        icon = Icons.Filled.MilitaryTech,
-                        accentColor = accent,
-                        colors = colors,
-                        size = 32.dp,
-                        iconSize = 17.dp,
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
+        ScoreFlipFaceSurface(
+            eyebrow = stringResource(R.string.v28_personal_best_eyebrow),
+            title = topBest?.gameType?.displayName,
+            score = topBest?.bestScore,
+            supporting = null,
+            emptyMessage = stringResource(R.string.v28_personal_best_empty),
+            icon = Icons.Outlined.EmojiEvents,
+            iconContentDescription = "Personal best",
+            colors = colors,
+            isDark = isDark,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    rotationY = rotation.value
+                    cameraDistance = 24f * density
+                    alpha = if (rotation.value <= 90f) 1f else 0f
+                },
+        )
+        ScoreFlipFaceSurface(
+            eyebrow = stringResource(R.string.v28_recent_session_eyebrow),
+            title = latestCompleted?.gameName,
+            score = latestCompleted?.score,
+            supporting = latestCompleted?.completedAt?.relativeLabel(),
+            emptyMessage = stringResource(R.string.v28_recent_session_empty),
+            icon = Icons.Outlined.History,
+            iconContentDescription = "Recent session",
+            colors = colors,
+            isDark = isDark,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    rotationY = rotation.value - 180f
+                    cameraDistance = 24f * density
+                    alpha = if (rotation.value >= 90f) 1f else 0f
+                },
+        )
+    }
+}
+
+@Composable
+private fun ScoreFlipFaceSurface(
+    eyebrow: String,
+    title: String?,
+    score: Int?,
+    supporting: String?,
+    emptyMessage: String,
+    icon: ImageVector,
+    iconContentDescription: String,
+    colors: ScoreScreenColors,
+    isDark: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = colors.mainCard,
+        shape = RoundedCornerShape(30.dp),
+        border = if (isDark) {
+            BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.58f))
+        } else {
+            null
+        },
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+        ) {
+            ScoreFlipHeader(
+                icon = icon,
+                iconContentDescription = iconContentDescription,
+                eyebrow = eyebrow,
+                colors = colors,
+                isDark = isDark,
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            if (score == null) {
+                Text(
+                    text = emptyMessage,
+                    color = colors.text,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                title?.let {
                     Text(
-                        text = "Personal Best",
+                        text = it,
                         color = colors.text,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    Spacer(modifier = Modifier.height(5.dp))
                 }
                 Text(
-                    text = "Recent session",
-                    color = colors.muted,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                MainPersonalBestPanel(
-                    best = topBest,
-                    colors = colors,
-                    modifier = Modifier.weight(1.08f),
-                )
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(96.dp)
-                        .background(colors.text.copy(alpha = 0.10f)),
-                )
-                RecentPlayedPanel(
-                    item = recentSessions.firstOrNull(),
-                    colors = colors,
-                    modifier = Modifier.weight(0.92f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MainPersonalBestPanel(
-    best: ScorePersonalBest?,
-    colors: ScoreScreenColors,
-    modifier: Modifier = Modifier,
-) {
-    val accent = best?.gameType?.accentColor() ?: colors.lavenderGlow
-    Column(modifier = modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ScoreIconBadge(
-                icon = best?.gameType?.scoreIcon() ?: Icons.Filled.SportsEsports,
-                accentColor = accent,
-                colors = colors,
-                size = 34.dp,
-                iconSize = 18.dp,
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = best?.gameType?.displayName ?: "Pivot Game",
-                color = colors.text,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = if (best?.hasRecord == true) best.bestScore.formatNumber() else "-",
-                color = colors.text,
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Best",
-                color = colors.muted,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 7.dp),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = if (best?.hasRecord == true) {
-                "Prev: ${best.previousScore?.formatNumber() ?: "-"} ${best.changeFromPrevious?.formatChange().orEmpty()}"
-            } else {
-                "Complete a pivot game to set your first record."
-            },
-            color = colors.text.copy(alpha = 0.72f),
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun RecentPlayedPanel(
-    item: ScoreTimelineItem?,
-    colors: ScoreScreenColors,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
-        if (item == null) {
-            EmptyRecentPlayedState(colors = colors)
-        } else {
-            RecentPlayedMiniRow(
-                item = item,
-                colors = colors,
-            )
-        }
-    }
-}
-
-@Composable
-private fun RecentPlayedMiniRow(
-    item: ScoreTimelineItem,
-    colors: ScoreScreenColors,
-) {
-    Row(verticalAlignment = Alignment.Top) {
-        ScoreIconBadge(
-            icon = item.gameIcon(),
-            accentColor = item.gameAccentColor(),
-            colors = colors,
-            size = 28.dp,
-            iconSize = 14.dp,
-        )
-        Spacer(modifier = Modifier.width(9.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text(
-                    text = item.gameName,
+                    text = stringResource(
+                        R.string.v28_score_points,
+                        score.formatNumber(),
+                    ),
                     color = colors.text,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = item.completedAt.relativeLabel(),
-                    color = colors.muted,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                )
+                supporting?.let {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = it,
+                        color = colors.muted,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "${item.score.formatNumber()} pts",
-                color = colors.text.copy(alpha = 0.70f),
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            OutcomePill(
-                outcome = item.outcome,
-                colors = colors,
-            )
         }
     }
 }
 
 @Composable
-private fun EmptyRecentPlayedState(colors: ScoreScreenColors) {
-    Column(horizontalAlignment = Alignment.Start) {
-        ScoreIconBadge(
-            icon = Icons.Filled.Timeline,
-            accentColor = colors.lavenderGlow,
-            colors = colors,
-            size = 32.dp,
-            iconSize = 17.dp,
-        )
-        Spacer(modifier = Modifier.height(10.dp))
+private fun ScoreFlipHeader(
+    icon: ImageVector,
+    iconContentDescription: String,
+    eyebrow: String,
+    colors: ScoreScreenColors,
+    isDark: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    color = if (isDark) {
+                        colors.surface.copy(alpha = 0.72f)
+                    } else {
+                        colors.elevatedSurface.copy(alpha = 0.84f)
+                    },
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = iconContentDescription,
+                tint = colors.muted,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
-            text = "No plays yet",
-            color = colors.text,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Your latest session appears here.",
+            text = eyebrow,
             color = colors.muted,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1473,118 +1569,264 @@ private fun TaperProposalCard(
 private fun ResetReadingProgressCard(
     stats: ResetReadProgressStats,
     colors: ScoreScreenColors,
-    onOpenResetReadTask: () -> Unit,
+    isActive: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val isDark = colors.background.luminance() < 0.5f
     val lastCompletedLabel = stats.lastCompletedAt?.relativeLabel() ?: "Not yet"
-    val helpfulnessLabel = stats.averageHelpfulness?.let { average ->
-        "${String.format(Locale.UK, "%.1f", average)}/5"
-    } ?: "Not rated"
+    val flipContent = buildResetReadingFlipContent(
+        lastCompletedValue = lastCompletedLabel,
+        helpfulValue = stats.highlyHelpfulCount.formatNumber(),
+        completedValue = stats.completedCount.formatNumber(),
+        abandonedValue = stats.abandonedCount.formatNumber(),
+    )
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val density = LocalDensity.current.density
+    val scope = rememberCoroutineScope()
+    val reducedMotion = remember(context) {
+        android.provider.Settings.Global.getFloat(
+            context.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) == 0f
+    }
+    val touchExplorationEnabled = remember(context) {
+        context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+            ?.isTouchExplorationEnabled == true
+    }
+    var lifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ ->
+            lifecycleResumed =
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
+    var showingBack by rememberSaveable { mutableStateOf(false) }
+    var autoCycleCompleted by rememberSaveable { mutableStateOf(false) }
+    var interactionGeneration by rememberSaveable { mutableIntStateOf(0) }
+    var isFlipping by remember { mutableStateOf(false) }
+    val rotation = remember { Animatable(if (showingBack) 180f else 0f) }
+    val frontVisible = rotation.value < 90f
+    val automaticFlipEnabled =
+        isActive && lifecycleResumed && !reducedMotion && !touchExplorationEnabled
+
+    LaunchedEffect(automaticFlipEnabled, autoCycleCompleted, interactionGeneration) {
+        if (!automaticFlipEnabled || autoCycleCompleted) return@LaunchedEffect
+        delay(ScoreFlipInitialPauseMs)
+        try {
+            isFlipping = true
+            rotation.animateTo(
+                targetValue = 180f,
+                animationSpec = tween(
+                    durationMillis = ScoreFlipDurationMs,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+            showingBack = true
+            isFlipping = false
+            delay(ScoreFlipPersonalBestHoldMs)
+            isFlipping = true
+            rotation.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = ScoreFlipDurationMs,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+            showingBack = false
+            autoCycleCompleted = true
+        } finally {
+            val resolvedBack = rotation.value >= 90f
+            rotation.snapTo(if (resolvedBack) 180f else 0f)
+            showingBack = resolvedBack
+            isFlipping = false
+        }
+    }
+
+    val requestManualFlip = {
+        if (!isFlipping) {
+            isFlipping = true
+            interactionGeneration += 1
+            autoCycleCompleted = true
+            val target = if (frontVisible) 180f else 0f
+            scope.launch {
+                try {
+                    if (reducedMotion) {
+                        rotation.snapTo(target)
+                    } else {
+                        rotation.animateTo(
+                            targetValue = target,
+                            animationSpec = tween(
+                                durationMillis = ScoreFlipDurationMs,
+                                easing = FastOutSlowInEasing,
+                            ),
+                        )
+                    }
+                    showingBack = target == 180f
+                } finally {
+                    isFlipping = false
+                }
+            }
+        }
+    }
+    val cardShape = RoundedCornerShape(30.dp)
+    val accent = ImpulsivePsychological
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(ScoreFlipCardHeight)
+            .shadow(
+                elevation = if (isDark) 18.dp else 2.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = accent.copy(alpha = if (isDark) 0.22f else 0.08f),
+                spotColor = accent.copy(alpha = if (isDark) 0.16f else 0.08f),
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClickLabel = if (frontVisible) {
+                    "Show Reset Reading details"
+                } else {
+                    "Show Reset Reading summary"
+                },
+                onClick = requestManualFlip,
+            )
+            .semantics(mergeDescendants = true) {
+                contentDescription = if (frontVisible) {
+                    "Reset Reading summary"
+                } else {
+                    "Reset Reading details"
+                }
+            },
+    ) {
+        ResetReadingFlipFaceSurface(
+            eyebrow = "RESET READING",
+            firstMetric = flipContent.front.firstValue,
+            firstLabel = flipContent.front.firstLabel,
+            secondMetric = flipContent.front.secondValue,
+            secondLabel = flipContent.front.secondLabel,
+            colors = colors,
+            isDark = isDark,
+            accent = accent,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    rotationY = rotation.value
+                    cameraDistance = 24f * density
+                    alpha = if (rotation.value <= 90f) 1f else 0f
+                },
+        )
+        ResetReadingFlipFaceSurface(
+            eyebrow = "RESET READING",
+            firstMetric = flipContent.back.firstValue,
+            firstLabel = flipContent.back.firstLabel,
+            secondMetric = flipContent.back.secondValue,
+            secondLabel = flipContent.back.secondLabel,
+            colors = colors,
+            isDark = isDark,
+            accent = accent,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    rotationY = rotation.value - 180f
+                    cameraDistance = 24f * density
+                    alpha = if (rotation.value >= 90f) 1f else 0f
+                },
+        )
+    }
+}
+
+@Composable
+private fun ResetReadingFlipFaceSurface(
+    eyebrow: String,
+    firstMetric: String,
+    firstLabel: String,
+    secondMetric: String,
+    secondLabel: String,
+    colors: ScoreScreenColors,
+    isDark: Boolean,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         color = colors.elevatedSurface,
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(30.dp),
         border = if (isDark) {
             BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.34f))
         } else {
             null
         },
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = if (isDark) 18.dp else 2.dp,
-                shape = RoundedCornerShape(28.dp),
-                clip = false,
-                ambientColor = colors.lavenderGlow.copy(alpha = if (isDark) 0.22f else 0.08f),
-                spotColor = colors.lavenderGlow.copy(alpha = if (isDark) 0.16f else 0.08f),
-            )
-            .clickable { onOpenResetReadTask() },
+        modifier = modifier,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ScoreIconBadge(
-                        icon = Icons.Filled.AutoAwesome,
-                        accentColor = ImpulsivePsychological,
-                        colors = colors,
-                        size = 36.dp,
-                        iconSize = 19.dp,
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Reset Reading",
-                            color = colors.text,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "90-second reading recovery proof",
-                            color = colors.muted,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ScoreIconBadge(
+                    icon = Icons.Filled.AutoAwesome,
+                    accentColor = accent,
+                    colors = colors,
+                    size = 32.dp,
+                    iconSize = 17.dp,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Open",
-                    color = ImpulsivePsychological,
+                    text = eyebrow,
+                    color = colors.muted,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ResetReadMetricPill(
-                    label = "Completed",
-                    value = stats.completedCount.formatNumber(),
-                    detail = "valid reads",
-                    colors = colors,
-                    modifier = Modifier.weight(1f),
-                )
-                ResetReadMetricPill(
-                    label = "Safe time",
-                    value = "${stats.safeReadingMinutes.formatNumber()}m",
-                    detail = "reading time",
-                    colors = colors,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            ResetReadingCompactMetric(
+                value = firstMetric,
+                label = firstLabel,
+                colors = colors,
+            )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ResetReadMetricPill(
-                    label = "Helpful",
-                    value = stats.highlyHelpfulCount.formatNumber(),
-                    detail = "$helpfulnessLabel avg",
-                    colors = colors,
-                    modifier = Modifier.weight(1f),
-                )
-                ResetReadMetricPill(
-                    label = "Last reset",
-                    value = lastCompletedLabel,
-                    detail = if (stats.abandonedCount > 0) {
-                        "${stats.abandonedCount.formatNumber()} abandoned"
-                    } else {
-                        "no abandoned exits"
-                    },
-                    colors = colors,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            ResetReadingCompactMetric(
+                value = secondMetric,
+                label = secondLabel,
+                colors = colors,
+            )
         }
+    }
+}
+
+@Composable
+private fun ResetReadingCompactMetric(
+    value: String,
+    label: String,
+    colors: ScoreScreenColors,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = value,
+            color = colors.text,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = label,
+            color = colors.muted,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1621,23 +1863,17 @@ private fun ResetReadMetricPill(
                 color = colors.muted,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = value,
                 color = colors.text,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = detail,
                 color = colors.muted,
                 style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
     }

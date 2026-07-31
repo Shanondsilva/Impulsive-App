@@ -22,6 +22,10 @@ import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationDataSource
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationState
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentDataSource
+import com.impulsive.app.backend.session.adaptive.AdaptiveIncidentSignal
+import com.impulsive.app.backend.session.adaptive.AdaptivePhase4Dependencies
+import com.impulsive.app.backend.session.adaptive.AdaptiveProtectionBridge
+import com.impulsive.app.backend.session.adaptive.AdaptiveProtectionSource
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentRecord
 import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.repository.PremiumRepository
@@ -33,12 +37,9 @@ import com.impulsive.app.backend.data.repository.WindowOutcomeRepository
 import com.impulsive.app.backend.data.repository.FocusSessionRepository
 import com.impulsive.app.backend.data.repository.FocusSetupRepository
 import com.impulsive.app.backend.domain.model.focus.FocusSessionPhase
+import com.impulsive.app.backend.domain.model.focus.FocusSessionState
 import com.impulsive.app.backend.domain.model.focus.isElapsed
-import com.impulsive.app.backend.domain.model.focus.focusCompletionScore
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
-import com.impulsive.app.backend.domain.model.score.ScoreGameType
-import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
-import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
 import com.impulsive.app.backend.domain.model.protection.ProtectionWindowEvaluator
@@ -54,6 +55,7 @@ import com.impulsive.app.backend.domain.model.tasks.InitialLevelPoints
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
 import com.impulsive.app.backend.domain.model.tasks.TaskCompletionRecord
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardStoreState
+import com.impulsive.app.backend.session.focus.FocusSessionCompletionCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -67,8 +69,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.Duration
 import java.time.LocalDateTime
-import java.time.ZoneId
 
 class AppMonitorService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -86,6 +88,13 @@ class AppMonitorService : Service() {
     private val windowOutcomeRepository by lazy { WindowOutcomeRepository(applicationContext) }
     private val focusSessionRepository by lazy { FocusSessionRepository(applicationContext) }
     private val focusSetupRepository by lazy { FocusSetupRepository(applicationContext) }
+    private val focusSessionCompletionCoordinator by lazy {
+        FocusSessionCompletionCoordinator(
+            focusSessionRepository = focusSessionRepository,
+            taskRewardRepository = taskRewardRepository,
+            scoreRepository = scoreRepository,
+        )
+    }
     private val focusConfiguredBlockedPackages by lazy {
         focusSetupRepository.configuredBlockedPackages.stateIn(
             scope = serviceScope,
@@ -104,6 +113,13 @@ class AppMonitorService : Service() {
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
     private val oneMinuteAccessDataSource by lazy { OneMinuteAccessDataSource(applicationContext) }
     private val websiteProtectionIncidentDataSource by lazy { WebsiteProtectionIncidentDataSource(applicationContext) }
+    private val adaptiveProtectionBridge by lazy {
+        AdaptiveProtectionBridge(
+            AdaptivePhase4Dependencies.coordinator(applicationContext),
+            AdaptivePhase4Dependencies.decisions(applicationContext),
+            AdaptivePhase4Dependencies.momentPlans(applicationContext),
+        )
+    }
     private val fallbackReminderCoordinator by lazy {
         InterruptionNotificationReminderCoordinator(
             nowMillis = System::currentTimeMillis,
@@ -150,6 +166,7 @@ class AppMonitorService : Service() {
     private var monitorJob: Job? = null
     private var oneMinuteCountdownJob: Job? = null
     private var foregroundNotificationJob: Job? = null
+    private var focusCompletionJob: Job? = null
     private var temporaryNotificationJob: Job? = null
     private var temporaryProtectionNotificationDismissed: Boolean = false
 
@@ -157,11 +174,15 @@ class AppMonitorService : Service() {
     // Honored until protection is toggled off and on: stopping protection
     // destroys this service instance, so a fresh start resets the flag and
     // shows the notification again, which is the intended reset point.
+    @Volatile
     private var monitoringNotificationDismissed: Boolean = false
 
     // The first startForeground after a fresh service start is mandatory and
     // must never be skipped, so dismissal is only honored after it happened.
+    @Volatile
     private var hasPromotedToForeground: Boolean = false
+    private var focusCompletionJobKey: String? = null
+    private var focusMonitoringNotificationActive: Boolean = false
     private var oneMinuteCountdownPackage: String? = null
     private var usageAccessAlertPosted: Boolean = false
     private var vpnConsentAlertPosted: Boolean = false
@@ -173,6 +194,7 @@ class AppMonitorService : Service() {
     private var activeFallbackIncidentStartedAtMillis: Long? = null
     private var activeFallbackIncidentIsWebsite: Boolean = false
     private var activeFallbackIncidentIsFocus: Boolean = false
+    private var activeFallbackAdaptiveDecisionId: String? = null
     // In-memory guards so window outcome recording does not write to DataStore
     // on every poll tick. lastUsedWindowKey prevents repeated used-writes while
     // the user stays inside a protected app during one release window.
@@ -297,6 +319,33 @@ class AppMonitorService : Service() {
             now = LocalDateTime.now(),
             hideSensitive = hideSensitiveNotifications.value,
         )
+        startForegroundWithMonitoringNotification(notification)
+    }
+
+    private fun shouldPublishMonitoringNotificationUpdate(): Boolean =
+        MonitoringNotificationReconciliationPolicy.resolve(
+            monitoringNotificationDismissed = monitoringNotificationDismissed,
+            hasPromotedToForeground = hasPromotedToForeground,
+        ) == MonitoringNotificationReconciliationAction.PostGenericNotification
+
+    private fun replaceForegroundWithGenericMonitoringNotification() {
+        temporaryNotificationJob?.cancel()
+        temporaryNotificationJob = null
+
+        if (!shouldPublishMonitoringNotificationUpdate()) {
+            return
+        }
+
+        val notification = notificationHelper.createMonitoringNotification(
+            session = null,
+            now = LocalDateTime.now(),
+            hideSensitive = hideSensitiveNotifications.value,
+        )
+
+        startForegroundWithMonitoringNotification(notification)
+    }
+
+    private fun startForegroundWithMonitoringNotification(notification: android.app.Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceCompat.startForeground(
                 this,
@@ -325,17 +374,85 @@ class AppMonitorService : Service() {
             ) { session, hideSensitive ->
                 session to hideSensitive
             }.collectLatest { (session, hideSensitive) ->
-                if (session?.phase != FocusSessionPhase.Running && session?.phase != FocusSessionPhase.Paused) {
-                    return@collectLatest
+                when (session?.phase) {
+                    FocusSessionPhase.Running -> {
+                        focusMonitoringNotificationActive = true
+                        scheduleFocusCompletion(session)
+
+                        if (shouldPublishMonitoringNotificationUpdate()) {
+                            notificationHelper.postMonitoringNotification(
+                                session = session,
+                                now = LocalDateTime.now(),
+                                hideSensitive = hideSensitive,
+                            )
+                        }
+                    }
+
+                    FocusSessionPhase.Paused -> {
+                        cancelFocusCompletionTimer()
+                        focusMonitoringNotificationActive = true
+
+                        if (shouldPublishMonitoringNotificationUpdate()) {
+                            notificationHelper.postMonitoringNotification(
+                                session = session,
+                                now = LocalDateTime.now(),
+                                hideSensitive = hideSensitive,
+                            )
+                        }
+                    }
+
+                    FocusSessionPhase.Completed,
+                    FocusSessionPhase.EndedEarly,
+                    null -> {
+                        cancelFocusCompletionTimer()
+                        if (focusMonitoringNotificationActive) {
+                            focusMonitoringNotificationActive = false
+                            reconcileMonitoringAfterFocusEnded()
+                        }
+                    }
                 }
-                notificationHelper.postMonitoringNotification(
-                    session = session,
-                    now = LocalDateTime.now(),
-                    hideSensitive = hideSensitive,
-                )
             }
         }
     }
+
+    private fun scheduleFocusCompletion(session: FocusSessionState) {
+        val completionAt = session.focusCompletionAt()
+        val scheduleKey = "${session.sessionId}|$completionAt"
+        if (focusCompletionJob?.isActive == true && focusCompletionJobKey == scheduleKey) return
+
+        cancelFocusCompletionTimer()
+        focusCompletionJobKey = scheduleKey
+        focusCompletionJob = serviceScope.launch {
+            while (isActive) {
+                val current = focusSession.value
+                    ?.takeIf { candidate ->
+                        candidate.sessionId == session.sessionId &&
+                            candidate.phase == FocusSessionPhase.Running
+                    }
+                    ?: return@launch
+                val now = LocalDateTime.now()
+                val delayMillis = Duration.between(now, current.focusCompletionAt()).toMillis()
+                if (delayMillis > 0L) {
+                    delay(delayMillis)
+                    continue
+                }
+
+                completeElapsedFocusSessionIfNeeded(now)
+                return@launch
+            }
+        }
+    }
+
+    private fun cancelFocusCompletionTimer() {
+        focusCompletionJob?.cancel()
+        focusCompletionJob = null
+        focusCompletionJobKey = null
+    }
+
+    private fun FocusSessionState.focusCompletionAt(): LocalDateTime =
+        startedAt
+            .plusMinutes(durationMinutes.toLong())
+            .plusSeconds(totalPausedSeconds)
 
     private fun startMonitoringIfNeeded() {
         if (monitorJob?.isActive == true) return
@@ -404,6 +521,10 @@ class AppMonitorService : Service() {
         val now = LocalDateTime.now()
         val windowSnapshot = currentProtectionWindowSnapshot()
 
+        if (completeElapsedFocusSessionIfNeeded(now)) {
+            return
+        }
+
         syncWebsiteProtectionTunnel(windowSnapshot)
 
         if (!hasActiveProtectionReason()) {
@@ -438,7 +559,6 @@ class AppMonitorService : Service() {
         val protectedPackages = currentSetup.selectedBlockedAppPackageNames
         handleWindowNotifications(windowSnapshot)
         sweepSkippedWindows(windowSnapshot.now)
-        checkFocusSessionCompletion(windowSnapshot.now)
         val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage()
         val websiteIncidentNow =
             System.currentTimeMillis()
@@ -562,11 +682,11 @@ class AppMonitorService : Service() {
             )
             return
         }
-        if (!currentSetup.appProtectionMonitorEnabled) {
+        if (!currentSetup.configurationDrivenAppProtectionConsented) {
             endFallbackNotificationIncident()
             ProtectionLog.debugThrottled(
                 key = "app_protection_disabled",
-                message = "Protection monitor skipped: App Protection monitor is disabled",
+                message = "Protection monitor skipped: App Protection transition is not confirmed",
             )
             return
         }
@@ -624,32 +744,29 @@ class AppMonitorService : Service() {
         )
     }
 
-    /**
-     * Marks the focus session Completed exactly once when its time has fully
-     * elapsed. This function stays the single completion point so rewards and
-     * score records can never double-fire.
-     */
-    private suspend fun checkFocusSessionCompletion(now: LocalDateTime) {
-        val session = focusSession.value ?: return
-        if (session.phase != FocusSessionPhase.Running) return
-        if (!session.isElapsed(now)) return
-        val completed = focusSessionRepository.completeIfElapsed(now) ?: return
-        val completedAt = completed.endedAt ?: now
-        taskRewardRepository.awardFocusTimePointsIfEligible(
-            focusSessionId = completed.sessionId,
-            completedAtMillis = completedAt.toEpochMillisInUserZone(),
+    private suspend fun completeElapsedFocusSessionIfNeeded(now: LocalDateTime): Boolean {
+        val session = focusSession.value ?: return false
+        if (session.phase != FocusSessionPhase.Running) return false
+        if (!session.isElapsed(now)) return false
+        val completed = focusSessionCompletionCoordinator.completeIfElapsed(now) ?: return false
+        if (currentFallbackIncidentId()?.isFocusSession == true) {
+            endFallbackNotificationIncident(reason = "focus session completed")
+        }
+        focusMonitoringNotificationActive = false
+        reconcileMonitoringAfterFocusEnded()
+        ProtectionLog.debug(
+            "Focus session completed: sessionId=${completed.sessionId}",
         )
-        scoreRepository.recordSession(
-            ScoreSessionRecord(
-                gameType = ScoreGameType.FocusSession,
-                score = focusCompletionScore(completed.durationMinutes),
-                startedAt = completed.startedAt,
-                completedAt = completed.endedAt ?: now,
-                durationSec = completed.durationMinutes * 60,
-                outcome = ScoreSessionOutcome.Completed,
-                validCompletion = true,
-            ),
-        )
+        return true
+    }
+
+    private fun reconcileMonitoringAfterFocusEnded() {
+        if (hasActiveNonFocusProtectionReason()) {
+            replaceForegroundWithGenericMonitoringNotification()
+        } else {
+            Log.i(Tag, "Stopping AppMonitorService because Focus completed with no remaining protection reason")
+            stopSelfSafely()
+        }
     }
 
     private fun launchWebsiteProtectionIncidentSurface(
@@ -680,36 +797,49 @@ class AppMonitorService : Service() {
                 InterruptionFallbackNotificationBody
             }
 
-        ProtectionInterruptionOverlay.show(
-            context = applicationContext,
-            owner = ProtectionInterruptionOverlay.Owner.Vpn,
-            sourcePackageName = incident.packageName,
-            sourceLabel = incident.sourceLabel,
-            message = message,
-            isFocusSession = false,
-            resetAtEpochMillis = incident.cooldownUntilEpochMillis,
-            onShown = {
-                endFallbackNotificationIncident(incident.packageName)
-            },
-            onFailure = {
-                if (
-                    notificationHelper.interruptionNotificationStatus() !=
-                    InterruptionNotificationStatus.Available
-                ) {
-                    return@show
-                }
+        serviceScope.launch {
+            val handoff = adaptiveProtectionBridge.recognise(
+                AdaptiveIncidentSignal(
+                    source = AdaptiveProtectionSource.VpnWebsite,
+                    incidentStartedAtMillis = incidentStartedAtMillis,
+                    ephemeralSourceIdentity = incident.packageName,
+                ),
+            )
+            activeFallbackAdaptiveDecisionId = handoff.decisionId
+            ProtectionInterruptionOverlay.show(
+                context = applicationContext,
+                owner = ProtectionInterruptionOverlay.Owner.Vpn,
+                sourcePackageName = incident.packageName,
+                sourceLabel = incident.sourceLabel,
+                message = message,
+                isFocusSession = false,
+                resetAtEpochMillis = incident.cooldownUntilEpochMillis,
+                incidentStartedAtMillis = incidentStartedAtMillis,
+                adaptiveDecisionId = handoff.decisionId,
+                onShown = {
+                    endFallbackNotificationIncident(incident.packageName)
+                },
+                onFailure = {
+                    if (
+                        notificationHelper.interruptionNotificationStatus() !=
+                        InterruptionNotificationStatus.Available
+                    ) {
+                        return@show
+                    }
 
-                scheduleFallbackNotificationStages(
-                    incidentId = InterruptionNotificationIncidentId(
-                        packageName = incident.packageName,
-                        startedAtMillis = incidentStartedAtMillis,
-                        isWebsiteIncident = true,
-                        isFocusSession = false,
-                    ),
-                    sourceLabel = incident.sourceLabel,
-                )
-            },
-        )
+                    scheduleFallbackNotificationStages(
+                        incidentId = InterruptionNotificationIncidentId(
+                            packageName = incident.packageName,
+                            startedAtMillis = incidentStartedAtMillis,
+                            isWebsiteIncident = true,
+                            isFocusSession = false,
+                        ),
+                        sourceLabel = incident.sourceLabel,
+                        adaptiveDecisionId = handoff.decisionId,
+                    )
+                },
+            )
+        }
     }
     /**
      * A protected app reached the foreground during a running focus session.
@@ -978,43 +1108,61 @@ class AppMonitorService : Service() {
                     resetAt > System.currentTimeMillis()
                 }
 
-        ProtectionInterruptionOverlay.show(
-            context = applicationContext,
-            owner =
-            ProtectionInterruptionOverlay.Owner.AppMonitor,
-            sourcePackageName = sourcePackageName,
-            sourceLabel = sourceLabel,
-            message = message,
-            isFocusSession = isFocusSession,
-            resetAtEpochMillis = normalResetAtEpochMillis,
-            onShown = {
-                endFallbackNotificationIncident(sourcePackageName)
-            },
-            onFailure = {
-                if (
-                    notificationHelper.interruptionNotificationStatus() !=
-                    InterruptionNotificationStatus.Available
-                ) {
-                    return@show
-                }
-
-                scheduleFallbackNotificationStages(
-                    incidentId = InterruptionNotificationIncidentId(
-                        packageName = sourcePackageName,
-                        startedAtMillis = incidentStartedAtMillis,
-                        isWebsiteIncident = false,
-                        isFocusSession = isFocusSession,
+        serviceScope.launch {
+            val adaptiveDecisionId = if (isFocusSession) {
+                null
+            } else {
+                adaptiveProtectionBridge.recognise(
+                    AdaptiveIncidentSignal(
+                        source = AdaptiveProtectionSource.MonitoredApplication,
+                        incidentStartedAtMillis = incidentStartedAtMillis,
+                        ephemeralSourceIdentity = sourcePackageName,
                     ),
-                    sourceLabel = sourceLabel,
-                )
-            },
-        )
+                ).decisionId
+            }
+            activeFallbackAdaptiveDecisionId = adaptiveDecisionId
+            ProtectionInterruptionOverlay.show(
+                context = applicationContext,
+                owner =
+                ProtectionInterruptionOverlay.Owner.AppMonitor,
+                sourcePackageName = sourcePackageName,
+                sourceLabel = sourceLabel,
+                message = message,
+                isFocusSession = isFocusSession,
+                resetAtEpochMillis = normalResetAtEpochMillis,
+                incidentStartedAtMillis = incidentStartedAtMillis,
+                adaptiveDecisionId = adaptiveDecisionId,
+                onShown = {
+                    endFallbackNotificationIncident(sourcePackageName)
+                },
+                onFailure = {
+                    if (
+                        notificationHelper.interruptionNotificationStatus() !=
+                        InterruptionNotificationStatus.Available
+                    ) {
+                        return@show
+                    }
+
+                    scheduleFallbackNotificationStages(
+                        incidentId = InterruptionNotificationIncidentId(
+                            packageName = sourcePackageName,
+                            startedAtMillis = incidentStartedAtMillis,
+                            isWebsiteIncident = false,
+                            isFocusSession = isFocusSession,
+                        ),
+                        sourceLabel = sourceLabel,
+                        adaptiveDecisionId = adaptiveDecisionId,
+                    )
+                },
+            )
+        }
         ProtectionLog.debug("Overlay display requested for protected package: $sourcePackageName")
     }
 
     private fun scheduleFallbackNotificationStages(
         incidentId: InterruptionNotificationIncidentId,
         sourceLabel: String,
+        adaptiveDecisionId: String? = activeFallbackAdaptiveDecisionId,
     ) {
         fallbackReminderCoordinator.startOrContinue(incidentId) { stage ->
             if (!fallbackIncidentStillEligible(incidentId)) {
@@ -1039,6 +1187,7 @@ class AppMonitorService : Service() {
                 incidentStartedAtMillis = incidentId.startedAtMillis,
                 isWebsiteIncident = incidentId.isWebsiteIncident,
                 stage = stage,
+                adaptiveDecisionId = adaptiveDecisionId,
             )
             ProtectionLog.debug(
                 "posted stage=$stage incident=$incidentId notificationId=" +
@@ -1112,7 +1261,7 @@ class AppMonitorService : Service() {
                 foregroundPackage in focusPackages
         }
 
-        return currentSetup.appProtectionMonitorEnabled &&
+        return currentSetup.configurationDrivenAppProtectionConsented &&
             foregroundPackage in currentSetup.selectedBlockedAppPackageNames &&
             !windowSnapshot.isProtectionPaused
     }
@@ -1175,6 +1324,7 @@ class AppMonitorService : Service() {
                 persistedStartedAtMillis ?: nowMillis
             activeFallbackIncidentIsWebsite = isWebsiteIncident
             activeFallbackIncidentIsFocus = isFocusSession
+            activeFallbackAdaptiveDecisionId = null
         }
 
         return requireNotNull(activeFallbackIncidentStartedAtMillis)
@@ -1198,6 +1348,7 @@ class AppMonitorService : Service() {
         activeFallbackIncidentStartedAtMillis = null
         activeFallbackIncidentIsWebsite = false
         activeFallbackIncidentIsFocus = false
+        activeFallbackAdaptiveDecisionId = null
         notificationHelper.cancelBlockedAttemptNotification()
     }
 
@@ -1220,6 +1371,7 @@ class AppMonitorService : Service() {
     private fun stopSelfSafely() {
         ProtectionMonitorHealthRegistry.markStopped()
         ProtectionServiceOperationalStateStore.markStopped()
+        cancelFocusCompletionTimer()
         cancelOneMinuteAccessCountdown()
         endFallbackNotificationIncident()
         removeProtectionNotificationOnly()
@@ -1232,9 +1384,18 @@ class AppMonitorService : Service() {
         val sessionPhase = focusSession.value?.phase
         val focusActive = sessionPhase == FocusSessionPhase.Running ||
             sessionPhase == FocusSessionPhase.Paused
-        return setup.appProtectionMonitorEnabled && setup.selectedBlockedAppPackageNames.isNotEmpty() ||
+        return (setup.configurationDrivenAppProtectionConsented &&
+            setup.selectedBlockedAppPackageNames.isNotEmpty()) ||
             setup.websiteProtectionEnabled ||
             focusActive
+    }
+
+    private fun hasActiveNonFocusProtectionReason(): Boolean {
+        val setup = setupState.value
+        if (!setup.isLoaded) return true
+        return (setup.configurationDrivenAppProtectionConsented &&
+            setup.selectedBlockedAppPackageNames.isNotEmpty()) ||
+            setup.websiteProtectionEnabled
     }
 
     private fun removeProtectionNotificationOnly() {
@@ -1332,11 +1493,6 @@ class AppMonitorService : Service() {
         oneMinuteCountdownPackage = null
         notificationHelper.cancelOneMinuteAccessCountdown()
     }
-
-    private fun LocalDateTime.toEpochMillisInUserZone(): Long =
-        atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
 
     companion object {
         const val ActionStart = "com.impulsive.app.action.START_APP_MONITOR"

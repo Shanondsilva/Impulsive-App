@@ -483,7 +483,10 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun saveCurrentIfNeeded(onSaved: () -> Unit) {
+    fun saveCurrentIfNeeded(
+        onSaved: () -> Unit,
+        onPersisted: () -> Unit = {},
+    ) {
         val current = _editorState.value
         val hasMeaningfulDraft =
             current.noteId != 0L ||
@@ -498,7 +501,10 @@ class JournalViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        saveCurrent(onSaved)
+        saveCurrent {
+            onPersisted()
+            onSaved()
+        }
     }
 
     fun answerFeedbackResponse(

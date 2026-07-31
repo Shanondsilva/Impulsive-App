@@ -56,6 +56,7 @@ data class ProtectionSetupState(
     val selectedBlockedAppPackageNames: Set<String> = emptySet(),
     val websiteProtectedAppPackageNames: Set<String> = emptySet(),
     val appProtectionMonitorEnabled: Boolean = true,
+    val protectionMonitorTransitionCompleted: Boolean = false,
     val websiteProtectionEnabled: Boolean = false,
     val websiteProtectionAlwaysOn: Boolean = false,
     val interruptionPermissionEnabled: Boolean = false,
@@ -65,6 +66,9 @@ data class ProtectionSetupState(
 ) {
     val blockedAppsSelected: Boolean
         get() = selectedBlockedAppPackageNames.isNotEmpty()
+
+    val configurationDrivenAppProtectionConsented: Boolean
+        get() = appProtectionMonitorEnabled || protectionMonitorTransitionCompleted
 
     val incompleteCoreProtectionItems: List<ProtectionSetupItem>
         get() = buildList {

@@ -23,7 +23,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -95,8 +94,8 @@ fun ProtectionSetupOnboardingScreen(
                 }
             }
         },
-    ) { compactHeight ->
-        Spacer(modifier = Modifier.height(if (compactHeight) 20.dp else 34.dp))
+    ) { viewport ->
+        Spacer(modifier = Modifier.height(if (viewport.compactHeight) 20.dp else 34.dp))
 
         OnboardingLogoVisual(
             reducedMotion = rememberReducedMotion(),
@@ -135,36 +134,26 @@ fun ProtectionSetupOnboardingScreen(
                 shape = RoundedCornerShape(24.dp),
                 color = ImpulsiveSurface.copy(alpha = 0.94f),
             ) {
-                Row(
+                Column(
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Protection monitor",
-                            color = ProtectionPrimaryText,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                        )
-                        Text(
-                            text = "Checks your selected protected apps and shows the Impulsive pause screen when one opens.",
-                            color = ProtectionMutedText,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = if (state.appProtectionMonitorEnabled) "On" else "Off",
-                            color = ProtectionMutedText,
-                            fontSize = 12.sp,
-                        )
-                        Switch(
-                            checked = state.appProtectionMonitorEnabled,
-                            onCheckedChange = onMonitorEnabledChange,
-                        )
-                    }
+                    Text(
+                        text = "App protection",
+                        color = ProtectionPrimaryText,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                    )
+                    Text(
+                        text = if (state.blockedAppsSelected) {
+                            "Active only when selected apps, Usage Access and required permissions are ready."
+                        } else {
+                            "Choose protected apps to let Impulsive monitor them automatically."
+                        },
+                        color = ProtectionMutedText,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))

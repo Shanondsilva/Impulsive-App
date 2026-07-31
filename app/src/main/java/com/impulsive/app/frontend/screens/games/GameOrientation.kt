@@ -10,28 +10,53 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
 private fun Context.findActivity(): Activity? {
-    var context = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
+    var current = this
+
+    while (current is ContextWrapper) {
+        if (current is Activity) {
+            return current
+        }
+
+        current = current.baseContext
     }
+
     return null
 }
 
 /**
- * Pins the host activity to portrait for as long as the calling composable is on screen, then
- * restores whatever orientation setting was in place before. Games stay vertical even when the
- * device is rotated to landscape, while the rest of the app keeps its normal behaviour.
+ * Keeps compact phone game windows in portrait, preserving the existing
+ * intentional game behaviour. Large-screen windows are not orientation locked
+ * because Android can ignore that request and the adaptive layout handles them.
  */
 @Composable
-fun LockPortraitOrientation() {
-    val context = LocalContext.current
-    val activity = remember(context) { context.findActivity() }
-    DisposableEffect(activity) {
-        val previous = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+internal fun LockPortraitOrientation(
+    enabled: Boolean,
+) {
+    val context =
+        LocalContext.current
+
+    val activity =
+        remember(context) {
+            context.findActivity()
+        }
+
+    DisposableEffect(
+        activity,
+        enabled,
+    ) {
+        if (activity == null || !enabled) {
+            return@DisposableEffect onDispose {}
+        }
+
+        val previousOrientation =
+            activity.requestedOrientation
+
+        activity.requestedOrientation =
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+
         onDispose {
-            activity?.requestedOrientation = previous
+            activity.requestedOrientation =
+                previousOrientation
         }
     }
 }

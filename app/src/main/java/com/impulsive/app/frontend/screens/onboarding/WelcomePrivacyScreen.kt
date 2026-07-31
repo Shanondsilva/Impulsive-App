@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -95,8 +94,8 @@ fun WelcomePrivacyScreen(
                 },
             )
         },
-    ) { compactHeight ->
-        val metrics = rememberWelcomeResponsiveMetrics(compactHeight = compactHeight)
+    ) { viewport ->
+        val metrics = welcomeResponsiveMetrics(viewport)
 
         Spacer(modifier = Modifier.height(metrics.topSpacing))
 
@@ -172,13 +171,13 @@ fun WelcomePrivacyScreen(
     }
 }
 
-@Composable
-private fun rememberWelcomeResponsiveMetrics(
-    compactHeight: Boolean,
+internal fun welcomeResponsiveMetrics(
+    viewport: OnboardingViewport,
 ): WelcomeResponsiveMetrics {
-    val widthDp = LocalConfiguration.current.screenWidthDp
+    val compactHeight = viewport.compactHeight
+
     return when {
-        widthDp < 380 -> WelcomeResponsiveMetrics(
+        viewport.width < 380.dp -> WelcomeResponsiveMetrics(
             topSpacing = if (compactHeight) 12.dp else 22.dp,
             logoToPrivacySpacing = 14.dp,
             privacyTitleFontSize = 19.sp,
@@ -192,7 +191,8 @@ private fun rememberWelcomeResponsiveMetrics(
             inputToAvatarTitleSpacing = if (compactHeight) 18.dp else 24.dp,
             avatarTitleToPickerSpacing = 12.dp,
         )
-        widthDp < 430 -> WelcomeResponsiveMetrics(
+
+        viewport.width < 430.dp -> WelcomeResponsiveMetrics(
             topSpacing = if (compactHeight) 14.dp else 26.dp,
             logoToPrivacySpacing = 16.dp,
             privacyTitleFontSize = 20.sp,
@@ -206,6 +206,7 @@ private fun rememberWelcomeResponsiveMetrics(
             inputToAvatarTitleSpacing = if (compactHeight) 20.dp else 26.dp,
             avatarTitleToPickerSpacing = 14.dp,
         )
+
         else -> WelcomeResponsiveMetrics(
             topSpacing = if (compactHeight) 18.dp else 34.dp,
             logoToPrivacySpacing = 18.dp,
@@ -223,7 +224,7 @@ private fun rememberWelcomeResponsiveMetrics(
     }
 }
 
-private data class WelcomeResponsiveMetrics(
+internal data class WelcomeResponsiveMetrics(
     val topSpacing: Dp,
     val logoToPrivacySpacing: Dp,
     val privacyTitleFontSize: TextUnit,

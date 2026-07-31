@@ -102,13 +102,14 @@ fun SkylineResetScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     onPlayAnother: () -> Unit = {},
+    onAdaptiveCompleted: (() -> Unit)? = null,
+    onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: SkylineResetViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
@@ -182,7 +183,7 @@ fun SkylineResetScreen(
         if (uiState.completed) {
             taskRewardViewModel.clearLastCompletionResult()
         }
-        onExit()
+        onAdaptiveExit?.invoke(uiState.completed) ?: onExit()
     }
 
     BackHandler {
@@ -208,6 +209,7 @@ fun SkylineResetScreen(
     LaunchedEffect(uiState.view, uiState.completed, uiState.failed) {
         if (uiState.view == SkylineResetView.Result) {
             logTaskResult(validCompletion = uiState.completed)
+            if (uiState.completed) onAdaptiveCompleted?.invoke()
         }
     }
 
@@ -218,13 +220,27 @@ fun SkylineResetScreen(
         }
     }
 
-    Column(
+    AdaptiveGameContainer(
         modifier = modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(SkyVoidTop, SkyVoidBottom)))
-            .systemBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        SkyVoidTop,
+                        SkyVoidBottom,
+                    ),
+                ),
+            ),
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(
+                    horizontal = 18.dp,
+                    vertical = 14.dp,
+                ),
+        ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -280,6 +296,7 @@ fun SkylineResetScreen(
                 onPlayAnother = onPlayAnother,
             )
         }
+    }
     }
 }
 

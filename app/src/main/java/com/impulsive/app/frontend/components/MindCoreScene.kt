@@ -133,6 +133,7 @@ fun MindCoreScene(
     level: Int,
     timeOfDay: TimeOfDay,
     modifier: Modifier = Modifier,
+    reducedMotion: Boolean = false,
 ) {
     val isNight = timeOfDay == TimeOfDay.Night
 
@@ -157,10 +158,12 @@ fun MindCoreScene(
         ),
         label = "cloudTime",
     )
+    val renderAmbientTime = if (reducedMotion) 0f else ambientTime
+    val renderCloudTime = if (reducedMotion) 0f else cloudTime
 
-    val glowAlpha = 0.10f + 0.10f * calmWave(ambientTime, phase = 0.12f)
-    val breath = 1.000f + 0.010f * calmWave(ambientTime, phase = 0.40f)
-    val shimmerAlpha = 0.08f + 0.18f * calmWave(ambientTime, phase = 0.72f)
+    val glowAlpha = 0.10f + 0.10f * calmWave(renderAmbientTime, phase = 0.12f)
+    val breath = 1.000f + 0.010f * calmWave(renderAmbientTime, phase = 0.40f)
+    val shimmerAlpha = 0.08f + 0.18f * calmWave(renderAmbientTime, phase = 0.72f)
 
     Box(
         modifier = modifier
@@ -182,7 +185,7 @@ fun MindCoreScene(
 
         AnimatedHomeClouds(
             timeOfDay = timeOfDay,
-            cloudTime = cloudTime,
+            cloudTime = renderCloudTime,
             modifier = Modifier.matchParentSize(),
         )
 
@@ -191,7 +194,7 @@ fun MindCoreScene(
                 val w = size.width
                 val h = size.height
                 drawAmbientBird(
-                    loopProgress = ambientTime,
+                    loopProgress = renderAmbientTime,
                     width = w,
                     height = h,
                 )
@@ -236,7 +239,7 @@ fun MindCoreScene(
                 val h = size.height
                 PetalSpecs.forEach { petal ->
                     drawAmbientPetal(
-                        loopProgress = ambientTime,
+                        loopProgress = renderAmbientTime,
                         petal = petal,
                         width = w,
                         height = h,
@@ -254,7 +257,7 @@ fun MindCoreScene(
                     0.30f to 0.80f,
                 )
                 seeds.forEach { (startX, phase) ->
-                    val t = (ambientTime + phase) % 1f
+                    val t = (renderAmbientTime + phase) % 1f
                     val sx = startX + cos((t * 4f * PI).toFloat()) * 0.025f
                     val sy = 1.05f - t * 1.15f
                     val alpha = when {
@@ -284,10 +287,10 @@ fun MindCoreScene(
                         Triple(0.80f, 0.55f, 0.5f),
                     )
                     butterflies.forEach { (baseX, baseY, phase) ->
-                        val t = ((ambientTime + phase) % 1f) * 2f * PI.toFloat()
-                        val driftX = baseX + sin(t).toFloat() * 0.04f
-                        val driftY = baseY + cos(t * 1.3f).toFloat() * 0.025f
-                        val flap = 0.5f + 0.5f * cos(t * 6f).toFloat()
+                        val t = ((renderAmbientTime + phase) % 1f) * 2f * PI.toFloat()
+                        val driftX = baseX + sin(t) * 0.04f
+                        val driftY = baseY + cos(t * 1.3f) * 0.025f
+                        val flap = 0.5f + 0.5f * cos(t * 6f)
                         val cx = driftX * w
                         val cy = driftY * h
                         val wingW = 4.dp.toPx() + 3.dp.toPx() * flap
@@ -321,10 +324,10 @@ fun MindCoreScene(
                     val twinklePhases = listOf(0f, 0.190f, 0.381f, 0.571f, 0.762f, 0.952f)
                     positions.forEachIndexed { i, (bx, by, bobPhase) ->
                         val bobY =
-                            sin((ambientTime + bobPhase) * 2f * PI).toFloat() * 6.dp.toPx()
+                            sin((renderAmbientTime + bobPhase) * 2f * PI).toFloat() * 6.dp.toPx()
                         val twinkle = 0.45f + 0.55f * (
                             0.5f + 0.5f * sin(
-                                (ambientTime + twinklePhases[i]) * 2f * PI,
+                                (renderAmbientTime + twinklePhases[i]) * 2f * PI,
                             ).toFloat()
                         )
                         val cx = bx * w
@@ -363,7 +366,10 @@ fun MindCoreScene(
                 )
 
                 NightWindowGlowSpecs.forEach { window ->
-                    val windowWave = calmWave((ambientTime * window.speed) % 1f, phase = window.phase)
+                    val windowWave = calmWave(
+                        (renderAmbientTime * window.speed) % 1f,
+                        phase = window.phase,
+                    )
                     val flicker = 0.85f + 0.15f * windowWave
                     val center = sceneOffset(window.x, window.y)
                     val windowWidth = window.width * sceneScale
@@ -414,7 +420,7 @@ fun MindCoreScene(
                     Triple(1415f, 82f, 0.12f),
                 )
                 nightStars.forEach { (sx, sy, phase) ->
-                    val twinkle = calmWave(ambientTime, phase = phase)
+                    val twinkle = calmWave(renderAmbientTime, phase = phase)
                     val alpha = 0.40f + 0.50f * twinkle
                     val starScale = 0.90f + 0.20f * twinkle
                     drawCircle(

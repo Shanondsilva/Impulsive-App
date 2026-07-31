@@ -1,0 +1,43 @@
+package com.impulsive.app.pathshift
+
+import com.impulsive.app.backend.data.local.entity.PathShiftCycleEntity
+
+internal fun pathShiftCycleEntity(
+    id: String = "11111111-1111-4111-8111-111111111111",
+    status: String = "Active",
+    finalisedAt: Long? = null,
+    cancelledAt: Long? = null,
+    createdAt: Long = 100L,
+    windowStart: Long = 200L,
+    windowEnd: Long = 300L,
+    preparedPlanId: String? = null,
+    preparedRevision: String? = null,
+): PathShiftCycleEntity = PathShiftCycleEntity(
+    cycleId = id,
+    createdAtMillis = createdAt,
+    lookbackStartedAtMillis = 1L,
+    lookbackEndedAtMillis = 99L,
+    forecastWindowStartedAtMillis = windowStart,
+    forecastWindowEndsAtMillis = windowEnd,
+    forecastPolicyVersion = 1,
+    evidenceStrength = "EarlyEstimate",
+    inputProtectedMomentCount = 7,
+    inputDistinctDayCount = 5,
+    estimatedLowerCount = 2,
+    estimatedUpperCount = 5,
+    commonWindowStartMinute = 1_320,
+    commonWindowEndMinute = 1_440,
+    preparedPlanId = preparedPlanId,
+    preparedPlanContentRevisionId = preparedRevision,
+    preparedAtMillis = preparedPlanId?.let { 150L },
+    reviewFinalisedAtMillis = finalisedAt,
+    observedProtectedMomentCount = 0,
+    preparedPlanSelectedCount = 0,
+    preparedPlanStartedCount = 0,
+    preparedPlanCompletedCount = 0,
+    preparedPlanDismissedCount = 0,
+    wrongTimingCount = 0,
+    repeatDetectedCount = 0,
+    status = status,
+    cancelledAtMillis = cancelledAt,
+)

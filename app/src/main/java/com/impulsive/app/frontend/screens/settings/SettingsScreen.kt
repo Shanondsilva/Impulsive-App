@@ -52,11 +52,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
@@ -76,6 +78,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -117,6 +120,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -168,8 +173,12 @@ import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
+import com.impulsive.app.backend.domain.model.adaptive.AdaptivePreferences
 import com.impulsive.app.backend.session.auth.AccountDeletionUiState
 import com.impulsive.app.backend.session.auth.AuthViewModel
+import com.impulsive.app.backend.session.adaptive.AdaptivePreferencesViewModel
+import com.impulsive.app.backend.session.adaptive.PersonalSupportControlsViewModel
+import com.impulsive.app.backend.domain.engine.adaptive.AdaptiveHistoryRetentionPolicy
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
@@ -219,6 +228,12 @@ fun SettingsScreen(
     onOpenResetReadTask: () -> Unit = {},
     onOpenHelp: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
+    onOpenMomentPlans: () -> Unit = {},
+    onOpenTips: () -> Unit = {},
+    onOpenWhatWorksForMe: () -> Unit = {},
+    onOpenSuggestionPreferences: () -> Unit = {},
+    onOpenPrivacyAndData: () -> Unit = {},
+    onOpenProtectionCoach: () -> Unit = {},
     onOpenProtectionSetupGuide: () -> Unit = {},
     onOpenUsageAccessPermission: () -> Unit = {},
     onOpenInterruptionPermission: () -> Unit = {},
@@ -853,6 +868,34 @@ fun SettingsScreen(
                 onTaperSuggestionsChanged = taperViewModel::setTaperSuggestionsEnabled,
                 haptics = haptics,
             )
+            PersonalSupportSettingsGroup(
+                onOpenPlans = {
+                    appLockGuard.run(
+                        enabled = appLockEnabled,
+                        action = onOpenMomentPlans,
+                    )
+                },
+                onOpenWhatWorksForMe = {
+                    appLockGuard.run(
+                        enabled = appLockEnabled,
+                        action = onOpenWhatWorksForMe,
+                    )
+                },
+                onOpenTips = onOpenTips,
+                onOpenSuggestionPreferences = {
+                    appLockGuard.run(
+                        enabled = appLockEnabled,
+                        action = onOpenSuggestionPreferences,
+                    )
+                },
+                onOpenPrivacyAndData = {
+                    appLockGuard.run(
+                        enabled = appLockEnabled,
+                        action = onOpenPrivacyAndData,
+                    )
+                },
+                haptics = haptics,
+            )
             ProtectionFocusGroup(
                 protectionState = protectionSetupState,
                 websiteProtectionPlusUnlocked = websiteProtectionPlusUnlocked,
@@ -860,6 +903,7 @@ fun SettingsScreen(
                 guard = appLockGuard::run,
                 onOpenBlockedApps = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
                 onOpenProtectionSetupGuide = onOpenProtectionSetupGuide,
+                onOpenProtectionCoach = onOpenProtectionCoach,
                 onOpenUsageAccessPermission = onOpenUsageAccessPermission,
                 onOpenInterruptionPermission = onOpenInterruptionPermission,
                 onOpenBackgroundActivityPermission = onOpenBackgroundActivityPermission,
@@ -1777,6 +1821,158 @@ private fun RecoverySetupGroup(
 }
 
 @Composable
+private fun PersonalSupportSettingsGroup(
+    onOpenPlans: () -> Unit,
+    onOpenTips: () -> Unit,
+    onOpenWhatWorksForMe: () -> Unit,
+    onOpenSuggestionPreferences: () -> Unit,
+    onOpenPrivacyAndData: () -> Unit,
+    haptics: ImpulsiveHaptics,
+    viewModel: AdaptivePreferencesViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val switchesEnabled = !state.loading && !state.saving
+    var pathShiftConsentVisible by remember { mutableStateOf(false) }
+    var pathShiftDisableVisible by remember { mutableStateOf(false) }
+
+    if (pathShiftConsentVisible) {
+        AlertDialog(
+            onDismissRequest = { pathShiftConsentVisible = false },
+            title = { Text("Turn on Future Path?") },
+            text = {
+                Text(
+                    "PathShift analyses your encrypted Moment history on this device.\n\n" +
+                        "It estimates a range based on recent patterns.\n\n" +
+                        "It does not use the protected app or website identity, URLs or domains, " +
+                        "journal content, your account email, camera, microphone or location.\n\n" +
+                        "You can turn it off, reset the history or delete all Moment " +
+                        "data at any time.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pathShiftConsentVisible = false
+                        viewModel.update { it.copy(pathShiftEnabled = true) }
+                    },
+                ) {
+                    Text("Turn On Future Path")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pathShiftConsentVisible = false }) {
+                    Text("Not Now")
+                }
+            },
+        )
+    }
+
+    if (pathShiftDisableVisible) {
+        AlertDialog(
+            onDismissRequest = { pathShiftDisableVisible = false },
+            title = { Text("Turn off Future Path?") },
+            text = {
+                Text(
+                    "This cancels the current PathShift and its seven-day comparison. " +
+                        "Your underlying Moment history, protection, personal " +
+                        "suggestions and LP remain unchanged.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pathShiftDisableVisible = false
+                        viewModel.update { it.copy(pathShiftEnabled = false) }
+                    },
+                ) {
+                    Text("Turn Off Future Path")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pathShiftDisableVisible = false }) {
+                    Text("Keep On")
+                }
+            },
+        )
+    }
+
+    AccordionGroup(
+        title = stringResource(R.string.personal_support_title),
+        summary = stringResource(R.string.personal_support_summary),
+        icon = Icons.Filled.AutoAwesome,
+        haptics = haptics,
+        glowSpec = SettingsGlowSpec.single(RecoverySetupGlow),
+    ) {
+        SettingsRow(
+            title = stringResource(R.string.personal_support_plans),
+            subtext = "Create, practise and manage prepared actions.",
+            onClick = onOpenPlans,
+            trailingIcon = Icons.Filled.ChevronRight,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = stringResource(R.string.tips_title),
+            subtext = stringResource(R.string.tips_settings_summary),
+            onClick = onOpenTips,
+            trailingIcon = Icons.Filled.ChevronRight,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Future Path",
+            subtext = "Use encrypted on-device history for cautious estimates.",
+            trailing = {
+                SettingsSwitch(
+                    checked = state.preferences.pathShiftEnabled,
+                    haptics = haptics,
+                    enabled = switchesEnabled,
+                    accessibilityLabel =
+                        "Future Path. Use encrypted on-device Moment history for " +
+                            "cautious estimates.",
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            pathShiftConsentVisible = true
+                        } else {
+                            pathShiftDisableVisible = true
+                        }
+                    },
+                )
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "What Works for Me",
+            subtext = "View cautious patterns from your private support history.",
+            onClick = onOpenWhatWorksForMe,
+            trailingIcon = Icons.Filled.ChevronRight,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Suggestion preferences",
+            subtext = "Choose which private suggestions can appear.",
+            value = suggestionPreferencesSummary(state.preferences),
+            onClick = onOpenSuggestionPreferences,
+            trailingIcon = Icons.Filled.ChevronRight,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Privacy and data",
+            subtext = "Screen privacy, retention and personal data controls.",
+            value = privacyAndDataSummary(state.preferences),
+            onClick = onOpenPrivacyAndData,
+            trailingIcon = Icons.Filled.ChevronRight,
+        )
+        state.message?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun MultiSelectEditDialog(
     title: String,
     options: Map<String, String>,
@@ -1860,6 +2056,378 @@ private fun SingleSelectEditDialog(
 }
 
 @Composable
+fun PersonalSupportSuggestionPreferencesScreen(
+    onBack: () -> Unit,
+    onOpenHowSuggestionsWork: () -> Unit,
+    viewModel: AdaptivePreferencesViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val appSettingsViewModel: AppSettingsViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel()
+    val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
+    val switchesEnabled = !state.loading && !state.saving
+
+    PersonalSupportSubScreen(
+        title = "Suggestion preferences",
+        onBack = onBack,
+    ) {
+        SettingsRow(
+            title = stringResource(R.string.personal_suggestions),
+            trailing = {
+                SettingsSwitch(
+                    checked = state.preferences.personalSuggestionsEnabled,
+                    haptics = haptics,
+                    enabled = switchesEnabled,
+                    onCheckedChange = { checked ->
+                        viewModel.update {
+                            it.copy(personalSuggestionsEnabled = checked)
+                        }
+                    },
+                )
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = stringResource(R.string.game_suggestions),
+            trailing = {
+                SettingsSwitch(
+                    checked = state.preferences.gameSuggestionsEnabled,
+                    haptics = haptics,
+                    enabled = switchesEnabled,
+                    onCheckedChange = { checked ->
+                        viewModel.update {
+                            it.copy(gameSuggestionsEnabled = checked)
+                        }
+                    },
+                )
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = stringResource(R.string.reading_suggestions),
+            trailing = {
+                SettingsSwitch(
+                    checked = state.preferences.readingSuggestionsEnabled,
+                    haptics = haptics,
+                    enabled = switchesEnabled,
+                    onCheckedChange = { checked ->
+                        viewModel.update {
+                            it.copy(readingSuggestionsEnabled = checked)
+                        }
+                    },
+                )
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = stringResource(R.string.moment_plan_suggestions),
+            trailing = {
+                SettingsSwitch(
+                    checked = state.preferences.momentPlanSuggestionsEnabled,
+                    haptics = haptics,
+                    enabled = switchesEnabled,
+                    onCheckedChange = { checked ->
+                        viewModel.update {
+                            it.copy(momentPlanSuggestionsEnabled = checked)
+                        }
+                    },
+                )
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "About suggestions",
+            subtext = "See how private on-device suggestions are selected.",
+            trailingIcon = Icons.Filled.ChevronRight,
+            onClick = onOpenHowSuggestionsWork,
+        )
+        state.message?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+fun PersonalSupportPrivacyAndDataScreen(
+    onBack: () -> Unit,
+    viewModel: AdaptivePreferencesViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(),
+    controlsViewModel: PersonalSupportControlsViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val controlsState by controlsViewModel.state.collectAsStateWithLifecycle()
+    val appSettingsViewModel: AppSettingsViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel()
+    val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
+    val switchesEnabled = !state.loading && !state.saving
+    var confirmation by remember { mutableStateOf<String?>(null) }
+    var retentionPickerVisible by remember { mutableStateOf(false) }
+
+    if (retentionPickerVisible) {
+        AlertDialog(
+            onDismissRequest = { retentionPickerVisible = false },
+            title = { Text("Personal support history") },
+            text = {
+                Column {
+                    AdaptiveHistoryRetentionPolicy.entries.forEach { policy ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    role = Role.RadioButton,
+                                    onClick = {
+                                        retentionPickerVisible = false
+                                        viewModel.update {
+                                            it.copy(historyRetentionPolicy = policy)
+                                        }
+                                    },
+                                )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected =
+                                    state.preferences.historyRetentionPolicy == policy,
+                                onClick = null,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(policy.consumerLabel)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { retentionPickerVisible = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (confirmation != null) {
+        val deleting = confirmation?.startsWith("delete") == true
+        val finalDelete = confirmation == "delete-final"
+        AlertDialog(
+            onDismissRequest = { confirmation = null },
+            title = {
+                Text(
+                    when {
+                        finalDelete -> "Permanently delete all Moment data?"
+                        deleting -> "Delete all Moment data?"
+                        else -> "Reset personal learning?"
+                    },
+                )
+            },
+            text = {
+                Text(
+                    when {
+                        finalDelete ->
+                            "This cannot be undone. Only Moment data will be removed."
+                        deleting ->
+                            "This permanently removes your Moment Plans, practice history, " +
+                                "personal suggestion settings and adaptive support history " +
+                                "from this device."
+                        else ->
+                            "This removes your support history, feedback, observations and " +
+                                "practice history. Your Moment Plans and suggestion settings " +
+                                "will remain."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        when {
+                            finalDelete -> {
+                                confirmation = null
+                                controlsViewModel.deleteAllMomentData()
+                            }
+                            deleting -> confirmation = "delete-final"
+                            else -> {
+                                confirmation = null
+                                controlsViewModel.resetPersonalLearning()
+                            }
+                        }
+                    },
+                    enabled = !controlsState.busy,
+                ) {
+                    Text(if (finalDelete) "Delete permanently" else if (deleting) "Continue" else "Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmation = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    PersonalSupportSubScreen(
+        title = "Privacy and data",
+        onBack = onBack,
+    ) {
+        SettingsRow(
+            title = "Screen privacy",
+            subtext =
+                "Hide Moment Plans, practice and personal patterns from screenshots " +
+                    "and screen sharing.",
+            trailing = {
+                SettingsSwitch(
+                    checked = state.preferences.privateScreenProtectionEnabled,
+                    haptics = haptics,
+                    enabled = switchesEnabled,
+                    accessibilityLabel =
+                        "Screen privacy. Hide Moment Plans, practice and personal " +
+                            "patterns from screenshots and screen sharing.",
+                    onCheckedChange = { checked ->
+                        viewModel.update {
+                            it.copy(privateScreenProtectionEnabled = checked)
+                        }
+                    },
+                )
+            },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Personal support history",
+            subtext =
+                "Older personal support records are removed automatically. " +
+                    "Moment Plans stay unless you delete them.",
+            value = state.preferences.historyRetentionPolicy.consumerLabel,
+            onClick = { retentionPickerVisible = true },
+        )
+        SettingsDivider()
+        Text(
+            text = "DATA CONTROL",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+        )
+        SettingsRow(
+            title = "Reset personal learning",
+            subtext = "Remove support, feedback, observation and practice history.",
+            onClick = { confirmation = "reset" },
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Delete all Moment data",
+            subtext = "Remove plans, settings and all personal support history.",
+            valueColor = MaterialTheme.colorScheme.error,
+            onClick = { confirmation = "delete-first" },
+        )
+        state.message?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        controlsState.completionMessage?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        controlsState.errorMessage?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PersonalSupportSubScreen(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+    ) {
+        ImpulsiveAmbientBackground()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(top = 10.dp, bottom = 32.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    content = content,
+                )
+            }
+        }
+    }
+}
+
+private fun suggestionPreferencesSummary(preferences: AdaptivePreferences): String {
+    val enabledCount = listOf(
+        preferences.personalSuggestionsEnabled,
+        preferences.gameSuggestionsEnabled,
+        preferences.readingSuggestionsEnabled,
+        preferences.momentPlanSuggestionsEnabled,
+    ).count { it }
+
+    return when (enabledCount) {
+        0 -> "Off"
+        4 -> "All enabled"
+        else -> "$enabledCount of 4 enabled"
+    }
+}
+
+private fun privacyAndDataSummary(preferences: AdaptivePreferences): String =
+    preferences.historyRetentionPolicy.consumerLabel +
+        " · Screen privacy " +
+        if (preferences.privateScreenProtectionEnabled) {
+            "on"
+        } else {
+            "off"
+        }
+
+@Composable
 private fun ProtectionFocusGroup(
     protectionState: ProtectionSetupState,
     websiteProtectionPlusUnlocked: Boolean,
@@ -1867,6 +2435,7 @@ private fun ProtectionFocusGroup(
     guard: (enabled: Boolean, action: () -> Unit) -> Unit,
     onOpenBlockedApps: () -> Unit,
     onOpenProtectionSetupGuide: () -> Unit,
+    onOpenProtectionCoach: () -> Unit,
     onOpenUsageAccessPermission: () -> Unit,
     onOpenInterruptionPermission: () -> Unit,
     onOpenBackgroundActivityPermission: () -> Unit,
@@ -1904,6 +2473,19 @@ private fun ProtectionFocusGroup(
     }
     val runtimeNotificationPermissionGranted =
         isRuntimeNotificationPermissionGranted(context)
+    val appProtectionValue = when {
+        selectedCount == 0 -> "No protected apps selected"
+        !protectionState.usageAccessEnabled ||
+            !Settings.canDrawOverlays(context) ||
+            !protectionState.backgroundActivityEnabled ||
+            !notificationsAvailable -> "Protection needs attention"
+        else -> "Active for $selectedCount selected apps"
+    }
+    val appProtectionSubtext = when {
+        selectedCount == 0 -> "Choose protected apps to start app protection."
+        appProtectionValue == "Protection needs attention" -> "Fix setup so selected apps can be protected."
+        else -> "Manage protected apps or review required permissions."
+    }
 
     AccordionGroup(
         title = "Protection & Focus",
@@ -1920,10 +2502,17 @@ private fun ProtectionFocusGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Protection monitor",
-            value = if (protectionState.appProtectionMonitorEnabled) "On" else "Off",
-            subtext = "Open protection settings to turn app monitoring on or off.",
+            title = "App protection",
+            value = appProtectionValue,
+            subtext = appProtectionSubtext,
             onClick = onOpenProtectionSetupGuide,
+        )
+        SettingsDivider()
+        SettingsRow(
+            title = "Protection Coach",
+            value = "Review",
+            subtext = stringResource(R.string.protection_coach_description),
+            onClick = onOpenProtectionCoach,
         )
         SettingsDivider()
         SettingsRow(
@@ -2314,54 +2903,99 @@ private fun SupportGroup(
             onClick = { showAbout = true },
         )
         if (showDataStorageInfo) {
-            AlertDialog(
+            ScrollableSettingsInfoDialog(
+                title = "How your data is stored",
+                confirmLabel = "Got it",
                 onDismissRequest = { showDataStorageInfo = false },
-                title = { Text("How your data is stored") },
-                text = {
-                    Text(
-                        "Impulsive stores your recovery progress on your device. " +
-                            "Impulsive does not store recovery progress or behavioural " +
-                            "history on its servers. If device backup is enabled, your " +
-                            "phone may back up selected app data through your own Google " +
-                            "account so your progress can be restored after reinstalling " +
-                            "or changing devices. You can also export an encrypted backup " +
-                            "file manually. Impulsive keeps only account, subscription, " +
-                            "and security records on its servers."
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = { showDataStorageInfo = false }) { Text("Got it") }
-                },
-            )
+            ) {
+                Text(
+                    "Impulsive stores your recovery progress on your device. " +
+                        "Impulsive does not store recovery progress or behavioural " +
+                        "history on its servers. If device backup is enabled, your " +
+                        "phone may back up selected app data through your own Google " +
+                        "account so your progress can be restored after reinstalling " +
+                        "or changing devices. You can also export an encrypted backup " +
+                        "file manually. Impulsive keeps only account, subscription, " +
+                        "and security records on its servers.",
+                )
+            }
         }
         if (showAbout) {
-            AlertDialog(
+            ScrollableSettingsInfoDialog(
+                title = "About Impulsive",
+                confirmLabel = "Close",
                 onDismissRequest = { showAbout = false },
-                confirmButton = {
-                    TextButton(onClick = { showAbout = false }) { Text("Close") }
-                },
-                title = { Text("About Impulsive") },
-                text = {
-                    Column {
-                        Text("Impulsive helps you notice a difficult moment, create a pause, choose a next step, and understand your patterns.")
-                        Spacer(Modifier.height(8.dp))
-                        Text("If your patterns are causing serious distress, harm, or feel difficult to stop despite unwanted consequences, consider speaking with a qualified professional or a trusted support service.")
-                        Spacer(Modifier.height(8.dp))
-                        Text("Impulsive is a behaviour-change support tool for adults. It is not a medical device, therapy service, diagnosis tool, crisis-support service, or clinically validated treatment. It does not diagnose, treat, cure, or prevent addiction, compulsions, mental health conditions, or any medical condition. It helps you create a pause, choose a next step, and understand your patterns.")
-                        Spacer(Modifier.height(8.dp))
-                        Text("Version ${appVersionName(context)}", style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "useimpulsive.com",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.clickable {
-                                openImpulsiveWebPage(context, "https://useimpulsive.com")
-                            },
-                        )
-                        Text("Hello@useimpulsive.com", style = MaterialTheme.typography.bodySmall)
-                    }
-                },
-            )
+            ) {
+                Text("Impulsive helps you notice a difficult moment, create a pause, choose a next step, and understand your patterns.")
+                Spacer(Modifier.height(8.dp))
+                Text("If your patterns are causing serious distress, harm, or feel difficult to stop despite unwanted consequences, consider speaking with a qualified professional or a trusted support service.")
+                Spacer(Modifier.height(8.dp))
+                Text("Impulsive is a behaviour-change support tool for adults. It is not a medical device, therapy service, diagnosis tool, crisis-support service, or clinically validated treatment. It does not diagnose, treat, cure, or prevent addiction, compulsions, mental health conditions, or any medical condition. It helps you create a pause, choose a next step, and understand your patterns.")
+                Spacer(Modifier.height(8.dp))
+                Text("Version ${appVersionName(context)}", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "useimpulsive.com",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.clickable {
+                        openImpulsiveWebPage(context, "https://useimpulsive.com")
+                    },
+                )
+                Text("Hello@useimpulsive.com", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScrollableSettingsInfoDialog(
+    title: String,
+    confirmLabel: String,
+    onDismissRequest: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth()
+                .widthIn(max = 560.dp)
+                .heightIn(max = 560.dp)
+                .navigationBarsPadding(),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(16.dp))
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = content,
+                )
+                Spacer(Modifier.height(18.dp))
+                TextButton(
+                    onClick = onDismissRequest,
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .heightIn(min = 48.dp),
+                ) {
+                    Text(confirmLabel)
+                }
+            }
         }
     }
 }
@@ -3141,17 +3775,30 @@ private fun TextButtonPill(
 private fun SettingsSwitch(
     checked: Boolean,
     haptics: ImpulsiveHaptics,
+    enabled: Boolean = true,
+    accessibilityLabel: String? = null,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Switch(
         checked = checked,
+        enabled = enabled,
         onCheckedChange = { next ->
             if (next != checked) {
                 haptics.light()
                 onCheckedChange(next)
             }
         },
-        modifier = Modifier.size(width = 48.dp, height = 28.dp),
+        modifier = Modifier
+            .size(width = 48.dp, height = 28.dp)
+            .then(
+                if (accessibilityLabel != null) {
+                    Modifier.semantics {
+                        contentDescription = accessibilityLabel
+                    }
+                } else {
+                    Modifier
+                },
+            ),
         colors = SwitchDefaults.colors(
             checkedThumbColor = MaterialTheme.colorScheme.surface,
             checkedTrackColor = ImpulsivePsychological,

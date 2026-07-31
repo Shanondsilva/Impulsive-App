@@ -48,7 +48,7 @@ sealed interface InterruptionNotificationResult {
 internal const val InterruptionFallbackNotificationTitle =
     "Pause before you continue"
 internal const val InterruptionFallbackNotificationBody =
-    "A protected app is open. Choose one quick reset before continuing."
+    "Protected content was detected. Choose one quick reset before continuing."
 
 class ProtectionNotificationHelper(
     context: Context,
@@ -169,6 +169,7 @@ class ProtectionNotificationHelper(
                     )
                     .setShowWhen(false)
                     .setUsesChronometer(false)
+                    .setChronometerCountDown(false)
                     .build()
             }
 
@@ -179,6 +180,7 @@ class ProtectionNotificationHelper(
                         .setContentTitle("Impulsive")
                         .setShowWhen(false)
                         .setUsesChronometer(false)
+                        .setChronometerCountDown(false)
                         .build()
                 } else {
                     builder
@@ -186,6 +188,7 @@ class ProtectionNotificationHelper(
                         .setContentText(context.getString(R.string.notif_monitoring_body))
                         .setShowWhen(false)
                         .setUsesChronometer(false)
+                        .setChronometerCountDown(false)
                         .build()
                 }
             }
@@ -204,6 +207,7 @@ class ProtectionNotificationHelper(
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setUsesChronometer(false)
+            .setChronometerCountDown(false)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -331,6 +335,7 @@ class ProtectionNotificationHelper(
         incidentStartedAtMillis: Long = System.currentTimeMillis(),
         isWebsiteIncident: Boolean = false,
         stage: InterruptionNotificationStage = InterruptionNotificationStage.Initial,
+        adaptiveDecisionId: String? = null,
     ): InterruptionNotificationResult {
         ensureChannels()
         val status = interruptionNotificationStatus()
@@ -341,7 +346,9 @@ class ProtectionNotificationHelper(
             val homePendingIntent = PendingIntent.getActivity(
                 context,
                 InterruptionHomeRequestCode,
-                MainActivity
+                adaptiveDecisionId?.let {
+                    MainActivity.createAdaptiveMomentIntent(context, it)
+                } ?: MainActivity
                     .createHomeIntent(context)
                     .apply {
                         action = ActionOpenInterruptionHome
@@ -420,20 +427,22 @@ class ProtectionNotificationHelper(
                     PendingIntent.FLAG_IMMUTABLE,
             )
             val displayedTitle =
-                if (hideSensitive) {
+                if (adaptiveDecisionId != null || hideSensitive) {
                     "Impulsive"
                 } else {
                     InterruptionFallbackNotificationTitle
                 }
 
             val displayedBody =
-                if (hideSensitive) {
+                if (adaptiveDecisionId != null) {
+                    "Choose a different direction"
+                } else if (hideSensitive) {
                     "Open Impulsive to continue."
                 } else {
                     InterruptionFallbackNotificationBody
                 }
 
-            val notification =
+            val builder =
                 NotificationCompat.Builder(
                     context,
                     BlockedAttemptChannelId,
@@ -465,21 +474,23 @@ class ProtectionNotificationHelper(
                     )
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .addAction(
+            if (adaptiveDecisionId == null) {
+                builder.addAction(
                         R.drawable.ic_notification,
                         context.getString(
                             R.string.notif_action_game,
                         ),
                         gamePendingIntent,
                     )
-                    .addAction(
+                builder.addAction(
                         R.drawable.ic_notification,
                         context.getString(
                             R.string.notif_action_reading,
                         ),
                         readingPendingIntent,
                     )
-                    .build()
+            }
+            val notification = builder.build()
             when (
                 submitStandardNotification(
                     BlockedAttemptNotificationId,

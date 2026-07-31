@@ -4,6 +4,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -291,6 +292,198 @@ class AppDatabaseMigrationTest {
             db.query("PRAGMA user_version").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals(7, cursor.getInt(0))
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate7To8PreservesDataAndCreatesAdaptiveSchema() {
+        helper.createDatabase(testDbName, 7).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO recovery_sessions (
+                    startedAt,
+                    completedAt,
+                    durationSeconds,
+                    urgeBefore,
+                    urgeAfter,
+                    helped,
+                    triggerSource,
+                    recoveryType
+                )
+                VALUES (
+                    9000,
+                    10000,
+                    90,
+                    7,
+                    2,
+                    1,
+                    'schema_7_survivor',
+                    'breathing'
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT INTO cloud_restore_receipts (
+                    receiptId,
+                    payloadSha256,
+                    proofType,
+                    previousUid,
+                    previousGoogleSubjectHash,
+                    currentUid,
+                    currentGoogleSubjectHash,
+                    importedAtMillis
+                )
+                VALUES (
+                    'receipt-7',
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'EXACT_UID',
+                    NULL,
+                    NULL,
+                    'uid-7',
+                    NULL,
+                    11000
+                )
+                """.trimIndent(),
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            testDbName,
+            8,
+            true,
+            AppDatabase.Migration7To8,
+        ).use { db ->
+            db.query(
+                """
+                SELECT triggerSource, recoveryType
+                FROM recovery_sessions
+                WHERE startedAt = 9000
+                """.trimIndent(),
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("schema_7_survivor", cursor.getString(0))
+                assertEquals("breathing", cursor.getString(1))
+            }
+            db.query(
+                """
+                SELECT currentUid, importedAtMillis
+                FROM cloud_restore_receipts
+                WHERE receiptId = 'receipt-7'
+                """.trimIndent(),
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("uid-7", cursor.getString(0))
+                assertEquals(11000L, cursor.getLong(1))
+            }
+
+            val tables = db.stringSet(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                """.trimIndent(),
+            )
+            assertTrue("adaptive_decisions" in tables)
+            assertTrue("moment_plans" in tables)
+            assertTrue("adaptive_preferences" in tables)
+
+            db.query(
+                """
+                SELECT
+                    id,
+                    personalSuggestionsEnabled,
+                    gameSuggestionsEnabled,
+                    readingSuggestionsEnabled,
+                    momentPlanSuggestionsEnabled,
+                    randomisedExplorationEnabled,
+                    updatedAtMillis
+                FROM adaptive_preferences
+                """.trimIndent(),
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(1, cursor.getInt(0))
+                assertEquals(1, cursor.getInt(1))
+                assertEquals(1, cursor.getInt(2))
+                assertEquals(1, cursor.getInt(3))
+                assertEquals(1, cursor.getInt(4))
+                assertEquals(1, cursor.getInt(5))
+                assertEquals(0L, cursor.getLong(6))
+            }
+
+            val indexes = db.stringSet(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'index'
+                    AND (
+                        tbl_name = 'adaptive_decisions'
+                        OR tbl_name = 'moment_plans'
+                    )
+                """.trimIndent(),
+            )
+            val requiredIndexes = setOf(
+                "index_adaptive_decisions_protectionIncidentToken",
+                "index_adaptive_decisions_createdAtMillis",
+                "index_adaptive_decisions_observationFinalisedAtMillis_" +
+                    "observationDeadlineAtMillis",
+                "index_adaptive_decisions_actualIntervention_" +
+                    "observationFinalisedAtMillis_createdAtMillis",
+                "index_adaptive_decisions_momentCue_" +
+                    "observationFinalisedAtMillis_createdAtMillis",
+                "index_adaptive_decisions_momentPlanId",
+                "index_moment_plans_enabled_updatedAtMillis",
+                "index_moment_plans_momentCue_enabled_preferredForCue",
+            )
+            assertTrue(indexes.containsAll(requiredIndexes))
+
+            val adaptiveColumns = buildSet {
+                addAll(db.tableColumns("adaptive_decisions"))
+                addAll(db.tableColumns("moment_plans"))
+                addAll(db.tableColumns("adaptive_preferences"))
+            }.map { it.lowercase() }
+            listOf(
+                "url",
+                "domain",
+                "search",
+                "pagetitle",
+                "pagecontent",
+                "notification",
+                "email",
+                "firebaseuid",
+                "medical",
+            ).forEach { forbidden ->
+                assertFalse(
+                    "Forbidden adaptive column fragment: $forbidden",
+                    adaptiveColumns.any { forbidden in it },
+                )
+            }
+
+            db.query("PRAGMA user_version").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(8, cursor.getInt(0))
+            }
+        }
+    }
+
+    private fun androidx.sqlite.db.SupportSQLiteDatabase.stringSet(
+        query: String,
+    ): Set<String> = buildSet {
+        this@stringSet.query(query).use { cursor ->
+            while (cursor.moveToNext()) {
+                add(cursor.getString(0))
+            }
+        }
+    }
+
+    private fun androidx.sqlite.db.SupportSQLiteDatabase.tableColumns(
+        tableName: String,
+    ): Set<String> = buildSet {
+        query("PRAGMA table_info(`$tableName`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                add(cursor.getString(1))
             }
         }
     }

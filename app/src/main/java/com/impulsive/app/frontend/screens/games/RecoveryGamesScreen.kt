@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.AccessTime
@@ -296,25 +297,22 @@ fun RecoveryGamesScreen(
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
+            Column(
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Column {
-                    Text(
-                        text = "Control points",
-                        color = colors.mutedText,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = points.toString(),
-                        color = colors.text,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                Text(
+                    text = "Control points",
+                    color = colors.mutedText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = points.toString(),
+                    color = colors.text,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
                 Text(
                     text = "Spend below to unlock games",
                     color = colors.mutedText,
@@ -371,6 +369,7 @@ fun RecoveryGamesScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RecoveryGameCard(
     game: RecoveryGameCardModel,
@@ -427,9 +426,9 @@ private fun RecoveryGameCard(
             Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     SoftChip(text = game.chip, colors = colors)
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -500,13 +499,6 @@ private fun RecoveryGameCard(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = colors.text.copy(alpha = 0.36f),
-                modifier = Modifier.size(22.dp),
-            )
         }
     }
 }
@@ -564,7 +556,7 @@ private fun LockedGameStoreCard(
 
             if (!isRented) {
                 Spacer(modifier = Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = onRent,
                         enabled = points >= game.rentPrice,
@@ -580,7 +572,7 @@ private fun LockedGameStoreCard(
                                 colors.border
                             },
                         ),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Rent - ${game.rentPrice}")
                     }
@@ -589,11 +581,11 @@ private fun LockedGameStoreCard(
                         enabled = points >= game.buyPrice,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ImpulsivePsychological,
-                            contentColor = Color(0xFF281D38),
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             disabledContainerColor = ImpulsivePsychological.copy(alpha = 0.24f),
                             disabledContentColor = colors.mutedText.copy(alpha = 0.68f),
                         ),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Buy - ${game.buyPrice}")
                     }

@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -332,6 +333,18 @@ private fun MindModeDecisionTreeVisual(
     lavenderDeep: Color,
     isDark: Boolean,
 ) {
+    if (LocalDensity.current.fontScale >= 1.6f) {
+        MindModeDecisionTreeList(
+            deepText = deepText,
+            mutedText = mutedText,
+            lavender = lavender,
+            lavenderSoft = lavenderSoft,
+            lavenderDeep = lavenderDeep,
+            isDark = isDark,
+        )
+        return
+    }
+
     val context = LocalContext.current
     val reducedMotion = remember(context) {
         Settings.Global.getFloat(
@@ -511,6 +524,68 @@ private fun MindModeDecisionTreeVisual(
         nodePill("Complete", w * 0.30f, rewardY, stages[5].value)
         nodePill("Wait cut + LP", w * 0.70f, rewardY, stages[5].value)
         nodePill("Learn", w * 0.94f, (decisionY + rewardY) / 2, stages[6].value)
+    }
+}
+
+@Composable
+private fun MindModeDecisionTreeList(
+    deepText: Color,
+    mutedText: Color,
+    lavender: Color,
+    lavenderSoft: Color,
+    lavenderDeep: Color,
+    isDark: Boolean,
+) {
+    val steps = listOf(
+        "Trigger" to "Impulsive notices the difficult moment.",
+        "Pause" to "The moment slows before autopilot takes over.",
+        "Private cues" to "Urge, timing and pattern context stay on this device.",
+        "Mind picks a task" to "A short support action is selected from eligible options.",
+        "Pivot task" to "A game, reading reset or Moment Plan redirects attention.",
+        "Complete" to "Finishing records the support outcome privately.",
+        "Wait cut + LP" to "Progress and learning update without changing the core rules.",
+    )
+    Column(
+        modifier = Modifier.padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        steps.forEachIndexed { index, (title, body) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Surface(
+                    color = if (index == 3) lavender else lavenderSoft,
+                    shape = CircleShape,
+                ) {
+                    Text(
+                        text = (index + 1).toString(),
+                        color = if (index == 3) {
+                            if (isDark) Color(0xFF1C1430) else MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            lavenderDeep
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        color = deepText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = body,
+                        color = mutedText,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
     }
 }
 

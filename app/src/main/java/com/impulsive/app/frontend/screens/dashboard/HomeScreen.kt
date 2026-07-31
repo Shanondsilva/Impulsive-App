@@ -8,9 +8,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SportsEsports
@@ -38,7 +43,14 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,15 +64,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.impulsive.app.R
 import com.impulsive.app.backend.domain.model.release.ReleasePlanState
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.formattedPlannedWindows
@@ -69,6 +88,10 @@ import com.impulsive.app.backend.domain.model.release.ReleasePlanDefaults
 import com.impulsive.app.backend.domain.model.release.formattedTodaysWindow
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
+import com.impulsive.app.backend.domain.model.adaptive.MomentPlan
+import com.impulsive.app.backend.domain.tips.ImpulsiveTipId
+import com.impulsive.app.backend.domain.tips.TipFeature
+import com.impulsive.app.backend.service.protection.ImpulsiveVpnService
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardState
 import com.impulsive.app.backend.domain.model.tasks.TaskRewardStatus
@@ -77,6 +100,9 @@ import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
+import com.impulsive.app.backend.session.adaptive.MomentPlanHomeViewModel
+import com.impulsive.app.backend.session.adaptive.MomentPlanPresentation
+import com.impulsive.app.backend.session.settings.AppLockViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.core.util.ThemeMode
@@ -97,6 +123,9 @@ import com.impulsive.app.frontend.components.SoulModeLockedSheet
 import com.impulsive.app.frontend.components.impulsiveGlowBorderStroke
 import com.impulsive.app.frontend.components.impulsiveGlowShadow
 import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
+import com.impulsive.app.frontend.screens.tips.TipsViewModel
+import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
+import com.impulsive.app.frontend.screens.lock.rememberAppLockGuardController
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsivePsychologicalDark
@@ -108,20 +137,27 @@ import java.time.Duration
 import java.time.LocalDateTime
 import java.util.Locale
 import kotlinx.coroutines.delay
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private const val DAY_COUNT = 1
 
 private val HomeLavenderGlow = Color(0xFFD0C3F1)
-private val HomeShowcaseSmallCardHeight = 190.dp
+private val HomeShowcaseSmallCardHeight = 214.dp
+private val HomeShowcaseAccessibleCardHeight = 286.dp
 private val HomeShowcaseTitleSlotHeight = 50.dp
 private val HomeShowcaseSubtitleSlotHeight = 22.dp
-private const val HOME_SHOWCASE_ROTATION_DELAY_MS = 3800L
+private const val HOME_SHOWCASE_ROTATION_DELAY_MS = 9_000L
 private const val HOME_SHOWCASE_TYPE_START_GAP_MS = 70L
 private const val HOME_SHOWCASE_TITLE_TYPE_DURATION_MS = 820L
 private const val HOME_SHOWCASE_SUBTITLE_TYPE_DURATION_MS = 500L
 private const val HOME_SHOWCASE_SUBTITLE_START_DELAY_MS = 210L
-private val HomeGreenGlow = Color(0xFFD0C3F1)
+private val HomeGreenGlow = Color(0xFF93E9BE)
 private val HomeYellowGlow = Color(0xFFFEF1AB)
+private val HomeBlueGlow = Color(0xFFBDE0FE)
+private const val HOME_TIPS_ROTATION_DELAY_MS = 9_000L
+
 private data class HomeReadablePalette(
     val cardSurface: Color,
     val innerCardSurface: Color,
@@ -176,6 +212,9 @@ fun HomeScreen(
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
+    onOpenMomentPlans: () -> Unit = {},
+    onOpenTips: () -> Unit = {},
+    onOpenTip: (ImpulsiveTipId) -> Unit = {},
     onOpenFocus: () -> Unit = {},
     indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
     isActive: Boolean = true,
@@ -183,9 +222,6 @@ fun HomeScreen(
 ) {
     val state by onboardingViewModel.state.collectAsStateWithLifecycle()
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
-    val websiteProtectionPlusUnlocked by premiumViewModel
-        .hasFeature(PremiumFeature.VpnWebsiteBlocker)
-        .collectAsStateWithLifecycle()
     val displayName = state.answers.name.takeIf { it.isNotBlank() } ?: "friend"
     val avatar = AvatarStyle.fromId(state.answers.avatarId)
     val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -213,6 +249,14 @@ fun HomeScreen(
         activeDayEnd = minuteOfDayToLocalTime(state.answers.activeDayEndMinute),
     )
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
+    val momentPlanViewModel: MomentPlanHomeViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel()
+    val momentPlanState by momentPlanViewModel.state.collectAsStateWithLifecycle()
+    val tipsViewModel: TipsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val tipsState by tipsViewModel.state.collectAsStateWithLifecycle()
+    val appLockViewModel: AppLockViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val appLockEnabled by appLockViewModel.enabled.collectAsStateWithLifecycle()
+    val momentPlanGuard = rememberAppLockGuardController()
     val taskRewardState = taskRewardStoreState.toTaskRewardState(releasePlan)
     val displayReleasePlan = calculateRewardedReleasePlan(
         releasePlan = releasePlan,
@@ -224,22 +268,20 @@ fun HomeScreen(
     var modeSelectionSheetVisible by remember { mutableStateOf(false) }
     var bodyModeSheetVisible by remember { mutableStateOf(false) }
     var soulModeSheetVisible by remember { mutableStateOf(false) }
-    var websiteProtectionCardDismissedThisSession by rememberSaveable { mutableStateOf(false) }
-    // A paid user should always see their website-protection control once
-    // settings have loaded, whether or not they also set up app blocking:
-    // it is the entry point to turning the purchased feature on and off.
-    // The free upsell card keeps the original prerequisites so it only
-    // appears in the app-blocking context, and only until dismissed or
-    // enabled.
-    val shouldShowWebsiteProtectionHomeCard = protectionSetupState.isLoaded &&
-        if (websiteProtectionPlusUnlocked) {
-            true
-        } else {
-            protectionSetupState.usageAccessEnabled &&
-                protectionSetupState.blockedAppsSelected &&
-                !protectionSetupState.websiteProtectionEnabled &&
-                !websiteProtectionCardDismissedThisSession
-        }
+    val websiteProtectionHealthy =
+        protectionSetupState.websiteProtectionEnabled && ImpulsiveVpnService.isRunning
+    val configurationOpportunities = buildSet {
+        if (!protectionSetupState.blockedAppsSelected) add(TipFeature.AppProtection)
+        if (!protectionSetupState.websiteProtectionEnabled) add(TipFeature.WebsiteProtection)
+        if (momentPlanState.activePlan == null) add(TipFeature.MomentPlan)
+    }
+    LaunchedEffect(state.answers, configurationOpportunities) {
+        tipsViewModel.updateContext(
+            answers = state.answers,
+            configurationOpportunities = configurationOpportunities,
+        )
+        tipsViewModel.ensureHomeTip()
+    }
     val bottomNavReservedSpace = 104.dp
     val startRecommendedMindTask = {
         when (recommendedMindTaskType) {
@@ -338,27 +380,32 @@ fun HomeScreen(
                 onOpenRecoveryGames = onOpenRecoveryGames,
                 onOpenJournal = onOpenJournal,
                 onOpenReading = onOpenReading,
+                isActive = isActive,
                 palette = palette,
             )
 
-            if (shouldShowWebsiteProtectionHomeCard) {
-                Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-                if (websiteProtectionPlusUnlocked) {
-                    WebsiteProtectionStatusHomeCard(
-                        enabled = protectionSetupState.websiteProtectionEnabled,
-                        alwaysOn = protectionSetupState.websiteProtectionAlwaysOn,
-                        onClick = onOpenWebsiteProtectionPlus,
-                        palette = palette,
-                    )
-                } else {
-                    WebsiteProtectionHomeCard(
-                        onClick = onOpenWebsiteProtectionPlus,
-                        onDismiss = { websiteProtectionCardDismissedThisSession = true },
-                        palette = palette,
-                    )
-                }
-            }
+            MomentPlanAndTipsCards(
+                activePlan = momentPlanState.activePlan,
+                tipsState = tipsState,
+                isActive = isActive,
+                onOpenMomentPlans = {
+                    momentPlanGuard.run(enabled = appLockEnabled, action = onOpenMomentPlans)
+                },
+                onOpenTips = onOpenTips,
+                onOpenTip = onOpenTip,
+                onRotateTip = tipsViewModel::rotate,
+                palette = palette,
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            WebsiteProtectionStatusHomeCard(
+                enabled = websiteProtectionHealthy,
+                onClick = onOpenWebsiteProtectionPlus,
+                palette = palette,
+            )
         }
 
         if (mindModeSheetVisible) {
@@ -497,6 +544,12 @@ fun HomeScreen(
                 },
             )
         }
+
+        AppLockGuardHost(
+            controller = momentPlanGuard,
+            title = stringResource(R.string.moment_plan_lock_title),
+            subtitle = stringResource(R.string.moment_plan_lock_subtitle),
+        )
     }
 }
 
@@ -620,29 +673,27 @@ private fun LevelCard(
                 elevation = 18.dp,
             ),
     ) {
-        Column(modifier = Modifier.padding(22.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "TODAY",
-                    color = levelCardContent.copy(alpha = 0.82f),
-                    style = MaterialTheme.typography.labelLarge,
+                    text = "Level ${taskRewardState.currentLevel}",
+                    color = levelCardContent,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "${taskRewardState.currentLevelPoints} / ${taskRewardState.pointsNeededForNextLevel} LP",
+                    color = levelCardContent.copy(alpha = 0.84f),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Level ${taskRewardState.currentLevel}",
-                color = levelCardContent,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             LinearProgressIndicator(
                 progress = {
@@ -654,11 +705,11 @@ private fun LevelCard(
                 drawStopIndicator = {},
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
+                    .height(4.dp)
                     .clip(RoundedCornerShape(50)),
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -697,11 +748,6 @@ private fun LevelCard(
                     color = levelCardContent.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Text(
-                    text = "${taskRewardState.currentLevelPoints} / ${taskRewardState.pointsNeededForNextLevel} LP",
-                    color = levelCardContent.copy(alpha = 0.84f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
             }
         }
     }
@@ -724,8 +770,6 @@ private fun TaskToCompletePreviewCard(
 
     val surfaceColor = if (palette.cardSurface == Color.Unspecified)
         MaterialTheme.colorScheme.surface else palette.cardSurface
-    val innerSurfaceColor = if (palette.innerCardSurface == Color.Unspecified)
-        MaterialTheme.colorScheme.surfaceVariant else palette.innerCardSurface
     val isDark = palette.cardSurface != Color.Unspecified
     val cardShape = RoundedCornerShape(30.dp)
 
@@ -752,144 +796,89 @@ private fun TaskToCompletePreviewCard(
                 shape = cardShape,
                 glowColor = HomeLavenderGlow,
                 elevation = 18.dp,
+            )
+            .heightIn(min = 122.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onViewAllTasks,
             ),
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(
+                        color = ImpulsivePsychological.copy(alpha = 0.72f),
+                        shape = RoundedCornerShape(18.dp),
+                    ),
+                contentAlignment = Alignment.Center,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Tasks",
-                        color = palette.primaryText,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = releasePlan.formattedTimeUntilNextWindow(),
-                        color = palette.mutedText,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-
-                SoftChip(
-                    text = if (recommendedReward.isFirstTimeBoostAvailable) "First-time boost" else "Reward ready",
-                    color = ImpulsivePsychological.copy(alpha = 0.72f),
+                Icon(
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = null,
+                    tint = palette.primaryText.copy(alpha = 0.84f),
+                    modifier = Modifier.size(21.dp),
                 )
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Surface(
-                color = innerSurfaceColor,
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, palette.subtleBorder),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(
-                                color = ImpulsivePsychological.copy(alpha = 0.72f),
-                                shape = RoundedCornerShape(18.dp),
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = null,
-                            tint = palette.primaryText.copy(alpha = 0.84f),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = recommendedTask.title,
-                            color = palette.primaryText,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = recommendedTask.description,
-                            color = palette.secondaryText,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (hasWaitCut) Icons.Outlined.AccessTime else Icons.Filled.AutoAwesome,
-                                contentDescription = null,
-                                tint = palette.actionText,
-                                modifier = Modifier.size(15.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = recommendedReward.displayRewardLabel(),
-                                color = palette.actionText,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Tasks",
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = recommendedTask.title,
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasWaitCut) Icons.Outlined.AccessTime else Icons.Filled.AutoAwesome,
+                        contentDescription = null,
+                        tint = palette.actionText,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "${recommendedReward.displayRewardLabel()} \u2022 ${releasePlan.formattedTimeUntilNextWindow()}",
+                        color = palette.mutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    color = Color(0xFF6C5A8F),
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) { onStartTask() },
-                ) {
-                    Text(
-                        text = "Start task",
-                        color = Color.White.copy(alpha = 0.96f),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 13.dp),
-                    )
-                }
-
-                Surface(
-                    color = ImpulsivePsychological.copy(alpha = 0.36f),
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier.clickable(
+            Spacer(modifier = Modifier.width(16.dp))
+            Surface(
+                color = Color(0xFF6C5A8F),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier
+                    .heightIn(min = 52.dp)
+                    .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                    ) { onViewAllTasks() },
-                ) {
-                    Text(
-                        text = "All tasks",
-                        color = palette.actionText,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
-                    )
-                }
+                    ) { onStartTask() },
+            ) {
+                Text(
+                    text = "Start",
+                    color = Color.White.copy(alpha = 0.96f),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 15.dp),
+                )
             }
         }
     }
@@ -930,10 +919,19 @@ private fun TaskCompletedPreviewCard(
                 shape = cardShape,
                 glowColor = HomeGreenGlow,
                 elevation = 18.dp,
+            )
+            .heightIn(min = 122.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onViewAllTasks,
             ),
     ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -953,22 +951,25 @@ private fun TaskCompletedPreviewCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Tasks",
-                    color = palette.primaryText,
-                    style = MaterialTheme.typography.titleMedium,
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "$completedTaskName is logged for today.",
-                    color = palette.mutedText,
-                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
                 Text(
                     text = releasePlan.formattedTimeUntilNextWindow(),
                     color = palette.mutedText,
@@ -977,22 +978,24 @@ private fun TaskCompletedPreviewCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
             Surface(
                 color = ImpulsivePsychological.copy(alpha = 0.30f),
                 shape = RoundedCornerShape(50),
-                modifier = Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { onViewAllTasks() },
+                modifier = Modifier
+                    .heightIn(min = 52.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { onViewAllTasks() },
             ) {
                 Text(
                     text = "All tasks",
                     color = palette.actionText,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 15.dp),
                 )
             }
         }
@@ -1081,10 +1084,9 @@ private fun DashboardCards(
     onOpenRecoveryGames: () -> Unit,
     onOpenJournal: () -> Unit,
     onOpenReading: () -> Unit,
+    isActive: Boolean,
     palette: HomeReadablePalette,
 ) {
-    val isDark = palette.cardSurface != Color.Unspecified
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1121,6 +1123,7 @@ private fun DashboardCards(
                 iconColor = ImpulsivePsychological.copy(alpha = 0.58f),
                 glowColor = HomeLavenderGlow,
                 palette = palette,
+                isActive = isActive,
                 icon = {
                     Icon(
                         imageVector = Icons.Filled.SportsEsports,
@@ -1134,33 +1137,402 @@ private fun DashboardCards(
             DiagonalNotesCard(
                 modifier = Modifier.weight(1f),
                 onOpenJournal = onOpenJournal,
+                isActive = isActive,
                 palette = palette,
             )
         }
 
-        SmallActionCard(
+        ResetReadingHomeCard(
+            onClick = onOpenReading,
+            palette = palette,
+        )
+    }
+}
+
+@Composable
+private fun ResetReadingHomeCard(
+    onClick: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val isDark = palette.cardSurface != Color.Unspecified
+    val surfaceColor = if (isDark) palette.cardSurface else MaterialTheme.colorScheme.surface
+    val shape = RoundedCornerShape(24.dp)
+    Surface(
+        color = surfaceColor,
+        shape = shape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeGreenGlow,
+            fallbackColor = palette.subtleBorder,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 6.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = shape,
+                glowColor = HomeGreenGlow,
+                elevation = 16.dp,
+                ambientAlpha = 0.14f,
+                spotAlpha = 0.18f,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+    ) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { onOpenReading() },
-            label = "READING",
-            title = "Reset Reading",
-            subtext = "Short calm cards for low-energy reset moments",
-            cta = "Open reading >",
-            iconColor = Color(0xFFFEF1AB).copy(alpha = if (isDark) 0.34f else 0.78f),
-            glowColor = HomeGreenGlow,
-            palette = palette,
-            icon = {
+                .heightIn(min = 104.dp)
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        HomeGreenGlow.copy(alpha = if (isDark) 0.30f else 0.72f),
+                        RoundedCornerShape(16.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Outlined.MenuBook,
                     contentDescription = null,
-                    tint = palette.primaryText.copy(alpha = 0.82f),
+                    tint = if (isDark) HomeGreenGlow else palette.primaryText.copy(alpha = 0.82f),
                     modifier = Modifier.size(21.dp),
                 )
-            },
-        )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.v28_reset_reading_title),
+                    color = if (isDark) HomeGreenGlow else palette.primaryText,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.v28_reset_reading_support),
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = if (isDark) HomeGreenGlow else palette.actionText,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MomentPlanAndTipsCards(
+    activePlan: MomentPlan?,
+    tipsState: com.impulsive.app.frontend.screens.tips.TipsHomeUiState,
+    isActive: Boolean,
+    onOpenMomentPlans: () -> Unit,
+    onOpenTips: () -> Unit,
+    onOpenTip: (ImpulsiveTipId) -> Unit,
+    onRotateTip: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val configuration = LocalConfiguration.current
+    val context = LocalContext.current
+    val touchExplorationEnabled = remember(context) {
+        val manager = context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+        manager?.isTouchExplorationEnabled == true
+    }
+    val reducedMotion = remember(context) {
+        android.provider.Settings.Global.getFloat(
+            context.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) == 0f
+    }
+    val currentTipId = tipsState.currentTip?.id
+
+    LaunchedEffect(
+        isActive,
+        reducedMotion,
+        touchExplorationEnabled,
+        currentTipId,
+    ) {
+        if (isActive && !reducedMotion && !touchExplorationEnabled && currentTipId != null) {
+            delay(HOME_TIPS_ROTATION_DELAY_MS)
+            onRotateTip()
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+    ) {
+        val shouldStack =
+            configuration.fontScale >= 1.8f || maxWidth < 340.dp
+        val stableCardHeight =
+            if (configuration.fontScale >= 1.8f) {
+                HomeShowcaseAccessibleCardHeight
+            } else {
+                HomeShowcaseSmallCardHeight
+            }
+        val copyRegionHeight =
+            if (configuration.fontScale >= 1.8f) 148.dp else 92.dp
+        val cardModifier = Modifier
+            .fillMaxWidth()
+            .height(stableCardHeight)
+
+        if (shouldStack) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                MomentPlanCompactCard(
+                    modifier = cardModifier,
+                    activePlan = activePlan,
+                    onClick = onOpenMomentPlans,
+                    palette = palette,
+                )
+                TipsCompactCard(
+                    modifier = cardModifier,
+                    state = tipsState,
+                    reducedMotion = reducedMotion,
+                    copyRegionHeight = copyRegionHeight,
+                    onClick = {
+                        tipsState.currentTip?.id?.let(onOpenTip) ?: onOpenTips()
+                    },
+                    palette = palette,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                MomentPlanCompactCard(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(stableCardHeight),
+                    activePlan = activePlan,
+                    onClick = onOpenMomentPlans,
+                    palette = palette,
+                )
+                TipsCompactCard(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(stableCardHeight),
+                    state = tipsState,
+                    reducedMotion = reducedMotion,
+                    copyRegionHeight = copyRegionHeight,
+                    onClick = {
+                        tipsState.currentTip?.id?.let(onOpenTip) ?: onOpenTips()
+                    },
+                    palette = palette,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MomentPlanCompactCard(
+    modifier: Modifier,
+    activePlan: MomentPlan?,
+    onClick: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val isDark = palette.cardSurface != Color.Unspecified
+    val title = activePlan
+        ?.title
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: if (activePlan == null) {
+            stringResource(R.string.moment_plan_home_title)
+        } else {
+            "Your plan"
+        }
+    val summary = activePlan?.let { plan ->
+        plan.actionText
+            .trim()
+            .takeIf { it.isNotBlank() }
+            ?: MomentPlanPresentation.actionSummary(
+                type = plan.actionType,
+                text = plan.actionText,
+                target = plan.actionTarget,
+                selectedAppLabel = null,
+            ).takeIf { it.isNotBlank() }
+            ?: stringResource(R.string.moment_plan_home_summary)
+    } ?: "Have one action ready for later."
+    SmallActionCard(
+        modifier = modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            role = Role.Button,
+            onClick = onClick,
+        ),
+        label = stringResource(R.string.moment_plan_home_label),
+        title = title,
+        subtext = summary,
+        cta = stringResource(
+            if (activePlan != null) R.string.moment_plan_home_open
+            else R.string.moment_plan_home_create,
+        ),
+        iconColor = HomeYellowGlow.copy(alpha = if (isDark) 0.30f else 0.72f),
+        glowColor = HomeYellowGlow,
+        accentTextColor = if (isDark) HomeYellowGlow else null,
+        palette = palette,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                tint = if (isDark) HomeYellowGlow else palette.primaryText.copy(alpha = 0.82f),
+                modifier = Modifier.size(20.dp),
+            )
+        },
+    )
+}
+
+@Composable
+private fun TipsCompactCard(
+    modifier: Modifier,
+    state: com.impulsive.app.frontend.screens.tips.TipsHomeUiState,
+    reducedMotion: Boolean,
+    copyRegionHeight: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val isDark = palette.cardSurface != Color.Unspecified
+    val surfaceColor = if (isDark) palette.cardSurface else MaterialTheme.colorScheme.surface
+    val shape = RoundedCornerShape(24.dp)
+    val transition = if (!reducedMotion) {
+        rememberInfiniteTransition(label = "tips-icon-pulse")
+    } else {
+        null
+    }
+    val pulseScale = transition?.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.03f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7_000),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "tips-icon-scale",
+    )?.value ?: 1f
+    val tip = state.currentTip
+
+    Surface(
+        color = surfaceColor,
+        shape = shape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeBlueGlow,
+            fallbackColor = palette.subtleBorder,
+        ),
+        modifier = modifier
+            .shadow(
+                elevation = 6.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = shape,
+                glowColor = HomeBlueGlow,
+                elevation = 16.dp,
+                ambientAlpha = 0.12f,
+                spotAlpha = 0.16f,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .scale(pulseScale)
+                        .background(
+                            HomeBlueGlow.copy(alpha = if (isDark) 0.28f else 0.68f),
+                            RoundedCornerShape(16.dp),
+                        )
+                        .clearAndSetSemantics { },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lightbulb,
+                        contentDescription = null,
+                        tint = if (isDark) HomeBlueGlow else palette.primaryText.copy(alpha = 0.82f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.tips_label),
+                    color = if (isDark) HomeBlueGlow else palette.mutedText,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(copyRegionHeight),
+            ) {
+                Crossfade(
+                    targetState = tip,
+                    animationSpec = tween(durationMillis = if (reducedMotion) 0 else 650),
+                    label = "tips-home-copy",
+                ) { current ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = current?.title ?: stringResource(R.string.tips_fallback_title),
+                            color = palette.primaryText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = current?.summary ?: stringResource(R.string.tips_fallback_summary),
+                            color = palette.mutedText,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = stringResource(
+                    if (tip == null) R.string.tips_explore else R.string.tips_see_tip,
+                ),
+                color = if (isDark) HomeBlueGlow else palette.actionText,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
@@ -1168,6 +1540,7 @@ private fun DashboardCards(
 private fun DiagonalNotesCard(
     modifier: Modifier,
     onOpenJournal: () -> Unit,
+    isActive: Boolean,
     palette: HomeReadablePalette,
 ) {
     val isDark =
@@ -1216,6 +1589,7 @@ private fun DiagonalNotesCard(
         iconColor = noteIconColor,
         glowColor = HomeYellowGlow,
         palette = palette,
+        isActive = isActive,
         icon = {
             Icon(
                 imageVector =
@@ -1323,7 +1697,7 @@ private fun WebsiteProtectionHomeCard(
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = "Plus · from £4.99/month",
+                text = "Plus · from £4.99/month",
                     color = palette.actionText,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
@@ -1367,7 +1741,6 @@ private fun WebsiteProtectionHomeCard(
 @Composable
 private fun WebsiteProtectionStatusHomeCard(
     enabled: Boolean,
-    alwaysOn: Boolean,
     onClick: () -> Unit,
     palette: HomeReadablePalette,
 ) {
@@ -1437,7 +1810,7 @@ private fun WebsiteProtectionStatusHomeCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Website Protection",
+                    text = stringResource(R.string.website_protection_home_title),
                     color = palette.primaryText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
@@ -1446,11 +1819,13 @@ private fun WebsiteProtectionStatusHomeCard(
                 Spacer(modifier = Modifier.height(3.dp))
 
                 Text(
-                    text = when {
-                        !enabled -> "Off"
-                        alwaysOn -> "Always on"
-                        else -> "On during protected time"
-                    },
+                    text = stringResource(
+                        if (enabled) {
+                            R.string.website_protection_home_on
+                        } else {
+                            R.string.website_protection_home_off
+                        },
+                    ),
                     color = if (enabled) palette.actionText else palette.mutedText,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
@@ -1459,7 +1834,7 @@ private fun WebsiteProtectionStatusHomeCard(
                 Spacer(modifier = Modifier.height(5.dp))
 
                 Text(
-                    text = "Manage adult and risky website blocking.",
+                    text = stringResource(R.string.website_protection_home_description),
                     color = palette.mutedText,
                     style = MaterialTheme.typography.bodySmall,
                     lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
@@ -1469,12 +1844,13 @@ private fun WebsiteProtectionStatusHomeCard(
             Spacer(modifier = Modifier.width(10.dp))
 
             Text(
-                text = "Manage",
+                text = stringResource(R.string.website_protection_home_manage),
                 color = palette.actionText,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
             )
         }
+
     }
 }
 
@@ -1547,7 +1923,9 @@ private fun SmallActionCard(
     cta: String,
     iconColor: Color,
     glowColor: Color,
+    accentTextColor: Color? = null,
     palette: HomeReadablePalette,
+    isActive: Boolean = true,
     icon: @Composable () -> Unit,
 ) {
     val surfaceColor = if (palette.cardSurface == Color.Unspecified)
@@ -1557,10 +1935,37 @@ private fun SmallActionCard(
     val hasShowcase = !animatedTitles.isNullOrEmpty() || !animatedSubtitles.isNullOrEmpty()
     val showcaseCount = maxOf(animatedTitles?.size ?: 0, animatedSubtitles?.size ?: 0)
     var showcaseIndex by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val reducedMotion = remember(context) {
+        android.provider.Settings.Global.getFloat(
+            context.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) == 0f
+    }
+    val touchExplorationEnabled = remember(context) {
+        context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+            ?.isTouchExplorationEnabled == true
+    }
+    var lifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ ->
+            lifecycleResumed =
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val automaticRotationEnabled =
+        isActive && lifecycleResumed && !reducedMotion && !touchExplorationEnabled
 
     if (hasShowcase && showcaseCount > 0) {
-        LaunchedEffect(animatedTitles, animatedSubtitles) {
+        LaunchedEffect(animatedTitles, animatedSubtitles, automaticRotationEnabled) {
             showcaseIndex = 0
+            if (!automaticRotationEnabled) return@LaunchedEffect
             while (true) {
                 delay(HOME_SHOWCASE_ROTATION_DELAY_MS)
                 showcaseIndex = (showcaseIndex + 1) % showcaseCount
@@ -1631,7 +2036,7 @@ private fun SmallActionCard(
 
                 Text(
                     text = label,
-                    color = palette.mutedText,
+                    color = accentTextColor ?: palette.mutedText,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                 )
@@ -1646,11 +2051,10 @@ private fun SmallActionCard(
                         .height(HomeShowcaseTitleSlotHeight),
                     contentAlignment = Alignment.TopStart,
                 ) {
-                    HomeShowcaseTypingTextTransition(
-                        targetText = currentTitle,
-                        modifier = Modifier.fillMaxSize(),
-                        startDelayMs = HOME_SHOWCASE_TYPE_START_GAP_MS,
-                        totalTypeDurationMs = HOME_SHOWCASE_TITLE_TYPE_DURATION_MS,
+                    Crossfade(
+                        targetState = currentTitle,
+                        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 650),
+                        label = "home-showcase-title",
                     ) { line ->
                         Text(
                             text = line,
@@ -1670,6 +2074,8 @@ private fun SmallActionCard(
                     color = palette.primaryText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -1682,11 +2088,10 @@ private fun SmallActionCard(
                         .height(HomeShowcaseSubtitleSlotHeight),
                     contentAlignment = Alignment.TopStart,
                 ) {
-                    HomeShowcaseTypingTextTransition(
-                        targetText = currentSubtitle,
-                        modifier = Modifier.fillMaxSize(),
-                        startDelayMs = HOME_SHOWCASE_SUBTITLE_START_DELAY_MS,
-                        totalTypeDurationMs = HOME_SHOWCASE_SUBTITLE_TYPE_DURATION_MS,
+                    Crossfade(
+                        targetState = currentSubtitle,
+                        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 650),
+                        label = "home-showcase-subtitle",
                     ) { line ->
                         Text(
                             text = line,
@@ -1703,14 +2108,20 @@ private fun SmallActionCard(
                     text = subtext,
                     color = palette.mutedText,
                     style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            if (hasShowcase) {
+                Spacer(modifier = Modifier.weight(1f))
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             Text(
                 text = cta,
-                color = palette.actionText,
+                color = accentTextColor ?: palette.actionText,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
             )

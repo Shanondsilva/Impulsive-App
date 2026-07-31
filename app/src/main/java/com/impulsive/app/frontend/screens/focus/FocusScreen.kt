@@ -84,6 +84,8 @@ fun FocusScreen(
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenTasks: () -> Unit = {},
+    adaptiveMomentPlan: Boolean = false,
+    onAdaptiveCompleted: (() -> Unit)? = null,
     indicatorState: BottomNavIndicatorState = rememberBottomNavIndicatorState(),
     isActive: Boolean = true,
 ) {
@@ -101,6 +103,9 @@ fun FocusScreen(
     var soulModeSheetVisible by remember { mutableStateOf(false) }
     var showFocusAppsSheet by remember { mutableStateOf(false) }
     var completedSummarySession by remember { mutableStateOf<FocusSessionState?>(null) }
+    var adaptiveConfirmationVisible by rememberSaveable(adaptiveMomentPlan) {
+        mutableStateOf(false)
+    }
     val bottomNavReservedSpace = 104.dp
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val accent = if (isDark) ImpulsiveFocusModeDark else ImpulsiveFocusMode
@@ -119,6 +124,35 @@ fun FocusScreen(
                 focusViewModel.clearFinishedSession()
             }
         }
+    }
+
+    if (adaptiveConfirmationVisible) {
+        AlertDialog(
+            onDismissRequest = { adaptiveConfirmationVisible = false },
+            title = { Text("Did you complete your Moment Plan?") },
+            text = {
+                Text(
+                    "Only confirm when you have finished the Focus action you planned.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        adaptiveConfirmationVisible = false
+                        onAdaptiveCompleted?.invoke()
+                    },
+                ) {
+                    Text("Yes, I did")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { adaptiveConfirmationVisible = false },
+                ) {
+                    Text("Not yet")
+                }
+            },
+        )
     }
 
     Box(
@@ -156,6 +190,34 @@ fun FocusScreen(
                 val primaryClockDisplayText = liveSession?.formattedRemaining(now)
                 val activeRemainingSeconds = liveSession?.remainingSeconds(now)
                 val displayMinutes = liveSession?.durationMinutes ?: selectedMinutes
+
+                if (adaptiveMomentPlan) {
+                    Surface(
+                        color = cardColor,
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, borderColor),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Moment Plan Focus",
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "Use Focus for the action you prepared. Confirm only when you are done.",
+                                color = muted,
+                            )
+                            TextButton(
+                                onClick = { adaptiveConfirmationVisible = true },
+                            ) {
+                                Text("Confirm Moment Plan")
+                            }
+                        }
+                    }
+                }
 
                 LaunchedEffect(liveSession?.sessionId, liveSession?.phase, activeRemainingSeconds) {
                     if (

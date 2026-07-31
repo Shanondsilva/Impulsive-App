@@ -5,7 +5,13 @@ import android.net.Uri
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
+import com.impulsive.app.backend.data.local.entity.AdaptiveDecisionEntity
+import com.impulsive.app.backend.data.local.entity.MomentPlanEntity
+import com.impulsive.app.backend.data.local.entity.MomentPlanRehearsalEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
+import com.impulsive.app.backend.data.local.entity.PathShiftCycleEntity
+import com.impulsive.app.backend.data.local.entity.ProtectionCoachSuggestionEntity
+import com.impulsive.app.backend.data.repository.adaptive.toDomain
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.LevelPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.ResetReadProgressDataSource
@@ -15,6 +21,9 @@ import com.impulsive.app.backend.data.local.preferences.UrgeEventDataSource
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.domain.model.score.UrgeEventRecord
 import com.impulsive.app.backend.domain.model.tasks.ResetReadSessionRecord
+import com.impulsive.app.backend.domain.engine.adaptive.EvidenceQualityTier
+import com.impulsive.app.backend.domain.engine.adaptive.WhatWorksForMeBuilder
+import com.impulsive.app.backend.domain.engine.adaptive.AdaptiveHistoryRetentionPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -56,6 +65,27 @@ class UserDataExporter(private val context: Context) {
         val checklistItemsByNoteId = notes.associate { note ->
             note.id to runCatching { db.journalNoteDao().getChecklistItems(note.id) }.getOrDefault(emptyList())
         }
+        val momentPlans = runCatching { db.momentPlanDao().getAllForBackup() }.getOrDefault(emptyList())
+        val rehearsals = runCatching {
+            db.momentPlanRehearsalDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val adaptiveDecisions = runCatching {
+            db.adaptiveDecisionDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val adaptivePreferences = runCatching {
+            db.adaptivePreferenceDao().get()
+        }.getOrNull()
+        val pathShiftCycles = runCatching {
+            db.pathShiftCycleDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val protectionCoachSuggestions = runCatching {
+            db.protectionCoachSuggestionDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val evidenceQualityTier = deriveEvidenceQualityTier(
+            adaptiveDecisions,
+            rehearsals,
+            momentPlans,
+        )
 
         buildString {
             appendLine("IMPULSIVE - Your data export")
@@ -94,6 +124,31 @@ class UserDataExporter(private val context: Context) {
             notes.forEach { note ->
                 appendNote(note, checklistItemsByNoteId[note.id].orEmpty().map { it.text to it.isChecked })
             }
+            appendLine()
+
+            appendLine("== Personal support data ==")
+            appendLine("Evidence quality: ${evidenceQualityTier.name}")
+            appendLine(
+                "Recorded-history retention: ${
+                    adaptivePreferences?.historyRetentionPolicy
+                        ?: AdaptiveHistoryRetentionPolicy.SixMonths.name
+                }",
+            )
+            appendLine("Moment Plans (${momentPlans.size})")
+            if (momentPlans.isEmpty()) appendLine("None yet.")
+            momentPlans.forEach { appendMomentPlan(it) }
+            appendLine("Rehearsals (${rehearsals.size})")
+            if (rehearsals.isEmpty()) appendLine("None yet.")
+            rehearsals.forEach { appendRehearsal(it) }
+            appendLine("Adaptive decisions (${adaptiveDecisions.size})")
+            if (adaptiveDecisions.isEmpty()) appendLine("None yet.")
+            adaptiveDecisions.forEach { appendAdaptiveDecision(it) }
+            appendLine("PathShift (${pathShiftCycles.size})")
+            if (pathShiftCycles.isEmpty()) appendLine("None yet.")
+            pathShiftCycles.forEach { appendPathShiftCycle(it) }
+            appendLine("Protection Coach (${protectionCoachSuggestions.size})")
+            if (protectionCoachSuggestions.isEmpty()) appendLine("None yet.")
+            protectionCoachSuggestions.forEach { appendProtectionCoachSuggestion(it) }
             appendLine()
 
             appendLine("== Settings ==")
@@ -150,6 +205,27 @@ class UserDataExporter(private val context: Context) {
         val checklistItemsByNoteId = notes.associate { note ->
             note.id to runCatching { db.journalNoteDao().getChecklistItems(note.id) }.getOrDefault(emptyList())
         }
+        val momentPlans = runCatching { db.momentPlanDao().getAllForBackup() }.getOrDefault(emptyList())
+        val rehearsals = runCatching {
+            db.momentPlanRehearsalDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val adaptiveDecisions = runCatching {
+            db.adaptiveDecisionDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val adaptivePreferences = runCatching {
+            db.adaptivePreferenceDao().get()
+        }.getOrNull()
+        val pathShiftCycles = runCatching {
+            db.pathShiftCycleDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val protectionCoachSuggestions = runCatching {
+            db.protectionCoachSuggestionDao().getAllForBackup()
+        }.getOrDefault(emptyList())
+        val evidenceQualityTier = deriveEvidenceQualityTier(
+            adaptiveDecisions,
+            rehearsals,
+            momentPlans,
+        )
 
         JSONObject()
             .put("schemaVersion", 1)
@@ -176,8 +252,146 @@ class UserDataExporter(private val context: Context) {
             .put("scoreSessions", scoreSessions.toScoreSessionsJson())
             .put("urgeEvents", urgeEvents.toUrgeEventsJson())
             .put("notes", notes.toNotesJson(checklistItemsByNoteId))
+            .put(
+                "personalSupportData",
+                JSONObject()
+                    .put("evidenceQualityTier", evidenceQualityTier.name)
+                    .put(
+                        "historyRetentionPolicy",
+                        adaptivePreferences?.historyRetentionPolicy
+                            ?: AdaptiveHistoryRetentionPolicy.SixMonths.name,
+                    )
+                    .put("momentPlans", momentPlans.toMomentPlansExportJson())
+                    .put("rehearsals", rehearsals.toRehearsalsExportJson())
+                    .put("adaptiveDecisions", adaptiveDecisions.toAdaptiveDecisionsExportJson())
+                    .put("pathShift", pathShiftCycles.toPathShiftExportJson())
+                    .put(
+                        "protectionCoach",
+                        protectionCoachSuggestions.toProtectionCoachExportJson(),
+                    ),
+            )
             .toString(2)
     }
+
+    private fun StringBuilder.appendProtectionCoachSuggestion(
+        suggestion: ProtectionCoachSuggestionEntity,
+    ) {
+        appendLine(
+            "- ${suggestion.suggestionType} | policy ${suggestion.policyVersion} | " +
+                "status ${suggestion.status} | evidence ${suggestion.evidenceProtectedMomentCount} moments, " +
+                "${suggestion.evidenceDistinctDayCount} days | broad window " +
+                "${minuteRange(suggestion.broadWindowStartMinute, suggestion.broadWindowEndMinute)} | " +
+                "accepted edited time ${minuteRange(suggestion.acceptedStartMinute, suggestion.acceptedEndMinute)} | " +
+                "created ${isoMillis(suggestion.createdAtMillis)} | presented ${isoMillis(suggestion.presentedAtMillis)} | " +
+                "accepted ${isoMillis(suggestion.acceptedAtMillis)} | dismissed ${isoMillis(suggestion.dismissedAtMillis)} | " +
+                "suppressed ${isoMillis(suggestion.suppressedAtMillis)}",
+        )
+    }
+
+    private fun StringBuilder.appendMomentPlan(plan: MomentPlanEntity) {
+        appendLine(
+            "- ${plan.title} | cue ${plan.momentCue ?: "general"} | " +
+                "action ${plan.actionText} | future cue ${plan.futureCueText} | " +
+                "${if (plan.enabled) "enabled" else "disabled"} | " +
+                "created ${isoMillis(plan.createdAtMillis)} | " +
+                "updated ${isoMillis(plan.updatedAtMillis)} | " +
+                "last rehearsed ${isoMillis(plan.rehearsedAtMillis)} | " +
+                "content revision ${plan.contentRevisionId}",
+            )
+    }
+
+    private fun StringBuilder.appendRehearsal(rehearsal: MomentPlanRehearsalEntity) {
+        val outcome = when {
+            rehearsal.completedAtMillis != null -> "completed"
+            rehearsal.dismissedAtMillis != null -> "dismissed"
+            else -> "open"
+        }
+        appendLine(
+            "- plan ${rehearsal.planId} | ${rehearsal.mode} | $outcome | " +
+                "started ${isoMillis(rehearsal.startedAtMillis)} | " +
+                "completed ${isoMillis(rehearsal.completedAtMillis)} | " +
+                "dismissed ${isoMillis(rehearsal.dismissedAtMillis)} | " +
+                "plan content revision ${rehearsal.planContentRevisionId}",
+            )
+    }
+
+    private fun StringBuilder.appendAdaptiveDecision(decision: AdaptiveDecisionEntity) {
+        appendLine(
+            "- ${genericFamily(decision.actualIntervention)} | " +
+                "assignment ${decision.assignmentMode} | " +
+                "suggested ${genericFamily(decision.assignedSuggestion)} | " +
+                "actual ${genericFamily(decision.actualIntervention)} | " +
+                "policy v${decision.recommendationPolicyVersion} | " +
+                "assigned protocol ${decision.assignedProtocolId ?: "legacy"}" +
+                "@${decision.assignedProtocolVersion ?: "-"} | " +
+                "actual protocol ${decision.actualProtocolId ?: "none"}" +
+                "@${decision.actualProtocolVersion ?: "-"} | " +
+                "assigned plan revision ${decision.assignedPlanContentRevisionId ?: "none"} | " +
+                "actual plan revision ${decision.actualPlanContentRevisionId ?: "none"} | " +
+                "created ${isoMillis(decision.createdAtMillis)} | " +
+                "presented ${isoMillis(decision.presentedAtMillis)} | " +
+                "started ${isoMillis(decision.startedAtMillis)} | " +
+                "completed ${isoMillis(decision.completedAtMillis)} | " +
+                "dismissed ${isoMillis(decision.dismissedAtMillis)} | " +
+                "feedback ${decision.feedbackCode} | " +
+                "repeat ${repeatResult(decision)}",
+        )
+    }
+
+    private fun StringBuilder.appendPathShiftCycle(cycle: PathShiftCycleEntity) {
+        appendLine(
+            "- cycle ${millis(cycle.createdAtMillis)} | forecast " +
+                "${millis(cycle.forecastWindowStartedAtMillis)} to " +
+                "${millis(cycle.forecastWindowEndsAtMillis)} | range " +
+                "${cycle.estimatedLowerCount} to ${cycle.estimatedUpperCount} | " +
+                "evidence ${cycle.evidenceStrength} | input " +
+                "${cycle.inputProtectedMomentCount} moments across " +
+                "${cycle.inputDistinctDayCount} days | common window " +
+                "${cycle.commonWindowStartMinute ?: "-"} to " +
+                "${cycle.commonWindowEndMinute ?: "-"} local minutes | " +
+                "policy v${cycle.forecastPolicyVersion} | prepared generic plan " +
+                "${cycle.preparedPlanId ?: "none"} revision " +
+                "${cycle.preparedPlanContentRevisionId ?: "none"} | observed " +
+                "${cycle.observedProtectedMomentCount} | selected " +
+                "${cycle.preparedPlanSelectedCount} | started " +
+                "${cycle.preparedPlanStartedCount} | completed " +
+                "${cycle.preparedPlanCompletedCount} | dismissed " +
+                "${cycle.preparedPlanDismissedCount} | Wrong Timing " +
+                "${cycle.wrongTimingCount} | repeat detected " +
+                "${cycle.repeatDetectedCount} | status ${cycle.status}",
+        )
+    }
+
+    private fun isoMillis(value: Long?): String =
+        if (value == null || value < 0L) "-" else Instant.ofEpochMilli(value).toString()
+
+    private fun genericFamily(value: String?): String = when (value) {
+        "ShortPause" -> "Short pause"
+        "PivotGame" -> "Pivot game"
+        "PivotReading" -> "Reset reading"
+        "MomentPlan" -> "Moment Plan"
+        null -> "none"
+        else -> "unknown"
+    }
+
+    private fun repeatResult(decision: AdaptiveDecisionEntity): String = when {
+        decision.observationFinalisedAtMillis == null -> "not finalised"
+        decision.repeatDetectedWithin20Minutes == true -> "repeat detected"
+        else -> "no repeat detected"
+    }
+
+    private fun deriveEvidenceQualityTier(
+        decisions: List<AdaptiveDecisionEntity>,
+        rehearsals: List<MomentPlanRehearsalEntity>,
+        plans: List<MomentPlanEntity>,
+    ): EvidenceQualityTier = runCatching {
+        WhatWorksForMeBuilder.build(
+            decisions = decisions.map { it.toDomain() },
+            rehearsals = rehearsals.map { it.toDomain() },
+            plans = plans.map { it.toDomain() },
+            nowMillis = System.currentTimeMillis(),
+        ).evidenceQualityTier
+    }.getOrDefault(EvidenceQualityTier.CountOnly)
 
     private fun StringBuilder.appendRecoverySession(session: RecoverySessionEntity) {
         val intensity = "${session.urgeBefore ?: "-"} -> ${session.urgeAfter ?: "-"}"
@@ -398,6 +612,162 @@ class UserDataExporter(private val context: Context) {
                         .put("updatedAtMillis", item.updatedAtMillis),
                 )
             }
+        }
+
+    private fun List<MomentPlanEntity>.toMomentPlansExportJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { plan ->
+                array.put(
+                    JSONObject()
+                        .put("planId", plan.planId)
+                        .put("title", plan.title)
+                        .putNullable("momentCue", plan.momentCue)
+                        .put("actionText", plan.actionText)
+                        .put("futureCueText", plan.futureCueText)
+                        .put("actionType", plan.actionType)
+                        .put("enabled", plan.enabled)
+                        .put("preferredForCue", plan.preferredForCue)
+                        .put("contentRevisionId", plan.contentRevisionId)
+                        .put("createdAt", isoMillis(plan.createdAtMillis))
+                        .put("updatedAt", isoMillis(plan.updatedAtMillis))
+                        .put("rehearsedAt", isoMillis(plan.rehearsedAtMillis)),
+                )
+            }
+        }
+
+    private fun List<MomentPlanRehearsalEntity>.toRehearsalsExportJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { rehearsal ->
+                array.put(
+                    JSONObject()
+                        .put("rehearsalId", rehearsal.rehearsalId)
+                        .put("planId", rehearsal.planId)
+                        .put("planContentRevisionId", rehearsal.planContentRevisionId)
+                        .put("mode", rehearsal.mode)
+                        .put("startedAt", isoMillis(rehearsal.startedAtMillis))
+                        .put("completedAt", isoMillis(rehearsal.completedAtMillis))
+                        .put("dismissedAt", isoMillis(rehearsal.dismissedAtMillis)),
+                )
+            }
+        }
+
+    private fun List<AdaptiveDecisionEntity>.toAdaptiveDecisionsExportJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { decision ->
+                array.put(
+                    JSONObject()
+                        .put("decisionId", decision.decisionId)
+                        .put("interventionFamily", genericFamily(decision.actualIntervention))
+                        .put("assignmentMode", decision.assignmentMode)
+                        .put("assignedSuggestion", genericFamily(decision.assignedSuggestion))
+                        .put("actualChoice", genericFamily(decision.actualIntervention))
+                        .put(
+                            "recommendationPolicyVersion",
+                            decision.recommendationPolicyVersion,
+                        )
+                        .putNullable("assignedProtocolId", decision.assignedProtocolId)
+                        .putNullable(
+                            "assignedProtocolVersion",
+                            decision.assignedProtocolVersion,
+                        )
+                        .putNullable("actualProtocolId", decision.actualProtocolId)
+                        .putNullable(
+                            "actualProtocolVersion",
+                            decision.actualProtocolVersion,
+                        )
+                        .putNullable(
+                            "assignedPlanContentRevisionId",
+                            decision.assignedPlanContentRevisionId,
+                        )
+                        .putNullable(
+                            "actualPlanContentRevisionId",
+                            decision.actualPlanContentRevisionId,
+                        )
+                        .put("eligibleMomentPlanCount", decision.eligibleMomentPlanCount)
+                        .put("createdAt", isoMillis(decision.createdAtMillis))
+                        .put("presentedAt", isoMillis(decision.presentedAtMillis))
+                        .put("startedAt", isoMillis(decision.startedAtMillis))
+                        .put("completedAt", isoMillis(decision.completedAtMillis))
+                        .put("dismissedAt", isoMillis(decision.dismissedAtMillis))
+                        .put("feedback", decision.feedbackCode)
+                        .put("feedbackUpdatedAt", isoMillis(decision.feedbackUpdatedAtMillis))
+                        .put("repeatObservation", repeatResult(decision))
+                        .put(
+                            "observationFinalisedAt",
+                            isoMillis(decision.observationFinalisedAtMillis),
+                        ),
+                )
+            }
+        }
+
+    private fun List<PathShiftCycleEntity>.toPathShiftExportJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { cycle ->
+                array.put(
+                    JSONObject()
+                        .put("cycleDate", isoMillis(cycle.createdAtMillis))
+                        .put(
+                            "forecastWindow",
+                            JSONObject()
+                                .put("startedAt", isoMillis(cycle.forecastWindowStartedAtMillis))
+                                .put("endsAt", isoMillis(cycle.forecastWindowEndsAtMillis)),
+                        )
+                        .put("estimatedLowerCount", cycle.estimatedLowerCount)
+                        .put("estimatedUpperCount", cycle.estimatedUpperCount)
+                        .put("evidenceStrength", cycle.evidenceStrength)
+                        .put("inputProtectedMomentCount", cycle.inputProtectedMomentCount)
+                        .put("inputDistinctDayCount", cycle.inputDistinctDayCount)
+                        .putNullable("commonWindowStartMinute", cycle.commonWindowStartMinute)
+                        .putNullable("commonWindowEndMinute", cycle.commonWindowEndMinute)
+                        .put("forecastPolicyVersion", cycle.forecastPolicyVersion)
+                        .putNullable("preparedPlanId", cycle.preparedPlanId)
+                        .putNullable(
+                            "preparedPlanContentRevisionId",
+                            cycle.preparedPlanContentRevisionId,
+                        )
+                        .put(
+                            "observedProtectedMomentCount",
+                            cycle.observedProtectedMomentCount,
+                        )
+                        .put("preparedPlanSelectedCount", cycle.preparedPlanSelectedCount)
+                        .put("preparedPlanStartedCount", cycle.preparedPlanStartedCount)
+                        .put("preparedPlanCompletedCount", cycle.preparedPlanCompletedCount)
+                        .put("preparedPlanDismissedCount", cycle.preparedPlanDismissedCount)
+                        .put("wrongTimingCount", cycle.wrongTimingCount)
+                        .put("repeatDetectedCount", cycle.repeatDetectedCount)
+                        .put("status", cycle.status),
+                )
+            }
+        }
+
+    private fun List<ProtectionCoachSuggestionEntity>.toProtectionCoachExportJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { suggestion ->
+                array.put(
+                    JSONObject()
+                        .put("suggestionType", suggestion.suggestionType)
+                        .put("policyVersion", suggestion.policyVersion)
+                        .put("status", suggestion.status)
+                        .put("evidenceProtectedMomentCount", suggestion.evidenceProtectedMomentCount)
+                        .put("evidenceDistinctDayCount", suggestion.evidenceDistinctDayCount)
+                        .putNullable("broadWindowStartMinute", suggestion.broadWindowStartMinute)
+                        .putNullable("broadWindowEndMinute", suggestion.broadWindowEndMinute)
+                        .putNullable("acceptedStartMinute", suggestion.acceptedStartMinute)
+                        .putNullable("acceptedEndMinute", suggestion.acceptedEndMinute)
+                        .put("createdAt", isoMillis(suggestion.createdAtMillis))
+                        .put("presentedAt", isoMillis(suggestion.presentedAtMillis))
+                        .put("acceptedAt", isoMillis(suggestion.acceptedAtMillis))
+                        .put("dismissedAt", isoMillis(suggestion.dismissedAtMillis))
+                        .put("suppressedAt", isoMillis(suggestion.suppressedAtMillis)),
+                )
+            }
+        }
+
+    private fun minuteRange(start: Int?, end: Int?): String =
+        if (start == null || end == null) {
+            "-"
+        } else {
+            "$start-$end"
         }
 
     private fun JSONObject.putNullable(name: String, value: Any?): JSONObject =

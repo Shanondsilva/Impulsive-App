@@ -8,10 +8,6 @@ import com.impulsive.app.backend.data.repository.FocusSetupRepository
 import com.impulsive.app.backend.data.repository.ScoreRepository
 import com.impulsive.app.backend.data.repository.TaskRewardRepository
 import com.impulsive.app.backend.domain.model.focus.FocusSessionState
-import com.impulsive.app.backend.domain.model.focus.focusCompletionScore
-import com.impulsive.app.backend.domain.model.score.ScoreGameType
-import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
-import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.service.protection.ProtectionServiceController
 import com.impulsive.app.backend.service.protection.ProtectionServiceStartOrigin
 import kotlinx.coroutines.delay
@@ -21,13 +17,16 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
-import java.time.ZoneId
 
 class FocusSessionViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FocusSessionRepository(application)
     private val focusSetupRepository = FocusSetupRepository(application)
     private val taskRewardRepository = TaskRewardRepository(application)
-    private val scoreRepository = ScoreRepository(application)
+    private val completionCoordinator = FocusSessionCompletionCoordinator(
+        focusSessionRepository = repository,
+        taskRewardRepository = taskRewardRepository,
+        scoreRepository = ScoreRepository(application),
+    )
 
     /** Null = never configured; the UI falls back to the urge-protection list. */
     val configuredFocusBlockedPackages: StateFlow<Set<String>?> =
@@ -92,32 +91,11 @@ class FocusSessionViewModel(application: Application) : AndroidViewModel(applica
 
     fun completeElapsedSessionIfNeeded(now: LocalDateTime = LocalDateTime.now()) {
         viewModelScope.launch {
-            val completed = repository.completeIfElapsed(now) ?: return@launch
-            val completedAt = completed.endedAt ?: now
-            taskRewardRepository.awardFocusTimePointsIfEligible(
-                focusSessionId = completed.sessionId,
-                completedAtMillis = completedAt.toEpochMillisInUserZone(),
-            )
-            scoreRepository.recordSession(
-                ScoreSessionRecord(
-                    gameType = ScoreGameType.FocusSession,
-                    score = focusCompletionScore(completed.durationMinutes),
-                    startedAt = completed.startedAt,
-                    completedAt = completed.endedAt ?: now,
-                    durationSec = completed.durationMinutes * 60,
-                    outcome = ScoreSessionOutcome.Completed,
-                    validCompletion = true,
-                ),
-            )
+            completionCoordinator.completeIfElapsed(now)
         }
     }
 
     fun setFocusBlockedPackages(packageNames: Set<String>) {
         viewModelScope.launch { focusSetupRepository.setBlockedPackages(packageNames) }
     }
-
-    private fun LocalDateTime.toEpochMillisInUserZone(): Long =
-        atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
 }

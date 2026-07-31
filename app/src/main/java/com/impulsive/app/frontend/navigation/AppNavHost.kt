@@ -86,6 +86,21 @@ import com.impulsive.app.backend.session.onboarding.RestoredAccountMigrationUiSt
 import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.screens.dashboard.HomeScreen
+import com.impulsive.app.frontend.screens.adaptive.MomentPlanDetailScreen
+import com.impulsive.app.frontend.screens.adaptive.MomentPlanEditorScreen
+import com.impulsive.app.frontend.screens.adaptive.MomentPlanListScreen
+import com.impulsive.app.frontend.screens.adaptive.AdaptiveMomentScreen
+import com.impulsive.app.frontend.screens.adaptive.AdaptiveDecisionExplanationScreen
+import com.impulsive.app.frontend.screens.adaptive.AdaptiveFeedbackScreen
+import com.impulsive.app.frontend.screens.adaptive.MomentPlanRunScreen
+import com.impulsive.app.frontend.screens.adaptive.MomentPlanRehearsalScreen
+import com.impulsive.app.frontend.screens.adaptive.WhatWorksForMeScreen
+import com.impulsive.app.frontend.screens.pathshift.PathShiftScreen
+import com.impulsive.app.frontend.screens.adaptive.HowSuggestionsWorkScreen
+import com.impulsive.app.backend.session.adaptive.MomentPlanRehearsalLauncherViewModel
+import com.impulsive.app.backend.session.adaptive.AdaptivePreferencesViewModel
+import com.impulsive.app.backend.session.adaptive.AdaptiveRetentionRuntimeState
+import com.impulsive.app.frontend.privacy.rememberRouteSensitiveScreenPrivacyReady
 import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
 import com.impulsive.app.frontend.screens.games.ReflexGameScreen
 import com.impulsive.app.frontend.screens.games.RecoveryGamesScreen
@@ -135,14 +150,30 @@ import com.impulsive.app.frontend.screens.protection.BlockedAppsSelectionContent
 import com.impulsive.app.frontend.screens.protection.ImpulsiveBlockScreen
 import com.impulsive.app.frontend.screens.progress.ProgressDashboardScreen
 import com.impulsive.app.frontend.screens.premium.WebsiteProtectionPlusScreen
+import com.impulsive.app.frontend.screens.protectioncoach.ProtectionCoachScreen
+import com.impulsive.app.frontend.screens.protectioncoach.ProtectionCoachSuggestionScreen
+import com.impulsive.app.frontend.screens.protectioncoach.ProtectionTransitionScreen
+import com.impulsive.app.frontend.screens.tips.TipDetailScreen
+import com.impulsive.app.frontend.screens.tips.TipsScreen
+import com.impulsive.app.frontend.screens.tips.TipsViewModel
+import com.impulsive.app.backend.domain.tips.ImpulsiveTipId
+import com.impulsive.app.backend.domain.tips.TipAction
+import com.impulsive.app.backend.domain.tips.TipFeature
 import com.impulsive.app.frontend.screens.protection.DnsFilterGateScreen
 import com.impulsive.app.frontend.screens.settings.HelpFaqScreen
+import com.impulsive.app.frontend.screens.settings.PersonalSupportPrivacyAndDataScreen
+import com.impulsive.app.frontend.screens.settings.PersonalSupportSuggestionPreferencesScreen
 import com.impulsive.app.frontend.screens.settings.SettingsScreen
 import com.impulsive.app.frontend.screens.settings.appVersionName
 import com.impulsive.app.frontend.screens.settings.sendSupportEmail
 import com.impulsive.app.frontend.screens.tasks.ResetReadScreen
 import com.impulsive.app.frontend.screens.tasks.TaskToCompleteScreen
 import com.impulsive.app.backend.session.tasks.ResetReadLaunchMode
+import com.impulsive.app.backend.session.adaptive.AdaptiveLifecycleResult
+import com.impulsive.app.backend.session.adaptive.AdaptivePhase4Dependencies
+import com.impulsive.app.backend.session.adaptive.AdaptiveRouteKind
+import com.impulsive.app.backend.session.adaptive.AdaptiveRouteRequest
+import com.impulsive.app.backend.session.protectioncoach.ProtectionCoachViewModel
 import java.time.LocalDateTime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -199,14 +230,57 @@ object AppRoutes {
         "journal_saved_notifications"
     const val JournalNoteNew = "journal_note_new/{type}"
     const val JournalNoteEdit = "journal_note_edit/{noteId}"
+    const val MomentPlanList = "moment_plan_list"
+    const val MomentPlanEditor = "moment_plan_editor?planId={planId}"
+    const val MomentPlanDetail = "moment_plan_detail/{planId}"
+    const val MomentPlanRehearsal = "moment_plan_rehearsal/{rehearsalId}"
+    const val WhatWorksForMe = "what_works_for_me"
+    const val HowSuggestionsWork = "how_suggestions_work"
+    const val PersonalSupportSuggestions = "personal_support_suggestions"
+    const val PersonalSupportPrivacy = "personal_support_privacy"
+    const val PathShift = "path_shift"
+    const val SuggestedSetup = "suggested_setup"
+    const val ProtectionCoach = "protection_coach"
+    const val ProtectionCoachSuggestion = "protection_coach_suggestion/{suggestionId}"
+    const val ProtectionTransition = "protection_transition"
+    const val Tips = "tips"
+    const val TipDetail = "tip/{tipId}"
     const val ImpulsiveBlock = "impulsive_block/{sourcePackageName}/{sourceLabel}"
+    const val AdaptiveMoment = "adaptive_moment/{decisionId}"
+    const val AdaptiveExplanation = "adaptive_explanation/{decisionId}"
+    const val AdaptiveGame = "adaptive_game/{decisionId}"
+    const val AdaptiveReading = "adaptive_reading/{decisionId}"
+    const val MomentPlanRun = "moment_plan_run/{decisionId}"
+    const val AdaptiveFeedback = "adaptive_feedback/{decisionId}"
 
     fun journalNoteNew(type: JournalNoteType): String = "journal_note_new/${type.storageValue}"
     fun journalNoteEdit(noteId: Long): String = "journal_note_edit/$noteId"
+    fun momentPlanEditor(planId: String? = null): String =
+        planId?.let { "moment_plan_editor?planId=${Uri.encode(it)}" } ?: "moment_plan_editor"
+    fun momentPlanDetail(planId: String): String =
+        "moment_plan_detail/${Uri.encode(planId)}"
+    fun momentPlanRehearsal(rehearsalId: String): String =
+        "moment_plan_rehearsal/${Uri.encode(rehearsalId)}"
     fun impulsiveBlock(sourcePackageName: String, sourceLabel: String): String =
         "impulsive_block/${Uri.encode(sourcePackageName)}/${Uri.encode(sourceLabel)}"
     fun randomRecoveryGame(sourcePackageName: String): String =
         "random_recovery_game/${Uri.encode(sourcePackageName)}"
+    fun adaptiveMoment(decisionId: String): String =
+        "adaptive_moment/${Uri.encode(decisionId)}"
+    fun adaptiveExplanation(decisionId: String): String =
+        "adaptive_explanation/${Uri.encode(decisionId)}"
+    fun adaptiveGame(decisionId: String): String =
+        "adaptive_game/${Uri.encode(decisionId)}"
+    fun adaptiveReading(decisionId: String): String =
+        "adaptive_reading/${Uri.encode(decisionId)}"
+    fun momentPlanRun(decisionId: String): String =
+        "moment_plan_run/${Uri.encode(decisionId)}"
+    fun adaptiveFeedback(decisionId: String): String =
+        "adaptive_feedback/${Uri.encode(decisionId)}"
+    fun protectionCoachSuggestion(suggestionId: String): String =
+        "protection_coach_suggestion/${Uri.encode(suggestionId)}"
+    fun tipDetail(tipId: ImpulsiveTipId): String =
+        "tip/${Uri.encode(tipId.value)}"
 }
 
 @Composable
@@ -240,6 +314,14 @@ fun AppNavHost(
     val subscriptionCatalogState by
         billingManager.subscriptionCatalogState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val adaptiveScope = rememberCoroutineScope()
+    val rehearsalLauncher: MomentPlanRehearsalLauncherViewModel = viewModel()
+    val adaptiveOutcomeCoordinator = remember(context) {
+        AdaptivePhase4Dependencies.outcomeCoordinator(context)
+    }
+    val adaptivePendingFeedbackCoordinator = remember(context) {
+        AdaptivePhase4Dependencies.pendingFeedbackCoordinator(context)
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val usageAccessChecker = remember(context) { UsageAccessPermissionChecker(context) }
     val overlayPermissionSettingsNavigator =
@@ -251,6 +333,42 @@ fun AppNavHost(
     val bottomNavIndicatorState = rememberBottomNavIndicatorState()
     val bottomNavCurrentEntry by navController.currentBackStackEntryAsState()
     val bottomNavCurrentRoute = bottomNavCurrentEntry?.destination?.route
+    val retentionDecisionId =
+        if (
+            bottomNavCurrentRoute in setOf(
+                AppRoutes.AdaptiveMoment,
+                AppRoutes.AdaptiveExplanation,
+                AppRoutes.AdaptiveGame,
+                AppRoutes.AdaptiveReading,
+                AppRoutes.MomentPlanRun,
+                AppRoutes.AdaptiveFeedback,
+            )
+        ) {
+            Uri.decode(
+                bottomNavCurrentEntry?.arguments?.getString("decisionId").orEmpty(),
+            ).takeIf(String::isNotBlank)
+        } else {
+            null
+        }
+    DisposableEffect(retentionDecisionId, bottomNavCurrentRoute) {
+        retentionDecisionId?.let(AdaptiveRetentionRuntimeState::enterDecisionRoute)
+        if (
+            retentionDecisionId != null &&
+            bottomNavCurrentRoute == AppRoutes.AdaptiveFeedback
+        ) {
+            AdaptiveRetentionRuntimeState.markFeedbackPresented(retentionDecisionId)
+        }
+        onDispose {
+            retentionDecisionId?.let(AdaptiveRetentionRuntimeState::leaveDecisionRoute)
+        }
+    }
+    val screenPrivacyViewModel: AdaptivePreferencesViewModel = viewModel()
+    val screenPrivacyState by
+        screenPrivacyViewModel.state.collectAsStateWithLifecycle()
+    val privateContentReady = rememberRouteSensitiveScreenPrivacyReady(
+        routePattern = bottomNavCurrentRoute,
+        enabled = screenPrivacyState.preferences.privateScreenProtectionEnabled,
+    )
     val latestProtectionSetupState by rememberUpdatedState(protectionSetupState)
     val startupGraphDecision = chooseStartupGraph(
         isCompleted = state.isCompleted,
@@ -260,6 +378,34 @@ fun AppNavHost(
             authState.user?.provider == AuthProvider.Guest,
     )
     val mainGraphAllowed = startupGraphDecision == StartupGraphDecision.Main
+
+    LaunchedEffect(
+        bottomNavCurrentRoute,
+        initialBlockRequest,
+        mainGraphAllowed,
+    ) {
+        if (
+            mainGraphAllowed &&
+            bottomNavCurrentRoute == AppRoutes.Home &&
+            initialBlockRequest == null
+        ) {
+            val pending = adaptivePendingFeedbackCoordinator
+                .claimMostRecentEligible(
+                    com.impulsive.app.backend.session.adaptive.AdaptivePendingFeedbackSafety(
+                        protectionOverlayVisible = false,
+                        activeInterventionRunning = false,
+                        appLockPending = false,
+                    ),
+                )
+            if (pending != null) {
+                navController.navigate(
+                    AppRoutes.adaptiveFeedback(pending.decisionId),
+                ) {
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
 
     LaunchedEffect(authState.user?.uid, state.isCompleted) {
         if (state.isCompleted && authState.user != null) {
@@ -472,6 +618,7 @@ fun AppNavHost(
             selectedPackages = setup.selectedBlockedAppPackageNames,
             usageAccessGranted = usageAccessGranted,
             websiteProtectionEnabled = setup.websiteProtectionEnabled,
+            transitionCompleted = setup.protectionMonitorTransitionCompleted,
         )
         ProtectionLog.debug(
             "Protection recovery snapshot: enabled=${setup.appProtectionMonitorEnabled}, " +
@@ -520,6 +667,7 @@ fun AppNavHost(
     // app open. Re-runs when the protected list changes. Start is idempotent.
     LaunchedEffect(
         protectionSetupState.appProtectionMonitorEnabled,
+        protectionSetupState.protectionMonitorTransitionCompleted,
         protectionSetupState.selectedBlockedAppPackageNames,
         protectionSetupState.usageAccessEnabled,
         protectionSetupState.interruptionPermissionEnabled,
@@ -534,6 +682,7 @@ fun AppNavHost(
             selectedPackages = protectionSetupState.selectedBlockedAppPackageNames,
             usageAccessGranted = protectionSetupState.usageAccessEnabled,
             websiteProtectionEnabled = protectionSetupState.websiteProtectionEnabled,
+            transitionCompleted = protectionSetupState.protectionMonitorTransitionCompleted,
         )
         if (protectionConfigured) {
             ProtectionServiceController.start(
@@ -582,12 +731,23 @@ fun AppNavHost(
                 } else {
                     null
                 }
+            val currentAdaptiveDecisionId =
+                if (currentRoutePattern == AppRoutes.AdaptiveMoment) {
+                    Uri.decode(
+                        currentEntry.arguments
+                            ?.getString("decisionId")
+                            .orEmpty(),
+                    )
+                } else {
+                    null
+                }
 
             if (
                 !blockRequestDestinationMatches(
                     currentRoutePattern = currentRoutePattern,
                     currentSourcePackageName = currentSourcePackageName,
                     currentSourceLabel = currentSourceLabel,
+                    currentAdaptiveDecisionId = currentAdaptiveDecisionId,
                     request = request,
                 )
             ) {
@@ -630,14 +790,103 @@ fun AppNavHost(
         }
     }
 
-    NavHost(
-        navController = navController,
-        startDestination = if (mainGraphAllowed) AppRoutes.Graph else OnboardingRoutes.Graph,
-        enterTransition = { EnterTransition.None },
-        exitTransition = { ExitTransition.None },
-        popEnterTransition = { EnterTransition.None },
-        popExitTransition = { ExitTransition.None },
+    fun persistAdaptiveOutcome(
+        decisionId: String,
+        completed: Boolean,
+        openFeedback: Boolean,
     ) {
+        if (decisionId.isBlank()) return
+        adaptiveScope.launch {
+            val result = if (completed) {
+                adaptiveOutcomeCoordinator.complete(decisionId)
+            } else {
+                adaptiveOutcomeCoordinator.dismiss(decisionId)
+            }
+            AdaptiveRetentionRuntimeState.clearPendingNavigation(decisionId)
+            if (
+                openFeedback &&
+                (
+                    result ==
+                        com.impulsive.app.backend.session.adaptive.AdaptiveOutcomeResult.Applied ||
+                        result ==
+                        com.impulsive.app.backend.session.adaptive.AdaptiveOutcomeResult.Idempotent
+                    )
+            ) {
+                navController.navigate(AppRoutes.adaptiveFeedback(decisionId)) {
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+
+    fun routeAdaptive(request: AdaptiveRouteRequest): Boolean = when (request.kind) {
+        AdaptiveRouteKind.Game -> {
+            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+            navController.navigate(AppRoutes.adaptiveGame(request.decisionId)) {
+                launchSingleTop = true
+            }
+            true
+        }
+        AdaptiveRouteKind.Reading -> {
+            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+            navController.navigate(AppRoutes.adaptiveReading(request.decisionId)) {
+                launchSingleTop = true
+            }
+            true
+        }
+        AdaptiveRouteKind.MomentPlan -> {
+            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+            navController.navigate(AppRoutes.momentPlanRun(request.decisionId)) {
+                launchSingleTop = true
+            }
+            true
+        }
+        AdaptiveRouteKind.Focus -> {
+            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+            navController.navigate(AppRoutes.Focus) { launchSingleTop = true }
+            navController.currentBackStackEntry
+                ?.savedStateHandle
+                ?.set(AdaptiveDecisionIdStateKey, request.decisionId)
+            true
+        }
+        AdaptiveRouteKind.Journal -> {
+            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+            navController.navigate(AppRoutes.JournalHub) { launchSingleTop = true }
+            navController.currentBackStackEntry
+                ?.savedStateHandle
+                ?.set(AdaptiveDecisionIdStateKey, request.decisionId)
+            true
+        }
+        AdaptiveRouteKind.ExternalApplication -> {
+            val packageName = request.opaqueTarget ?: return false
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+                ?: return false
+            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+            runCatching {
+                launchIntent.replaceExtras(android.os.Bundle())
+                context.startActivity(launchIntent)
+            }.onSuccess {
+                adaptiveScope.launch { markAdaptiveStarted(context, request.decisionId) }
+            }.isSuccess
+        }
+        AdaptiveRouteKind.Feedback -> {
+            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+            navController.navigate(AppRoutes.adaptiveFeedback(request.decisionId)) {
+                launchSingleTop = true
+            }
+            true
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        NavHost(
+            navController = navController,
+            startDestination = if (mainGraphAllowed) AppRoutes.Graph else OnboardingRoutes.Graph,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None },
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None },
+        ) {
         navigation(
             route = OnboardingRoutes.Graph,
             startDestination = OnboardingRoutes.LogoIntro,
@@ -1081,6 +1330,21 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
+                    onOpenMomentPlans = dropUnlessResumed {
+                        navController.navigate(AppRoutes.MomentPlanList) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenTips = dropUnlessResumed {
+                        navController.navigate(AppRoutes.Tips) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenTip = { tipId ->
+                        navController.navigate(AppRoutes.tipDetail(tipId)) {
+                            launchSingleTop = true
+                        }
+                    },
                     onOpenFocus = dropUnlessResumed {
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
@@ -1089,19 +1353,74 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.Focus) {
+            composable(AppRoutes.Focus) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
+                AdaptiveStartedEffect(
+                    adaptiveDecisionId,
+                )
+                BackHandler(enabled = adaptiveDecisionId != null) {
+                    persistAdaptiveOutcome(
+                        adaptiveDecisionId.orEmpty(),
+                        completed = false,
+                        openFeedback = true,
+                    )
+                }
                 FocusScreen(
                     onOpenHome = {
-                        navController.navigateMainTop(AppRoutes.Home)
+                        if (adaptiveDecisionId != null) {
+                            persistAdaptiveOutcome(
+                                adaptiveDecisionId.orEmpty(),
+                                completed = false,
+                                openFeedback = true,
+                            )
+                        } else {
+                            navController.navigateMainTop(AppRoutes.Home)
+                        }
                     },
                     onOpenScore = {
-                        navController.navigateMainTop(AppRoutes.Score)
+                        if (adaptiveDecisionId != null) {
+                            persistAdaptiveOutcome(
+                                adaptiveDecisionId.orEmpty(),
+                                completed = false,
+                                openFeedback = true,
+                            )
+                        } else {
+                            navController.navigateMainTop(AppRoutes.Score)
+                        }
                     },
                     onOpenSettings = {
-                        navController.navigateMainTop(AppRoutes.Settings)
+                        if (adaptiveDecisionId != null) {
+                            persistAdaptiveOutcome(
+                                adaptiveDecisionId.orEmpty(),
+                                completed = false,
+                                openFeedback = true,
+                            )
+                        } else {
+                            navController.navigateMainTop(AppRoutes.Settings)
+                        }
                     },
                     onOpenTasks = {
-                        navController.navigate(AppRoutes.TaskToComplete)
+                        if (adaptiveDecisionId != null) {
+                            persistAdaptiveOutcome(
+                                adaptiveDecisionId.orEmpty(),
+                                completed = false,
+                                openFeedback = true,
+                            )
+                        } else {
+                            navController.navigate(AppRoutes.TaskToComplete)
+                        }
+                    },
+                    adaptiveMomentPlan = adaptiveDecisionId != null,
+                    onAdaptiveCompleted = adaptiveDecisionId?.let { id ->
+                        {
+                            persistAdaptiveOutcome(
+                                id,
+                                completed = true,
+                                openFeedback = true,
+                            )
+                        }
                     },
                     indicatorState = bottomNavIndicatorState,
                     isActive = bottomNavCurrentRoute == AppRoutes.Focus,
@@ -1257,6 +1576,36 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
+                    onOpenMomentPlans = {
+                        navController.navigate(AppRoutes.MomentPlanList) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenTips = {
+                        navController.navigate(AppRoutes.Tips) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenWhatWorksForMe = {
+                        navController.navigate(AppRoutes.WhatWorksForMe) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenSuggestionPreferences = {
+                        navController.navigate(AppRoutes.PersonalSupportSuggestions) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenPrivacyAndData = {
+                        navController.navigate(AppRoutes.PersonalSupportPrivacy) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenProtectionCoach = {
+                        navController.navigate(AppRoutes.ProtectionCoach) {
+                            launchSingleTop = true
+                        }
+                    },
                     onOpenProtectionSetupGuide = {
                         navController.navigate(AppRoutes.ProtectionSetupGuide) {
                             launchSingleTop = true
@@ -1277,6 +1626,343 @@ fun AppNavHost(
                     },
                     indicatorState = bottomNavIndicatorState,
                     isActive = bottomNavCurrentRoute == AppRoutes.Settings,
+                )
+            }
+
+            composable(AppRoutes.MomentPlanList) {
+                MomentPlanListScreen(
+                    onBack = { navController.popBackStack() },
+                    onCreate = {
+                        navController.navigate(AppRoutes.momentPlanEditor())
+                    },
+                    onOpen = { planId ->
+                        navController.navigate(AppRoutes.momentPlanDetail(planId))
+                    },
+                    onEdit = { planId ->
+                        navController.navigate(AppRoutes.momentPlanEditor(planId))
+                    },
+                    onPractise = { planId ->
+                        rehearsalLauncher.startGuided(planId) { rehearsalId ->
+                            navController.navigate(
+                                AppRoutes.momentPlanRehearsal(rehearsalId),
+                            ) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                )
+            }
+
+            composable(
+                route = AppRoutes.MomentPlanEditor,
+                arguments = listOf(
+                    navArgument("planId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) {
+                MomentPlanEditorScreen(
+                    onBack = { navController.popBackStack() },
+                    onPractise = { planId ->
+                        rehearsalLauncher.startGuided(planId) { rehearsalId ->
+                            navController.navigate(
+                                AppRoutes.momentPlanRehearsal(rehearsalId),
+                            ) {
+                                popUpTo(AppRoutes.MomentPlanEditor) {
+                                    inclusive = true
+                                }
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    onSaved = { planId ->
+                        navController.navigate(AppRoutes.momentPlanDetail(planId)) {
+                            popUpTo(AppRoutes.MomentPlanEditor) {
+                                inclusive = true
+                            }
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+
+            composable(
+                route = AppRoutes.MomentPlanDetail,
+                arguments = listOf(
+                    navArgument("planId") {
+                        type = NavType.StringType
+                    },
+                ),
+            ) { backStackEntry ->
+                val planId = Uri.decode(
+                    backStackEntry.arguments?.getString("planId").orEmpty(),
+                )
+                MomentPlanDetailScreen(
+                    onBack = { navController.popBackStack() },
+                    onEdit = {
+                        navController.navigate(AppRoutes.momentPlanEditor(planId))
+                    },
+                    onPractise = {
+                        rehearsalLauncher.startQuick(planId) { rehearsalId ->
+                            navController.navigate(
+                                AppRoutes.momentPlanRehearsal(rehearsalId),
+                            ) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    onDeleted = {
+                        navController.navigate(AppRoutes.MomentPlanList) {
+                            popUpTo(AppRoutes.MomentPlanList) {
+                                inclusive = true
+                            }
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+
+            composable(
+                route = AppRoutes.MomentPlanRehearsal,
+                arguments = listOf(
+                    navArgument("rehearsalId") {
+                        type = NavType.StringType
+                    },
+                ),
+            ) {
+                MomentPlanRehearsalScreen(
+                    onFinished = { navController.popBackStack() },
+                )
+            }
+
+            composable(AppRoutes.WhatWorksForMe) {
+                WhatWorksForMeScreen(
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(AppRoutes.HowSuggestionsWork) {
+                HowSuggestionsWorkScreen(
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(AppRoutes.PersonalSupportSuggestions) {
+                PersonalSupportSuggestionPreferencesScreen(
+                    onBack = { navController.safePopBackStack() },
+                    onOpenHowSuggestionsWork = {
+                        navController.navigate(AppRoutes.HowSuggestionsWork) {
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+
+            composable(AppRoutes.PersonalSupportPrivacy) {
+                PersonalSupportPrivacyAndDataScreen(
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(AppRoutes.Tips) {
+                val tipsViewModel: TipsViewModel = viewModel()
+                val tipsState by tipsViewModel.state.collectAsStateWithLifecycle()
+                LaunchedEffect(state.answers) {
+                    tipsViewModel.updateContext(state.answers)
+                    tipsViewModel.ensureHomeTip()
+                }
+                TipsScreen(
+                    state = tipsState,
+                    onOpenTip = { tipId ->
+                        navController.navigate(AppRoutes.tipDetail(tipId)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onResetHiddenTips = tipsViewModel::resetHiddenTips,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(
+                route = AppRoutes.TipDetail,
+                arguments = listOf(navArgument("tipId") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val tipsViewModel: TipsViewModel = viewModel()
+                val tipsState by tipsViewModel.state.collectAsStateWithLifecycle()
+                val rawTipId = Uri.decode(backStackEntry.arguments?.getString("tipId").orEmpty())
+                val tipId = runCatching { ImpulsiveTipId(rawTipId) }.getOrNull()
+                val tip = tipId?.let(tipsViewModel::findTip)
+                LaunchedEffect(state.answers, tipId) {
+                    tipsViewModel.updateContext(state.answers)
+                    if (tipId != null) tipsViewModel.markViewed(tipId)
+                    if (tip == null) {
+                        navController.navigate(AppRoutes.Tips) {
+                            popUpTo(AppRoutes.TipDetail) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+                tip?.let { selectedTip ->
+                    TipDetailScreen(
+                        tip = selectedTip,
+                        whyYouAreSeeingThis = tipsState.whyYouAreSeeingThis
+                            .takeIf { tipsState.currentTip?.id == selectedTip.id },
+                        onAction = { action ->
+                            when (action) {
+                                TipAction.None -> Unit
+                                is TipAction.OpenAndroidSetting -> runCatching {
+                                    context.startActivity(
+                                        Intent(action.action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }
+                                is TipAction.OpenImpulsiveFeature -> {
+                                    val route = when (action.feature) {
+                                        TipFeature.AppProtection -> AppRoutes.ProtectionSetupGuideBlockedApps
+                                        TipFeature.MomentPlan -> AppRoutes.MomentPlanList
+                                        TipFeature.ProtectionSchedule -> AppRoutes.ProtectionSetupGuide
+                                        TipFeature.WebsiteProtection -> AppRoutes.WebsiteProtectionPlus
+                                        TipFeature.ResetReading -> AppRoutes.ResetReadTask
+                                        TipFeature.Focus -> AppRoutes.Focus
+                                        TipFeature.WhatWorksForMe -> AppRoutes.WhatWorksForMe
+                                        else -> null
+                                    }
+                                    route?.let { navController.navigate(it) { launchSingleTop = true } }
+                                }
+                            }
+                        },
+                        onShowAnother = {
+                            tipsViewModel.rotate()
+                            navController.navigate(AppRoutes.Tips) {
+                                popUpTo(AppRoutes.TipDetail) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                        onDismiss = {
+                            tipsViewModel.dismiss(selectedTip.id)
+                            navController.navigate(AppRoutes.Tips) {
+                                popUpTo(AppRoutes.TipDetail) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+            }
+
+            composable(AppRoutes.SuggestedSetup) {
+                val coachViewModel: ProtectionCoachViewModel = viewModel()
+                val coachState by coachViewModel.state.collectAsStateWithLifecycle()
+                LaunchedEffect(coachState.loading, coachState.activeTimingSuggestion) {
+                    if (!coachState.loading) {
+                        val destination = if (coachState.activeTimingSuggestion != null) {
+                            AppRoutes.ProtectionCoach
+                        } else {
+                            AppRoutes.ProtectionSetupGuide
+                        }
+                        navController.navigate(destination) {
+                            popUpTo(AppRoutes.SuggestedSetup) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+            }
+
+            composable(AppRoutes.ProtectionCoach) {
+                val coachViewModel: ProtectionCoachViewModel = viewModel()
+                val coachState by coachViewModel.state.collectAsStateWithLifecycle()
+                ProtectionCoachScreen(
+                    state = coachState,
+                    onReviewTime = {
+                        navController.navigate(AppRoutes.ProtectionSetupGuide) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onDismiss = coachViewModel::dismiss,
+                    onSuppress = coachViewModel::suppress,
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(
+                route = AppRoutes.ProtectionCoachSuggestion,
+                arguments = listOf(navArgument("suggestionId") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val suggestionId = Uri.decode(
+                    backStackEntry.arguments?.getString("suggestionId").orEmpty(),
+                )
+                val coachViewModel: ProtectionCoachViewModel = viewModel()
+                val coachState by coachViewModel.state.collectAsStateWithLifecycle()
+                val activeSuggestion = coachState.activeTimingSuggestion
+                    ?.takeIf { it.suggestionId.value == suggestionId }
+                LaunchedEffect(coachState.loading, activeSuggestion, suggestionId) {
+                    if (!coachState.loading && activeSuggestion == null) {
+                        navController.navigate(AppRoutes.ProtectionCoach) {
+                            popUpTo(AppRoutes.ProtectionCoachSuggestion) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+                activeSuggestion?.let {
+                    ProtectionCoachSuggestionScreen(
+                        suggestionId = suggestionId,
+                        onReviewTime = {
+                            navController.navigate(AppRoutes.ProtectionSetupGuide) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onDismiss = { id ->
+                            coachViewModel.dismiss(id)
+                            navController.safePopBackStack()
+                        },
+                        onSuppress = { id ->
+                            coachViewModel.suppress(id)
+                            navController.safePopBackStack()
+                        },
+                        onBack = { navController.safePopBackStack() },
+                    )
+                }
+            }
+
+            composable(AppRoutes.ProtectionTransition) {
+                ProtectionTransitionScreen(
+                    onKeepProtection = {
+                        adaptiveScope.launch {
+                            protectionSetupViewModel
+                                .setProtectionMonitorTransitionCompleted(true)
+                            navController.safePopBackStack()
+                        }
+                    },
+                    onReviewProtectedApps = {
+                        navController.navigate(AppRoutes.ProtectionSetupGuideBlockedApps) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(AppRoutes.PathShift) {
+                PathShiftScreen(
+                    onBack = { navController.safePopBackStack() },
+                    onOpenSettings = {
+                        navController.navigateMainTop(AppRoutes.Settings)
+                    },
+                    onViewPlan = { planId ->
+                        navController.navigate(AppRoutes.momentPlanDetail(planId)) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onPractisePlan = { planId ->
+                        rehearsalLauncher.startGuided(planId) { rehearsalId ->
+                            navController.navigate(
+                                AppRoutes.momentPlanRehearsal(rehearsalId),
+                            ) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
                 )
             }
 
@@ -1525,9 +2211,25 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.ReflexGameTask) {
+            composable(AppRoutes.ReflexGameTask) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
+                AdaptiveStartedEffect(
+                    adaptiveDecisionId,
+                )
                 ReflexGameScreen(
                     onExit = { navController.exitRecoveryFlowSafely() },
+                    onAdaptiveCompleted = adaptiveDecisionId?.let { id ->
+                        {
+                            persistAdaptiveOutcome(id, completed = true, openFeedback = false)
+                        }
+                    },
+                    onAdaptiveExit = adaptiveDecisionId?.let { id ->
+                        { completed ->
+                            persistAdaptiveOutcome(id, completed, openFeedback = true)
+                        }
+                    },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.ReflexOverride,
@@ -1549,9 +2251,25 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.BlockCascadeTask) {
+            composable(AppRoutes.BlockCascadeTask) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
+                AdaptiveStartedEffect(
+                    adaptiveDecisionId,
+                )
                 BlockCascadeScreen(
                     onExit = { navController.exitRecoveryFlowSafely() },
+                    onAdaptiveCompleted = adaptiveDecisionId?.let { id ->
+                        {
+                            persistAdaptiveOutcome(id, completed = true, openFeedback = false)
+                        }
+                    },
+                    onAdaptiveExit = adaptiveDecisionId?.let { id ->
+                        { completed ->
+                            persistAdaptiveOutcome(id, completed, openFeedback = true)
+                        }
+                    },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade,
@@ -1573,9 +2291,25 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.SkylineResetTask) {
+            composable(AppRoutes.SkylineResetTask) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
+                AdaptiveStartedEffect(
+                    adaptiveDecisionId,
+                )
                 SkylineResetScreen(
                     onExit = { navController.exitRecoveryFlowSafely() },
+                    onAdaptiveCompleted = adaptiveDecisionId?.let { id ->
+                        {
+                            persistAdaptiveOutcome(id, completed = true, openFeedback = false)
+                        }
+                    },
+                    onAdaptiveExit = adaptiveDecisionId?.let { id ->
+                        { completed ->
+                            persistAdaptiveOutcome(id, completed, openFeedback = true)
+                        }
+                    },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset,
@@ -1597,9 +2331,25 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.RhythmTilesTask) {
+            composable(AppRoutes.RhythmTilesTask) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
+                AdaptiveStartedEffect(
+                    adaptiveDecisionId,
+                )
                 RhythmTilesScreen(
                     onExit = { navController.exitRecoveryFlowSafely() },
+                    onAdaptiveCompleted = adaptiveDecisionId?.let { id ->
+                        {
+                            persistAdaptiveOutcome(id, completed = true, openFeedback = false)
+                        }
+                    },
+                    onAdaptiveExit = adaptiveDecisionId?.let { id ->
+                        { completed ->
+                            persistAdaptiveOutcome(id, completed, openFeedback = true)
+                        }
+                    },
                     onPlayAnother = rememberPlayAnotherGame(
                         navController = navController,
                         current = com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles,
@@ -1630,20 +2380,74 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.JournalHub) {
+            composable(AppRoutes.JournalHub) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
+                AdaptiveStartedEffect(
+                    adaptiveDecisionId,
+                )
                 JournalHubScreen(
-                    onBack = { navController.safePopBackStack() },
-                    onOpenNormalJournal = { navController.navigate(AppRoutes.JournalList) },
-                    onCreateNote = { type -> navController.navigate(AppRoutes.journalNoteNew(type)) },
-                    onOpenNote = { noteId -> navController.navigate(AppRoutes.journalNoteEdit(noteId)) },
+                    onBack = {
+                        if (adaptiveDecisionId != null) {
+                            persistAdaptiveOutcome(
+                                adaptiveDecisionId.orEmpty(),
+                                completed = false,
+                                openFeedback = true,
+                            )
+                        } else {
+                            navController.safePopBackStack()
+                        }
+                    },
+                    onOpenNormalJournal = {
+                        navController.navigate(AppRoutes.JournalList)
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveDecisionIdStateKey, adaptiveDecisionId)
+                    },
+                    onCreateNote = { type ->
+                        navController.navigate(AppRoutes.journalNoteNew(type))
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveDecisionIdStateKey, adaptiveDecisionId)
+                    },
+                    onOpenNote = { noteId ->
+                        navController.navigate(AppRoutes.journalNoteEdit(noteId))
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveDecisionIdStateKey, adaptiveDecisionId)
+                    },
                 )
             }
 
-            composable(AppRoutes.JournalList) {
+            composable(AppRoutes.JournalList) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
                 JournalListScreen(
-                    onBack = { navController.safePopBackStack() },
-                    onCreateNote = { type -> navController.navigate(AppRoutes.journalNoteNew(type)) },
-                    onOpenNote = { noteId -> navController.navigate(AppRoutes.journalNoteEdit(noteId)) },
+                    onBack = {
+                        if (adaptiveDecisionId != null) {
+                            persistAdaptiveOutcome(
+                                adaptiveDecisionId.orEmpty(),
+                                completed = false,
+                                openFeedback = true,
+                            )
+                        } else {
+                            navController.safePopBackStack()
+                        }
+                    },
+                    onCreateNote = { type ->
+                        navController.navigate(AppRoutes.journalNoteNew(type))
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveDecisionIdStateKey, adaptiveDecisionId)
+                    },
+                    onOpenNote = { noteId ->
+                        navController.navigate(AppRoutes.journalNoteEdit(noteId))
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveDecisionIdStateKey, adaptiveDecisionId)
+                    },
                     onOpenSavedNotifications = {
                         navController.navigate(
                             AppRoutes.SavedNotifications,
@@ -1670,10 +2474,22 @@ fun AppNavHost(
                 arguments = listOf(navArgument("type") { type = NavType.StringType }),
             ) { backStackEntry ->
                 val noteType = JournalNoteType.fromStorage(backStackEntry.arguments?.getString("type").orEmpty())
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
                 JournalEditorScreen(
                     noteId = 0L,
                     initialType = noteType,
                     onBack = { navController.safePopBackStack() },
+                    onAdaptiveSaved = adaptiveDecisionId?.let { id ->
+                        {
+                            persistAdaptiveOutcome(
+                                id,
+                                completed = true,
+                                openFeedback = true,
+                            )
+                        }
+                    },
                 )
             }
 
@@ -1681,9 +2497,151 @@ fun AppNavHost(
                 route = AppRoutes.JournalNoteEdit,
                 arguments = listOf(navArgument("noteId") { type = NavType.LongType }),
             ) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
                 JournalEditorScreen(
                     noteId = backStackEntry.arguments?.getLong("noteId") ?: 0L,
                     initialType = JournalNoteType.Text,
+                    onBack = { navController.safePopBackStack() },
+                    onAdaptiveSaved = adaptiveDecisionId?.let { id ->
+                        {
+                            persistAdaptiveOutcome(
+                                id,
+                                completed = true,
+                                openFeedback = true,
+                            )
+                        }
+                    },
+                )
+            }
+
+            composable(
+                route = AppRoutes.AdaptiveMoment,
+                arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val decisionId = Uri.decode(
+                    backStackEntry.arguments?.getString("decisionId").orEmpty(),
+                )
+                BlockRequestDestinationReadyEffect(
+                    pendingRequest = initialBlockRequest,
+                    expectedTarget = BlockLaunchTarget.AdaptiveMoment,
+                    expectedRoutePattern = AppRoutes.AdaptiveMoment,
+                    currentRoutePattern = backStackEntry.destination.route,
+                    adaptiveDecisionId = decisionId,
+                    onBlockRequestConsumed = onBlockRequestConsumed,
+                )
+                AdaptiveMomentScreen(
+                    onRoute = ::routeAdaptive,
+                    onExplain = { decisionId ->
+                        navController.navigate(AppRoutes.adaptiveExplanation(decisionId))
+                    },
+                    onSafeExit = { navController.navigateBackToHome() },
+                )
+            }
+
+            composable(
+                route = AppRoutes.AdaptiveExplanation,
+                arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
+            ) {
+                AdaptiveDecisionExplanationScreen(
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(
+                route = AppRoutes.AdaptiveGame,
+                arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val decisionId = Uri.decode(
+                    backStackEntry.arguments?.getString("decisionId").orEmpty(),
+                )
+                LaunchedEffect(decisionId) {
+                    try {
+                        val chosenGame = selectAndRecordGuidedGame(
+                            context = context,
+                            sourcePackageName = "adaptive",
+                        )
+                        navController.navigate(recoveryGameRoute(chosenGame, asTask = true)) {
+                            launchSingleTop = true
+                            popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
+                        }
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveDecisionIdStateKey, decisionId)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        navController.navigate(AppRoutes.adaptiveMoment(decisionId)) {
+                            launchSingleTop = true
+                            popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
+                        }
+                    }
+                }
+            }
+
+            composable(
+                route = AppRoutes.AdaptiveReading,
+                arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val decisionId = Uri.decode(
+                    backStackEntry.arguments?.getString("decisionId").orEmpty(),
+                )
+                AdaptiveStartedEffect(decisionId)
+                ResetReadScreen(
+                    launchMode = ResetReadLaunchMode.Fallback,
+                    onExit = { navController.exitRecoveryFlowSafely() },
+                    onAdaptiveCompleted = {
+                        persistAdaptiveOutcome(
+                            decisionId,
+                            completed = true,
+                            openFeedback = false,
+                        )
+                    },
+                    onAdaptiveExit = { completed ->
+                        persistAdaptiveOutcome(
+                            decisionId,
+                            completed = completed,
+                            openFeedback = true,
+                        )
+                    },
+                )
+            }
+
+            composable(
+                route = AppRoutes.MomentPlanRun,
+                arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val decisionId = Uri.decode(
+                    backStackEntry.arguments?.getString("decisionId").orEmpty(),
+                )
+                MomentPlanRunScreen(
+                    onChooseAnother = {
+                        adaptiveScope.launch {
+                            val current = adaptiveOutcomeCoordinator.load(decisionId)
+                            if (
+                                current?.startedAtMillis != null &&
+                                current.completedAtMillis == null &&
+                                current.dismissedAtMillis == null
+                            ) {
+                                adaptiveOutcomeCoordinator.dismiss(decisionId)
+                            }
+                            navController.navigate(AppRoutes.adaptiveMoment(decisionId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    onRoute = ::routeAdaptive,
+                    onSafeExit = { navController.navigateBackToHome() },
+                )
+            }
+
+            composable(
+                route = AppRoutes.AdaptiveFeedback,
+                arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
+            ) {
+                AdaptiveFeedbackScreen(
+                    onDone = { navController.navigateBackToHome() },
                     onBack = { navController.safePopBackStack() },
                 )
             }
@@ -1815,8 +2773,18 @@ fun AppNavHost(
                     },
                 )
             }
+        }
+        if (!privateContentReady) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+            )
+        }
     }
 }
+
+private const val AdaptiveDecisionIdStateKey = "adaptiveDecisionId"
 
 @Composable
 private fun ImpulsiveLoadingSurface(
@@ -1853,6 +2821,7 @@ private fun BlockRequestDestinationReadyEffect(
     currentRoutePattern: String?,
     sourcePackageName: String? = null,
     sourceLabel: String? = null,
+    adaptiveDecisionId: String? = null,
     onBlockRequestConsumed: () -> Unit,
 ) {
     var lastReadyRequest by remember { mutableStateOf<BlockRequest?>(null) }
@@ -1864,13 +2833,18 @@ private fun BlockRequestDestinationReadyEffect(
         currentRoutePattern,
         sourcePackageName,
         sourceLabel,
+        adaptiveDecisionId,
     ) {
         val request = pendingRequest ?: return@LaunchedEffect
         val matchesDestination =
             request.launchTarget == expectedTarget &&
                 currentRoutePattern == expectedRoutePattern &&
                 (sourcePackageName == null || request.sourcePackageName == sourcePackageName) &&
-                (sourceLabel == null || request.sourceLabel == sourceLabel)
+                (sourceLabel == null || request.sourceLabel == sourceLabel) &&
+                (
+                    adaptiveDecisionId == null ||
+                        request.adaptiveDecisionId == adaptiveDecisionId
+                    )
 
         if (!matchesDestination || lastReadyRequest == request) {
             return@LaunchedEffect
@@ -1888,6 +2862,13 @@ private fun BlockRequestDestinationReadyEffect(
 internal fun blockRequestDestinationRoute(request: BlockRequest): String =
     when (request.launchTarget) {
         BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
+        BlockLaunchTarget.AdaptiveMoment ->
+            request.adaptiveDecisionId
+                ?.let(AppRoutes::adaptiveMoment)
+                ?: AppRoutes.impulsiveBlock(
+                    request.sourcePackageName,
+                    request.sourceLabel,
+                )
         BlockLaunchTarget.RandomRecoveryGame ->
             AppRoutes.randomRecoveryGame(request.sourcePackageName)
         BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
@@ -1900,6 +2881,7 @@ internal fun blockRequestDestinationRoute(request: BlockRequest): String =
 internal fun blockRequestDestinationRoutePattern(request: BlockRequest): String =
     when (request.launchTarget) {
         BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
+        BlockLaunchTarget.AdaptiveMoment -> AppRoutes.AdaptiveMoment
         BlockLaunchTarget.RandomRecoveryGame -> AppRoutes.RandomRecoveryGame
         BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
         BlockLaunchTarget.BlockScreen -> AppRoutes.ImpulsiveBlock
@@ -1910,8 +2892,13 @@ internal fun blockRequestDestinationMatches(
     currentSourcePackageName: String?,
     currentSourceLabel: String?,
     request: BlockRequest,
+    currentAdaptiveDecisionId: String? = null,
 ): Boolean =
     when (request.launchTarget) {
+        BlockLaunchTarget.AdaptiveMoment ->
+            currentRoutePattern == AppRoutes.AdaptiveMoment &&
+                currentAdaptiveDecisionId == request.adaptiveDecisionId
+
         BlockLaunchTarget.RandomRecoveryGame ->
             currentRoutePattern == AppRoutes.RandomRecoveryGame &&
                 currentSourcePackageName == request.sourcePackageName
@@ -1927,6 +2914,27 @@ internal fun blockRequestDestinationMatches(
         BlockLaunchTarget.FocusRecovery ->
             currentRoutePattern == AppRoutes.FocusRecovery
     }
+
+@Composable
+private fun AdaptiveStartedEffect(decisionId: String?) {
+    val context = LocalContext.current
+    LaunchedEffect(decisionId) {
+        if (decisionId.isNullOrBlank()) return@LaunchedEffect
+        withFrameNanos { }
+        markAdaptiveStarted(context, decisionId)
+    }
+}
+
+private suspend fun markAdaptiveStarted(context: Context, decisionId: String) {
+    if (decisionId.isBlank()) return
+    val decisions = AdaptivePhase4Dependencies.decisions(context)
+    val current = decisions.getById(decisionId) ?: return
+    if (current.startedAtMillis != null) return
+    AdaptivePhase4Dependencies.lifecycle(context).markStarted(
+        decisionId,
+        System.currentTimeMillis(),
+    )
+}
 
 @Composable
 private fun CloudRestoreDialog(

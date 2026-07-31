@@ -4,6 +4,8 @@ import android.content.Context
 import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.onboarding.OnboardingPreferencesDataSource
+import com.impulsive.app.backend.data.local.preferences.ProtectionCoachPreferencesDataSource
+import com.impulsive.app.backend.data.local.preferences.ProtectionSetupPreferencesDataSource
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOnboardingSnapshotJsonKey
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryOnboardingSnapshotCodec
 import com.impulsive.app.backend.data.restore.cloud.cloudRecoveryOnboardingSnapshotForBackup
@@ -151,6 +153,26 @@ class RestoreBundleWriter(context: Context) {
             .put("checklistItems", checklistArray)
             .put("recoverySessions", sessionsArray)
             .put("blockedDomains", domainsArray)
+
+        val coachPreferences = ProtectionCoachPreferencesDataSource(appContext).state.first()
+        val protectionSetup = ProtectionSetupPreferencesDataSource(appContext).state.first()
+        payload.put(
+            AdaptiveRestorePayloadCodec.JsonKey,
+            AdaptiveRestorePayloadCodec.encode(
+                plans = database.momentPlanDao().getAllForBackup(),
+                preferences = database.adaptivePreferenceDao().get(),
+                decisions = database.adaptiveDecisionDao().getAllForBackup(),
+                rehearsals = database.momentPlanRehearsalDao().getAllForBackup(),
+                pathShiftCycles = database.pathShiftCycleDao().getAllForBackup(),
+                protectionCoachSuggestions =
+                    database.protectionCoachSuggestionDao().getAllForBackup(),
+                protectionMonitorTransitionCompleted =
+                    protectionSetup.protectionMonitorTransitionCompleted,
+                suggestedSetupReviewed = coachPreferences.suggestedSetupReviewed,
+                onboardingColdStartPriorUsed =
+                    coachPreferences.onboardingColdStartPriorUsed,
+            ),
+        )
 
         val normalizedVerifiedOwnerUid =
             verifiedOwnerUid

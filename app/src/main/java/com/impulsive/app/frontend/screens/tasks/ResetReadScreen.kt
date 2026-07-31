@@ -108,6 +108,8 @@ fun ResetReadScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     launchMode: ResetReadLaunchMode = ResetReadLaunchMode.Normal,
+    onAdaptiveCompleted: (() -> Unit)? = null,
+    onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     resetReadViewModel: ResetReadViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -174,7 +176,7 @@ fun ResetReadScreen(
             resetReadViewModel.recordAbandonedSessionIfNeeded(failureReason)
             logCompletion(validCompletion = false)
         }
-        onExit()
+        onAdaptiveExit?.invoke(uiState.validCompletion) ?: onExit()
     }
 
     BackHandler { exitSafely() }
@@ -206,6 +208,7 @@ fun ResetReadScreen(
     LaunchedEffect(uiState.validCompletion) {
         if (uiState.validCompletion) {
             logCompletion(validCompletion = true)
+            onAdaptiveCompleted?.invoke()
         }
     }
 

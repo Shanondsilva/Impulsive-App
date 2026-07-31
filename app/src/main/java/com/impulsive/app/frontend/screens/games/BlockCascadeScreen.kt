@@ -97,13 +97,14 @@ fun BlockCascadeScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     onPlayAnother: () -> Unit = {},
+    onAdaptiveCompleted: (() -> Unit)? = null,
+    onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: BlockCascadeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
@@ -189,7 +190,7 @@ fun BlockCascadeScreen(
         if (uiState.completed) {
             taskRewardViewModel.clearLastCompletionResult()
         }
-        onExit()
+        onAdaptiveExit?.invoke(uiState.completed) ?: onExit()
     }
 
     BackHandler {
@@ -215,6 +216,7 @@ fun BlockCascadeScreen(
     LaunchedEffect(uiState.view, uiState.completed, uiState.failed) {
         if (uiState.view == BlockCascadeView.Result) {
             logCompletion(validCompletion = uiState.completed)
+            if (uiState.completed) onAdaptiveCompleted?.invoke()
         }
     }
 
@@ -225,13 +227,20 @@ fun BlockCascadeScreen(
         }
     }
 
-    Column(
+    AdaptiveGameContainer(
         modifier = modifier
             .fillMaxSize()
-            .background(ImpulsiveBackground)
-            .systemBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .background(ImpulsiveBackground),
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(
+                    horizontal = 20.dp,
+                    vertical = 16.dp,
+                ),
+        ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -292,6 +301,7 @@ fun BlockCascadeScreen(
                 onPlayAnother = onPlayAnother,
             )
         }
+    }
     }
 }
 

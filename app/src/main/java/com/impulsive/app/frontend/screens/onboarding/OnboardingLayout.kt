@@ -93,6 +93,14 @@ internal object OnboardingLayoutDefaults {
     val QuestionContentEndPadding: Dp = 24.dp
 }
 
+internal data class OnboardingViewport(
+    val width: Dp,
+    val height: Dp,
+) {
+    val compactHeight: Boolean
+        get() = height < 720.dp
+}
+
 @Composable
 internal fun OnboardingScreenShell(
     modifier: Modifier = Modifier,
@@ -111,7 +119,7 @@ internal fun OnboardingScreenShell(
     onSkip: (() -> Unit)? = null,
     topBar: (@Composable () -> Unit)? = null,
     bottomBar: @Composable () -> Unit,
-    content: @Composable ColumnScope.(compactHeight: Boolean) -> Unit,
+    content: @Composable ColumnScope.(viewport: OnboardingViewport) -> Unit,
 ) {
     val resolvedTopBar: (@Composable () -> Unit)? = topBar ?: stepUi?.let { step ->
         @Composable {
@@ -142,7 +150,7 @@ internal fun OnboardingScreenShell(
             .fillMaxSize()
             .background(Brush.verticalGradient(colors = backgroundColors)),
     ) {
-        BoxWithConstraints(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
@@ -151,8 +159,6 @@ internal fun OnboardingScreenShell(
                 .padding(horizontal = horizontalPadding),
             contentAlignment = Alignment.TopCenter,
         ) {
-            val compactHeight = maxHeight < 720.dp
-
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
@@ -162,15 +168,25 @@ internal fun OnboardingScreenShell(
             ) {
                 resolvedTopBar?.invoke()
 
-                Column(
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = scrollBottomPadding),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .fillMaxWidth(),
                 ) {
-                    content(compactHeight)
+                    val viewport = OnboardingViewport(
+                        width = maxWidth,
+                        height = maxHeight,
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = scrollBottomPadding),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        content(viewport)
+                    }
                 }
 
                 Box(
@@ -356,62 +372,69 @@ private fun OnboardingQuestionScaffoldShell(
     bottomBarBottomPadding: Dp,
     topBar: @Composable () -> Unit,
     bottomBar: @Composable () -> Unit,
-    content: @Composable ColumnScope.(compactHeight: Boolean) -> Unit,
+    content: @Composable ColumnScope.(viewport: OnboardingViewport) -> Unit,
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(colors = backgroundColors)),
     ) {
-        BoxWithConstraints(
+        Scaffold(
             modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            val compactHeight = maxHeight < 720.dp
-
-            Scaffold(
-                modifier = Modifier.fillMaxSize(),
-                containerColor = Color.Transparent,
-                contentWindowInsets = WindowInsets(0.dp),
-                bottomBar = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = horizontalPadding)
-                            .padding(bottom = bottomBarBottomPadding),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .widthIn(max = maxContentWidth)
-                                .fillMaxWidth(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            bottomBar()
-                        }
-                    }
-                },
-            ) { innerPadding ->
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0.dp),
+            bottomBar = {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(horizontal = horizontalPadding),
-                    contentAlignment = Alignment.TopCenter,
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = horizontalPadding)
+                        .padding(bottom = bottomBarBottomPadding),
+                    contentAlignment = Alignment.Center,
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .widthIn(max = maxContentWidth)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        bottomBar()
+                    }
+                }
+            },
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = horizontalPadding),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .widthIn(max = maxContentWidth)
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                ) {
+                    val viewport = OnboardingViewport(
+                        width = maxWidth,
+                        height = maxHeight,
+                    )
+
                     Column(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .widthIn(max = maxContentWidth)
-                            .fillMaxWidth()
-                            .statusBarsPadding()
+                            .fillMaxSize()
                             .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         topBar()
-                        content(compactHeight)
-                        Spacer(modifier = Modifier.height(OnboardingLayoutDefaults.QuestionContentEndPadding))
+                        content(viewport)
+                        Spacer(
+                            modifier = Modifier.height(
+                                OnboardingLayoutDefaults.QuestionContentEndPadding,
+                            ),
+                        )
                     }
                 }
             }

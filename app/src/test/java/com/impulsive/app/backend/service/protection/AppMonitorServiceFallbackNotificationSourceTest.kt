@@ -35,7 +35,7 @@ class AppMonitorServiceFallbackNotificationSourceTest {
 
         assertTrue(helperSource.contains("Pause before you continue"))
         assertTrue(helperSource.contains(
-            "A protected app is open. Choose one quick reset before continuing.",
+            "Protected content was detected. Choose one quick reset before continuing.",
         ))
         assertTrue(fallback.contains("BlockedAttemptNotificationId"))
         assertTrue(fallback.contains(".setOnlyAlertOnce(true)"))

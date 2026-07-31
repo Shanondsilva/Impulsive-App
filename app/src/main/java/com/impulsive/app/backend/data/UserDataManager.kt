@@ -12,6 +12,10 @@ import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryLocalKeyStore
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryLocalMetadataStore
 import com.impulsive.app.backend.data.restore.cloud.CloudRecoveryUploadScheduler
 import com.impulsive.app.backend.data.restore.cloud.AndroidPendingCloudRestoreAuthorizationStore
+import com.impulsive.app.backend.session.adaptive.WorkManagerAdaptiveObservationScheduler
+import com.impulsive.app.backend.session.adaptive.AdaptiveHistoryRetentionScheduler
+import com.impulsive.app.backend.session.adaptive.AdaptiveRetentionRuntimeState
+import com.impulsive.app.backend.session.pathshift.PathShiftDependencies
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +52,16 @@ class UserDataManager(
              */
             RestoreSnapshotRefreshScheduler.cancelAndAwait(context)
             CloudRecoveryUploadScheduler.cancelAndAwait(context)
+            check(
+                WorkManagerAdaptiveObservationScheduler(context).cancelAll(),
+            ) {
+                "Failed to cancel adaptive observation work during permanent deletion."
+            }
+            check(PathShiftDependencies.scheduler(context).cancelAll()) {
+                "Failed to cancel PathShift work during permanent deletion."
+            }
+            AdaptiveHistoryRetentionScheduler.cancelAllAndAwait(context)
+            AdaptiveRetentionRuntimeState.clearAllAdaptiveReferences()
 
             /*
              * Clear local recovery credentials and metadata only. This does

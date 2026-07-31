@@ -29,8 +29,8 @@ fun OnboardingStartingPointScreen(
         onBack = onBack,
         onSkip = null,
         bottomBar = { ContinueButton(enabled = true, label = "Start week one", onClick = onContinue) },
-    ) { compactHeight ->
-        val metrics = rememberQuestionResponsiveMetrics(compactHeight = compactHeight)
+    ) { viewport ->
+        val metrics = onboardingQuestionMetrics(viewport)
         val answers = state.answers
         val dailySupportLabel = if (answers.dailyRelapseUrgeCount == 1) "1 moment per day" else "${answers.dailyRelapseUrgeCount} moments per day"
 
@@ -86,7 +86,7 @@ fun OnboardingStartingPointScreen(
 
         Spacer(modifier = Modifier.height(metrics.subtitleToOptionsSpacing))
 
-        QuestionOptionGroup(areaMinHeight = metrics.optionAreaMinHeight + if (compactHeight) 28.dp else 72.dp) {
+        QuestionOptionGroup(areaMinHeight = metrics.optionAreaMinHeight + if (viewport.compactHeight) 28.dp else 72.dp) {
             summaryItems.forEach { item -> StartingPointSummaryLine(item = item) }
         }
     }

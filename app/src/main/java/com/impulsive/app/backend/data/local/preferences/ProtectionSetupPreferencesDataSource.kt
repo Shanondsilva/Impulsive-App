@@ -28,6 +28,8 @@ class ProtectionSetupPreferencesDataSource(
             websiteProtectedAppPackageNames =
                 preferences[WebsiteProtectedAppPackageNamesKey].toStringSet(),
             appProtectionMonitorEnabled = preferences[AppProtectionMonitorEnabledKey] ?: true,
+            protectionMonitorTransitionCompleted =
+                preferences[ProtectionMonitorTransitionCompletedKey] ?: false,
             websiteProtectionEnabled = preferences[WebsiteProtectionEnabledKey] ?: false,
             websiteProtectionAlwaysOn = preferences[WebsiteProtectionAlwaysOnKey] ?: false,
             interruptionPermissionEnabled = preferences[InterruptionPermissionEnabledKey] ?: false,
@@ -77,6 +79,12 @@ class ProtectionSetupPreferencesDataSource(
     suspend fun setAppProtectionMonitorEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[AppProtectionMonitorEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setProtectionMonitorTransitionCompleted(completed: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[ProtectionMonitorTransitionCompletedKey] = completed
         }
     }
 
@@ -176,6 +184,8 @@ class ProtectionSetupPreferencesDataSource(
         val WebsiteProtectedAppPackageNamesKey =
             stringPreferencesKey("website_protected_app_package_names")
         val AppProtectionMonitorEnabledKey = booleanPreferencesKey("app_protection_monitor_enabled")
+        val ProtectionMonitorTransitionCompletedKey =
+            booleanPreferencesKey("protection_monitor_transition_completed")
         val WebsiteProtectionEnabledKey = booleanPreferencesKey("website_protection_enabled")
         val WebsiteProtectionAlwaysOnKey = booleanPreferencesKey("website_protection_always_on")
         val InterruptionPermissionEnabledKey = booleanPreferencesKey("interruption_permission_enabled")

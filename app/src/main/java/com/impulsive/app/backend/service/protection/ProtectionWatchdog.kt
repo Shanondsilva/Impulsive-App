@@ -32,9 +32,9 @@ class ProtectionWatchdogWorker(
         val setup = ProtectionSetupRepository(appContext).state.first()
 
         val protectionConfigured =
-            setup.appProtectionMonitorEnabled &&
+            setup.configurationDrivenAppProtectionConsented &&
                 setup.selectedBlockedAppPackageNames.isNotEmpty() ||
-            setup.websiteProtectionEnabled
+                setup.websiteProtectionEnabled
 
         if (!protectionConfigured) {
             ProtectionServiceOperationalStateStore

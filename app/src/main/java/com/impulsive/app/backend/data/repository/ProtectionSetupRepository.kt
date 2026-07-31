@@ -29,6 +29,10 @@ class ProtectionSetupRepository(
         dataSource.setAppProtectionMonitorEnabled(enabled)
     }
 
+    suspend fun setProtectionMonitorTransitionCompleted(completed: Boolean) {
+        dataSource.setProtectionMonitorTransitionCompleted(completed)
+    }
+
     suspend fun setWebsiteProtectionEnabled(enabled: Boolean) {
         dataSource.setWebsiteProtectionEnabled(enabled)
     }

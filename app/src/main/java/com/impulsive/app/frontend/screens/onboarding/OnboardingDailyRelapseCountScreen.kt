@@ -58,8 +58,8 @@ fun OnboardingDailyRelapseCountScreen(
         onBack = onBack,
         onSkip = null,
         bottomBar = { ContinueButton(enabled = true, label = "Continue", onClick = { onContinue(selectedCount) }) },
-    ) { compactHeight ->
-        val metrics = rememberQuestionResponsiveMetrics(compactHeight = compactHeight)
+    ) { viewport ->
+        val metrics = onboardingQuestionMetrics(viewport)
 
         Spacer(modifier = Modifier.height(metrics.headerToIconSpacing))
         OnboardingLogoVisual(reducedMotion = reducedMotion, scale = OnboardingLogoScale.Compact)

@@ -2,9 +2,14 @@ package com.impulsive.app.frontend.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.StartOffsetType
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -48,6 +53,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -74,6 +86,14 @@ fun ModeSelectionSheet(
     val soulAccent = if (isDark) Color(0xFFFFF4C7) else Color(0xFF8B7242)
     val soulBackground = if (isDark) Color(0xFF332D20) else Color(0xFFFFF7D8)
     val soulBorder = if (isDark) Color(0xFFFEF1AB).copy(alpha = 0.42f) else Color(0xFFFEF1AB).copy(alpha = 0.92f)
+    val context = LocalContext.current
+    val reducedMotion = remember(context) {
+        android.provider.Settings.Global.getFloat(
+            context.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) == 0f
+    }
     var visible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -181,6 +201,8 @@ fun ModeSelectionSheet(
                 background = mindBackground,
                 border = mindBorder,
                 accent = mindAccent,
+                reducedMotion = reducedMotion,
+                phaseOffsetMillis = 0,
                 modifier = Modifier
                     .offset(x = mindX, y = mindY)
                     .graphicsLayer {
@@ -199,6 +221,8 @@ fun ModeSelectionSheet(
                 background = bodyBackground,
                 border = bodyBorder,
                 accent = bodyAccent,
+                reducedMotion = reducedMotion,
+                phaseOffsetMillis = 1_650,
                 modifier = Modifier
                     .offset(x = 0.dp, y = bodyY)
                     .graphicsLayer {
@@ -217,6 +241,8 @@ fun ModeSelectionSheet(
                 background = soulBackground,
                 border = soulBorder,
                 accent = soulAccent,
+                reducedMotion = reducedMotion,
+                phaseOffsetMillis = 3_300,
                 modifier = Modifier
                     .offset(x = soulX, y = soulY)
                     .graphicsLayer {
@@ -494,16 +520,43 @@ private fun ModeBubble(
     background: Color,
     border: Color,
     accent: Color,
+    reducedMotion: Boolean,
+    phaseOffsetMillis: Int,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val density = LocalDensity.current.density
+    val floatTransition = if (reducedMotion) {
+        null
+    } else {
+        rememberInfiniteTransition(label = "${title}_mode_levitation")
+    }
+    val verticalTranslationDp = floatTransition?.animateFloat(
+        initialValue = -4f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 5_200,
+                easing = FastOutSlowInEasing,
+            ),
+            repeatMode = RepeatMode.Reverse,
+            initialStartOffset = StartOffset(
+                offsetMillis = phaseOffsetMillis,
+                offsetType = StartOffsetType.FastForward,
+            ),
+        ),
+        label = "${title}_mode_translation_y",
+    )?.value ?: 0f
     Surface(
         color = background,
         shape = CircleShape,
         border = BorderStroke(1.dp, border),
         tonalElevation = 6.dp,
         modifier = modifier
-            .size(92.dp)
+            .graphicsLayer {
+                translationY = verticalTranslationDp * density
+            }
+            .size(96.dp)
             .impulsiveGlowShadow(
                 enabled = !locked,
                 shape = CircleShape,
@@ -512,34 +565,48 @@ private fun ModeBubble(
                 ambientAlpha = 0.16f,
                 spotAlpha = 0.22f,
             )
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$title, $label"
+                selected = !locked
+                role = Role.Button
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                role = Role.Button,
             ) { onClick() },
     ) {
         Column(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(9.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            if (locked) {
-                Icon(
-                    imageVector = Icons.Filled.Lock,
-                    contentDescription = "$title locked",
-                    tint = accent.copy(alpha = 0.82f),
-                    modifier = Modifier.size(23.dp),
-                )
-            } else {
-                Text(
-                    text = symbol ?: "",
-                    color = accent,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                )
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (locked) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = accent.copy(alpha = 0.82f),
+                        modifier = Modifier.size(23.dp),
+                    )
+                } else {
+                    Text(
+                        text = symbol ?: "",
+                        color = accent,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(5.dp))
 
             Text(
                 text = title,
@@ -547,6 +614,7 @@ private fun ModeBubble(
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
             )
 
             Text(
@@ -555,6 +623,7 @@ private fun ModeBubble(
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
             )
         }
     }

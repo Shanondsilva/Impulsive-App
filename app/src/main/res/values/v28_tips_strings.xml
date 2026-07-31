@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tips_label">TIPS</string>
+    <string name="tips_title">Tips</string>
+    <string name="tips_intro">Small ways to adjust Impulsive, your phone and the apps you use.</string>
+    <string name="tips_fallback_title">Helpful tips</string>
+    <string name="tips_fallback_summary">Small ideas for using Impulsive and your phone.</string>
+    <string name="tips_see_tip">See tip &gt;</string>
+    <string name="tips_explore">Explore tips &gt;</string>
+    <string name="tips_suggested_section">Suggested for you</string>
+    <string name="tips_impulsive_section">Impulsive</string>
+    <string name="tips_phone_section">Phone settings</string>
+    <string name="tips_social_section">Social media</string>
+    <string name="tips_sleep_focus_section">Sleep and focus</string>
+    <string name="tips_why_heading">Why this may help</string>
+    <string name="tips_why_seen_heading">Why you are seeing this</string>
+    <string name="tips_source_heading">Official source</string>
+    <string name="tips_reviewed">Reviewed %1$s</string>
+    <string name="tips_menu_note">Menu names and availability may differ by phone, region or app version.</string>
+    <string name="tips_show_another">Show another tip</string>
+    <string name="tips_not_for_me">Not for me</string>
+    <string name="tips_open_setting">Open setting</string>
+    <string name="tips_reset_hidden">Reset hidden tips</string>
+    <string name="tips_settings_summary">Browse ideas for Impulsive, phone settings and supported apps.</string>
+    <string name="tips_unknown">That tip is no longer available.</string>
+    <string name="tips_back">Back</string>
+    <string name="tips_match_onboarding">This idea matches a choice you made during your private on-device setup.</string>
+    <string name="tips_match_configuration">This idea relates to an Impulsive feature available on this device.</string>
+    <string name="tips_source_android">Android Help</string>
+    <string name="tips_source_meta">Meta</string>
+    <string name="tips_source_impulsive">Impulsive</string>
+    <string name="tips_category_social_media">Social media</string>
+    <string name="tips_category_browser">Browser</string>
+    <string name="tips_category_late_night">Late night</string>
+    <string name="tips_category_morning">Morning</string>
+    <string name="tips_category_boredom">Boredom</string>
+    <string name="tips_category_stress">Stress</string>
+    <string name="tips_category_being_alone">Being alone</string>
+    <string name="tips_category_focus">Focus</string>
+    <string name="tips_category_notifications">Notifications</string>
+    <string name="tips_category_sleep">Sleep</string>
+    <string name="tips_category_impulsive_protection">Impulsive protection</string>
+    <string name="tips_category_moment_plan">Moment Plan</string>
+    <string name="tips_category_reset_reading">Reset Reading</string>
+    <string name="tips_category_general">General</string>
+    <string name="moment_plan_home_label">MOMENT PLAN</string>
+    <string name="moment_plan_home_title">Prepare a plan</string>
+    <string name="moment_plan_home_summary">Have one action ready for later.</string>
+    <string name="moment_plan_home_create">Create plan &gt;</string>
+    <string name="moment_plan_home_open">Open plan &gt;</string>
+    <string name="website_protection_home_title">Website Protection</string>
+    <string name="website_protection_home_on">On</string>
+    <string name="website_protection_home_off">Off</string>
+    <string name="website_protection_home_description">Blocks adult and risky websites in supported browsers.</string>
+    <string name="website_protection_home_manage">Manage &gt;</string>
+    <string name="protection_coach_description">Optional suggestions about protection timing based on patterns stored on this device.</string>
+    <string name="protection_coach_empty">No timing suggestion is waiting right now.</string>
+    <string name="protection_coach_timing_title">Review an evening protection time?</string>
+    <string name="protection_coach_timing_body">Several recent protected moments happened late at night.</string>
+    <string name="protection_coach_review_time">Review time</string>
+    <string name="protection_coach_not_now">Not now</string>
+    <string name="protection_coach_never">Do not suggest again</string>
+
+    <string name="tip_android_focus_title">Pause distracting apps with Focus mode</string>
+    <string name="tip_android_focus_summary">Choose a few apps to pause during a planned focus period.</string>
+    <string-array name="tip_android_focus_steps">
+        <item>Open Settings, then Digital Wellbeing and parental controls.</item>
+        <item>Open Focus mode and choose the apps you want to pause.</item>
+        <item>Turn it on now or set a schedule that suits you.</item>
+    </string-array>
+    <string name="tip_android_focus_why">A planned pause can add a small boundary without removing the apps from your phone.</string>
+
+    <string name="tip_android_timers_title">Try an app timer</string>
+    <string name="tip_android_timers_summary">Set a daily limit for an app you want to use more deliberately.</string>
+    <string-array name="tip_android_timers_steps">
+        <item>Open Digital Wellbeing and parental controls in Settings.</item>
+        <item>Open the dashboard and choose an app.</item>
+        <item>Set a timer you consider realistic, then adjust it if needed.</item>
+    </string-array>
+    <string name="tip_android_timers_why">A visible daily boundary may make it easier to notice how long an app has been open.</string>
+
+    <string name="tip_android_notifications_title">Reduce one notification category</string>
+    <string name="tip_android_notifications_summary">Keep useful alerts while quieting a category that repeatedly pulls your attention.</string>
+    <string-array name="tip_android_notifications_steps">
+        <item>Open Settings, then Notifications and App notifications.</item>
+        <item>Choose an app and review its notification categories.</item>
+        <item>Turn off only a category you do not need.</item>
+    </string-array>
+    <string name="tip_android_notifications_why">Fewer unnecessary prompts can leave more choice about when you open an app.</string>
+
+    <string name="tip_android_dnd_title">Set a quieter phone mode</string>
+    <string name="tip_android_dnd_summary">Use Do Not Disturb or another Android mode for a planned quiet period.</string>
+    <string-array name="tip_android_dnd_steps">
+        <item>Open Settings and find Modes or Do Not Disturb.</item>
+        <item>Choose which people, apps and alarms may interrupt you.</item>
+        <item>Turn it on now or set a schedule.</item>
+    </string-array>
+    <string name="tip_android_dnd_why">Choosing exceptions in advance can reduce interruptions while keeping important alerts available.</string>
+
+    <string name="tip_android_bedtime_title">Prepare a Bedtime mode</string>
+    <string name="tip_android_bedtime_summary">Schedule a quieter display and fewer interruptions near bedtime.</string>
+    <string-array name="tip_android_bedtime_steps">
+        <item>Open Settings, then Modes or Digital Wellbeing.</item>
+        <item>Choose Bedtime mode and set the days and times.</item>
+        <item>Review notification and display options before saving.</item>
+    </string-array>
+    <string name="tip_android_bedtime_why">A predictable change in the phone environment may make late-night use easier to notice.</string>
+
+    <string name="tip_android_move_apps_title">Move a distracting app off the first page</string>
+    <string name="tip_android_move_apps_summary">Add a little distance by moving an app away from your first Home screen.</string>
+    <string-array name="tip_android_move_apps_steps">
+        <item>Touch and hold the app icon on your Home screen.</item>
+        <item>Drag it to another page, folder or Remove area.</item>
+        <item>Remember that Remove from Home does not uninstall the app.</item>
+    </string-array>
+    <string name="tip_android_move_apps_why">A small extra step can create time to choose whether you still want to open the app.</string>
+
+    <string name="tip_instagram_sleep_title">Review Instagram Sleep mode</string>
+    <string name="tip_instagram_sleep_summary">Choose times when Instagram notifications should stay quiet.</string>
+    <string-array name="tip_instagram_sleep_steps">
+        <item>In Instagram, open your profile and the More options menu.</item>
+        <item>Open Time management, then Sleep mode.</item>
+        <item>Choose the days and times, then save your changes.</item>
+    </string-array>
+    <string name="tip_instagram_sleep_why">A notification-free period may support a boundary you have already chosen.</string>
+
+    <string name="tip_instagram_hide_title">Hide an unwanted Instagram suggestion</string>
+    <string name="tip_instagram_hide_summary">Tell Instagram when a suggested post is not useful to you.</string>
+    <string-array name="tip_instagram_hide_steps">
+        <item>Find a suggested post you do not want to see.</item>
+        <item>Open its three-dot menu or use the visible close control.</item>
+        <item>Choose Not interested when it is available.</item>
+    </string-array>
+    <string name="tip_instagram_hide_why">Using the service’s own feedback control may reduce similar recommendations over time.</string>
+
+    <string name="tip_instagram_reset_title">Check for Reset suggested content</string>
+    <string name="tip_instagram_reset_summary">If available, start Instagram recommendations again from a cleaner baseline.</string>
+    <string-array name="tip_instagram_reset_steps">
+        <item>Open your Instagram profile and the More options menu.</item>
+        <item>Open Content preferences.</item>
+        <item>If shown, choose Reset suggested content and review the explanation before confirming.</item>
+    </string-array>
+    <string name="tip_instagram_reset_why">A reset can give you another chance to shape recommendations through later choices and interactions.</string>
+
+    <string name="tip_social_notifications_title">Keep only useful social alerts</string>
+    <string name="tip_social_notifications_summary">Review social-app notification categories instead of silencing everything.</string>
+    <string-array name="tip_social_notifications_steps">
+        <item>Open Android Settings, then Notifications and App notifications.</item>
+        <item>Choose a social app and inspect its categories.</item>
+        <item>Keep important categories and quiet one that is not useful.</item>
+    </string-array>
+    <string name="tip_social_notifications_why">Selective changes can reduce repeated prompts while preserving alerts you value.</string>
+
+    <string name="tip_impulsive_apps_title">Protect only the apps you choose</string>
+    <string name="tip_impulsive_apps_summary">Review the protected-app list and keep it focused on the apps you genuinely want covered.</string>
+    <string-array name="tip_impulsive_apps_steps">
+        <item>Open Settings in Impulsive.</item>
+        <item>Choose apps to protect.</item>
+        <item>Add or remove apps, then keep the permissions Impulsive needs available.</item>
+    </string-array>
+    <string name="tip_impulsive_apps_why">A deliberate list keeps protection aligned with the boundary you intended.</string>
+
+    <string name="tip_impulsive_plan_title">Prepare one Moment Plan</string>
+    <string name="tip_impulsive_plan_summary">Have one small action ready before a difficult moment arrives.</string>
+    <string-array name="tip_impulsive_plan_steps">
+        <item>Open Moment Plan in Impulsive.</item>
+        <item>Choose a cue and one realistic next action.</item>
+        <item>Save the plan and review it when your circumstances change.</item>
+    </string-array>
+    <string name="tip_impulsive_plan_why">Preparing a simple action earlier can reduce the number of choices needed in the moment.</string>
+
+    <string name="tip_impulsive_practise_title">Practise your current Moment Plan</string>
+    <string name="tip_impulsive_practise_summary">Walk through the saved plan once while the moment is calm.</string>
+    <string-array name="tip_impulsive_practise_steps">
+        <item>Open your Moment Plans.</item>
+        <item>Choose the enabled plan you want to rehearse.</item>
+        <item>Use Practise and complete the current saved revision.</item>
+    </string-array>
+    <string name="tip_impulsive_practise_why">A short rehearsal can make the prepared action more familiar without changing the plan automatically.</string>
+
+    <string name="tip_impulsive_schedule_title">Review a protection schedule</string>
+    <string name="tip_impulsive_schedule_summary">Set protection times that reflect when you actually want support.</string>
+    <string-array name="tip_impulsive_schedule_steps">
+        <item>Open Impulsive protection settings.</item>
+        <item>Review the current protected windows.</item>
+        <item>Edit and confirm a time only if it suits your routine.</item>
+    </string-array>
+    <string name="tip_impulsive_schedule_why">A schedule can make the intended boundary available at predictable times while leaving the final choice with you.</string>
+
+    <string name="tip_impulsive_website_title">Review Website Protection</string>
+    <string name="tip_impulsive_website_summary">Check the existing Website Protection screen and its current VPN status.</string>
+    <string-array name="tip_impulsive_website_steps">
+        <item>Open Website Protection from Home or Settings.</item>
+        <item>Review its status and supported-browser information.</item>
+        <item>Change the setting only if you choose to.</item>
+    </string-array>
+    <string name="tip_impulsive_website_why">The status screen keeps website protection and its required VPN state in one place.</string>
+
+    <string name="tip_impulsive_reading_title">Use Reset Reading for a small pause</string>
+    <string name="tip_impulsive_reading_summary">Choose one short reading when a low-energy action feels more realistic.</string>
+    <string-array name="tip_impulsive_reading_steps">
+        <item>Open Reset Reading from Home.</item>
+        <item>Choose a short card and read at your own pace.</item>
+        <item>Let the timer finish, then decide what to do next.</item>
+    </string-array>
+    <string name="tip_impulsive_reading_why">A brief, low-demand activity may help create a pause before the next choice.</string>
+
+    <string name="tip_impulsive_focus_title">Plan a Focus period</string>
+    <string name="tip_impulsive_focus_summary">Use Impulsive Focus for a distraction-free period you choose.</string>
+    <string-array name="tip_impulsive_focus_steps">
+        <item>Open Focus in Impulsive.</item>
+        <item>Choose a realistic duration and begin when ready.</item>
+        <item>Review how the period felt when it ends.</item>
+    </string-array>
+    <string name="tip_impulsive_focus_why">A defined start and finish can make a focused period easier to approach.</string>
+
+    <string name="tip_impulsive_what_works_title">Review What Works for Me</string>
+    <string name="tip_impulsive_what_works_summary">After enough local history exists, look for cautious patterns in past support moments.</string>
+    <string-array name="tip_impulsive_what_works_steps">
+        <item>Open Settings, then Personal Support.</item>
+        <item>Choose What Works for Me.</item>
+        <item>Review only the patterns that have enough on-device evidence.</item>
+    </string-array>
+    <string name="tip_impulsive_what_works_why">Looking back at cautious summaries may help you decide which support options are worth keeping.</string>
+</resources>

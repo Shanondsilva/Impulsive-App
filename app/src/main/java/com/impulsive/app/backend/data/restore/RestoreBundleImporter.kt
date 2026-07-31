@@ -10,6 +10,8 @@ import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
 import com.impulsive.app.backend.data.local.entity.requireValid
+import com.impulsive.app.backend.session.adaptive.AdaptivePhase4Dependencies
+import com.impulsive.app.backend.session.pathshift.PathShiftDependencies
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -64,6 +66,16 @@ class RestoreBundleImporter(
     private val database: AppDatabase = AppDatabase.getInstance(
         context.applicationContext,
     ),
+    private val recoverAdaptiveObservations: suspend () -> Unit = {
+        AdaptivePhase4Dependencies
+            .recovery(context.applicationContext)
+            .recover()
+    },
+    private val recoverPathShift: suspend () -> Unit = {
+        PathShiftDependencies
+            .recovery(context.applicationContext)
+            .recover()
+    },
 ) {
 
     private val appContext = context.applicationContext
@@ -102,6 +114,7 @@ class RestoreBundleImporter(
         val checklistItems: List<ValidatedChecklistItem>,
         val recoverySessions: List<RecoverySessionEntity>,
         val blockedDomains: List<BlockedDomainEntity>,
+        val adaptive: ValidatedAdaptiveRestorePayload?,
     )
 
     private data class ValidatedJournalNote(
@@ -357,7 +370,11 @@ class RestoreBundleImporter(
                 .getAll()
                 .any { domain ->
                     domain.addedByUser
-                }
+                } ||
+            database.momentPlanDao().count() > 0 ||
+            database.adaptiveDecisionDao().count() > 0 ||
+            database.momentPlanRehearsalDao().getAllForBackup().isNotEmpty()
+            || database.pathShiftCycleDao().getAllForBackup().isNotEmpty()
 
     private fun validateJournalNotes(
         notes: JSONArray,
@@ -721,6 +738,10 @@ class RestoreBundleImporter(
             checklistItems = validatedChecklistItems,
             recoverySessions = validatedRecoverySessions,
             blockedDomains = validatedBlockedDomains,
+            adaptive = AdaptiveRestorePayloadCodec.decodeIfPresent(
+                payload = parsed,
+                restoredAtMillis = System.currentTimeMillis(),
+            ),
         )
     }
 
@@ -729,10 +750,13 @@ class RestoreBundleImporter(
         mode: ImportMode = ImportMode.RejectIfExistingData,
         cloudRestoreReceipt: CloudRestoreReceiptEntity? = null,
     ): ImportOutcome = withContext(Dispatchers.IO) {
-        cloudRestoreReceipt?.requireValid()
-        val validatedPayload = validatePayload(parsed)
+        com.impulsive.app.backend.session.adaptive.AdaptiveRetentionRuntimeState
+            .beginRestore()
+        try {
+            cloudRestoreReceipt?.requireValid()
+            val validatedPayload = validatePayload(parsed)
 
-        database.withTransaction {
+        val outcome = database.withTransaction {
             val journalNoteDao = database.journalNoteDao()
             val recoverySessionDao = database.recoverySessionDao()
             val blockedDomainDao = database.blockedDomainDao()
@@ -751,6 +775,15 @@ class RestoreBundleImporter(
                 journalNoteDao.clearAllUserNotesForRestore()
                 recoverySessionDao.clearAllForRestore()
                 blockedDomainDao.clearAllUserDomainsForRestore()
+            }
+
+            validatedPayload.adaptive?.let {
+                database.adaptiveDecisionDao().clearLearningHistory()
+                database.momentPlanRehearsalDao().clearAll()
+                database.momentPlanDao().clearAll()
+                database.adaptivePreferenceDao().clearAll()
+                database.pathShiftCycleDao().clearAll()
+                database.protectionCoachSuggestionDao().clearAllCoachData()
             }
 
             val noteIdMap = HashMap<Long, Long>()
@@ -799,11 +832,68 @@ class RestoreBundleImporter(
                 )
             }
 
+            validatedPayload.adaptive?.let { adaptive ->
+                adaptive.plans.forEach { plan ->
+                    database.momentPlanDao().insertForRestore(plan)
+                }
+                database.adaptivePreferenceDao().insertForRestore(
+                    adaptive.preferences,
+                )
+                adaptive.decisions.forEach { decision ->
+                    database.adaptiveDecisionDao().insertForRestore(decision)
+                }
+                adaptive.rehearsals.forEach { rehearsal ->
+                    database.momentPlanRehearsalDao().insertForRestore(rehearsal)
+                }
+                adaptive.pathShiftCycles.forEach { cycle ->
+                    database.pathShiftCycleDao().insertForRestore(cycle)
+                }
+                adaptive.protectionCoachSuggestions.forEach { suggestion ->
+                    database.protectionCoachSuggestionDao().insertForRestore(suggestion)
+                }
+            }
+
             cloudRestoreReceipt?.let { receipt ->
                 database.cloudRestoreReceiptDao().insert(receipt)
             }
 
             ImportOutcome.Success
+        }
+
+        if (
+            outcome == ImportOutcome.Success &&
+            validatedPayload.adaptive != null
+        ) {
+            recoverAdaptiveObservations()
+            recoverPathShift()
+            val adaptive = validatedPayload.adaptive
+            com.impulsive.app.backend.data.local.preferences
+                .ProtectionSetupPreferencesDataSource(appContext)
+                .setProtectionMonitorTransitionCompleted(
+                    adaptive.protectionMonitorTransitionCompleted,
+                )
+            val coachPreferences =
+                com.impulsive.app.backend.data.local.preferences
+                    .ProtectionCoachPreferencesDataSource(appContext)
+            if (adaptive.suggestedSetupReviewed) {
+                coachPreferences.markSuggestedSetupReviewed()
+            }
+            if (adaptive.onboardingColdStartPriorUsed) {
+                coachPreferences.markOnboardingColdStartPriorUsed()
+            }
+        }
+            if (
+                outcome == ImportOutcome.Success &&
+                validatedPayload.adaptive != null
+            ) {
+                com.impulsive.app.backend.session.adaptive
+                    .AdaptiveHistoryRetentionScheduler
+                    .requestCleanup(appContext)
+            }
+            outcome
+        } finally {
+            com.impulsive.app.backend.session.adaptive.AdaptiveRetentionRuntimeState
+                .endRestore()
         }
     }
 

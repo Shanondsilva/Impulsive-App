@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="v28_reset_reading_title">RESET READING</string>
+    <string name="v28_reset_reading_support">Short calm cards for reset moments.</string>
+    <string name="v28_recent_session">Recent session</string>
+    <string name="v28_recent_session_eyebrow">RECENT SESSION</string>
+    <string name="v28_personal_best">Personal best</string>
+    <string name="v28_personal_best_eyebrow">PERSONAL BEST</string>
+    <string name="v28_show_personal_best">Show personal best</string>
+    <string name="v28_show_recent_session">Show recent session</string>
+    <string name="v28_recent_session_empty">Complete a game to see your recent session.</string>
+    <string name="v28_personal_best_empty">Complete a game to set your first score.</string>
+    <string name="v28_score_points">%1$s points</string>
+</resources>

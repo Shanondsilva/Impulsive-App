@@ -1,0 +1,1016 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 9,
+    "identityHash": "0bd6e481951e0313de69cb3ce37fc320",
+    "entities": [
+      {
+        "tableName": "recovery_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startedAt` INTEGER NOT NULL, `completedAt` INTEGER NOT NULL, `durationSeconds` INTEGER NOT NULL, `urgeBefore` INTEGER, `urgeAfter` INTEGER, `helped` INTEGER, `triggerSource` TEXT NOT NULL, `recoveryType` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "durationSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "urgeBefore",
+            "columnName": "urgeBefore",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "urgeAfter",
+            "columnName": "urgeAfter",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "helped",
+            "columnName": "helped",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "triggerSource",
+            "columnName": "triggerSource",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recoveryType",
+            "columnName": "recoveryType",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "journal_notes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `noteType` TEXT NOT NULL, `title` TEXT NOT NULL, `body` TEXT NOT NULL, `checklist` TEXT NOT NULL, `sketch` TEXT NOT NULL, `reminderAtMillis` INTEGER, `source` TEXT NOT NULL, `createdAtMillis` INTEGER NOT NULL, `updatedAtMillis` INTEGER NOT NULL, `isPinned` INTEGER NOT NULL DEFAULT 0, `category` TEXT NOT NULL DEFAULT '', `highlightColor` TEXT, `sortOrder` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noteType",
+            "columnName": "noteType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "body",
+            "columnName": "body",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "checklist",
+            "columnName": "checklist",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sketch",
+            "columnName": "sketch",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reminderAtMillis",
+            "columnName": "reminderAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMillis",
+            "columnName": "updatedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPinned",
+            "columnName": "isPinned",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "highlightColor",
+            "columnName": "highlightColor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "journal_checklist_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `noteId` INTEGER NOT NULL, `text` TEXT NOT NULL, `isChecked` INTEGER NOT NULL DEFAULT 0, `sortOrder` INTEGER NOT NULL, `createdAtMillis` INTEGER NOT NULL, `updatedAtMillis` INTEGER NOT NULL, FOREIGN KEY(`noteId`) REFERENCES `journal_notes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noteId",
+            "columnName": "noteId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isChecked",
+            "columnName": "isChecked",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMillis",
+            "columnName": "updatedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_journal_checklist_items_noteId",
+            "unique": false,
+            "columnNames": [
+              "noteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_journal_checklist_items_noteId` ON `${TABLE_NAME}` (`noteId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "journal_notes",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "noteId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "blocked_domain",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `domain` TEXT NOT NULL, `category` TEXT NOT NULL, `isDefault` INTEGER NOT NULL, `addedByUser` INTEGER NOT NULL, `createdAtMillis` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "domain",
+            "columnName": "domain",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDefault",
+            "columnName": "isDefault",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedByUser",
+            "columnName": "addedByUser",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_blocked_domain_domain",
+            "unique": true,
+            "columnNames": [
+              "domain"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_blocked_domain_domain` ON `${TABLE_NAME}` (`domain`)"
+          }
+        ]
+      },
+      {
+        "tableName": "feedback_responses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `promptDateEpochDay` INTEGER NOT NULL, `questionIndex` INTEGER NOT NULL, `questionText` TEXT NOT NULL, `positiveAnswerText` TEXT NOT NULL, `honestAnswerText` TEXT NOT NULL, `selectedAnswerIndex` INTEGER, `createdAtMillis` INTEGER NOT NULL, `answeredAtMillis` INTEGER, `expiresAtMillis` INTEGER NOT NULL, `updatedAtMillis` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "promptDateEpochDay",
+            "columnName": "promptDateEpochDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "questionIndex",
+            "columnName": "questionIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "questionText",
+            "columnName": "questionText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positiveAnswerText",
+            "columnName": "positiveAnswerText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "honestAnswerText",
+            "columnName": "honestAnswerText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selectedAnswerIndex",
+            "columnName": "selectedAnswerIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "answeredAtMillis",
+            "columnName": "answeredAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "expiresAtMillis",
+            "columnName": "expiresAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMillis",
+            "columnName": "updatedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_feedback_responses_promptDateEpochDay",
+            "unique": true,
+            "columnNames": [
+              "promptDateEpochDay"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_feedback_responses_promptDateEpochDay` ON `${TABLE_NAME}` (`promptDateEpochDay`)"
+          },
+          {
+            "name": "index_feedback_responses_expiresAtMillis",
+            "unique": false,
+            "columnNames": [
+              "expiresAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feedback_responses_expiresAtMillis` ON `${TABLE_NAME}` (`expiresAtMillis`)"
+          },
+          {
+            "name": "index_feedback_responses_answeredAtMillis",
+            "unique": false,
+            "columnNames": [
+              "answeredAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feedback_responses_answeredAtMillis` ON `${TABLE_NAME}` (`answeredAtMillis`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_tombstones",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `recordType` TEXT NOT NULL, `parentKey` TEXT NOT NULL DEFAULT '', `recordKey` TEXT NOT NULL, `deletedAtMillis` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordType",
+            "columnName": "recordType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentKey",
+            "columnName": "parentKey",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "recordKey",
+            "columnName": "recordKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAtMillis",
+            "columnName": "deletedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_tombstones_recordType_parentKey_recordKey",
+            "unique": true,
+            "columnNames": [
+              "recordType",
+              "parentKey",
+              "recordKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_tombstones_recordType_parentKey_recordKey` ON `${TABLE_NAME}` (`recordType`, `parentKey`, `recordKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "cloud_restore_receipts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`receiptId` TEXT NOT NULL, `payloadSha256` TEXT NOT NULL, `proofType` TEXT NOT NULL, `previousUid` TEXT, `previousGoogleSubjectHash` TEXT, `currentUid` TEXT NOT NULL, `currentGoogleSubjectHash` TEXT, `importedAtMillis` INTEGER NOT NULL, PRIMARY KEY(`receiptId`))",
+        "fields": [
+          {
+            "fieldPath": "receiptId",
+            "columnName": "receiptId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadSha256",
+            "columnName": "payloadSha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "proofType",
+            "columnName": "proofType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "previousUid",
+            "columnName": "previousUid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "previousGoogleSubjectHash",
+            "columnName": "previousGoogleSubjectHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currentUid",
+            "columnName": "currentUid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentGoogleSubjectHash",
+            "columnName": "currentGoogleSubjectHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "importedAtMillis",
+            "columnName": "importedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "receiptId"
+          ]
+        }
+      },
+      {
+        "tableName": "adaptive_decisions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`decisionId` TEXT NOT NULL, `protectionIncidentToken` TEXT NOT NULL, `sourceKind` TEXT NOT NULL, `createdAtMillis` INTEGER NOT NULL, `momentWindowStartedAtMillis` INTEGER NOT NULL, `momentIntensity` TEXT NOT NULL, `momentCue` TEXT, `baselineUrgeRating` INTEGER, `assignmentMode` TEXT NOT NULL, `eligibleInterventionsMask` INTEGER NOT NULL, `assignedSuggestion` TEXT, `actualIntervention` TEXT, `selectionProbability` REAL, `reasonCode` TEXT NOT NULL, `momentPlanId` TEXT, `momentPlanUpdatedAtMillis` INTEGER, `userOverrodeSuggestion` INTEGER NOT NULL, `presentedAtMillis` INTEGER, `startedAtMillis` INTEGER, `completedAtMillis` INTEGER, `dismissedAtMillis` INTEGER, `feedbackCode` TEXT NOT NULL, `feedbackUpdatedAtMillis` INTEGER, `repeatDetectedWithin20Minutes` INTEGER, `firstRepeatAtMillis` INTEGER, `observationDeadlineAtMillis` INTEGER NOT NULL, `observationFinalisedAtMillis` INTEGER, PRIMARY KEY(`decisionId`))",
+        "fields": [
+          {
+            "fieldPath": "decisionId",
+            "columnName": "decisionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "protectionIncidentToken",
+            "columnName": "protectionIncidentToken",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKind",
+            "columnName": "sourceKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "momentWindowStartedAtMillis",
+            "columnName": "momentWindowStartedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "momentIntensity",
+            "columnName": "momentIntensity",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "momentCue",
+            "columnName": "momentCue",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "baselineUrgeRating",
+            "columnName": "baselineUrgeRating",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "assignmentMode",
+            "columnName": "assignmentMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eligibleInterventionsMask",
+            "columnName": "eligibleInterventionsMask",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assignedSuggestion",
+            "columnName": "assignedSuggestion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "actualIntervention",
+            "columnName": "actualIntervention",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "selectionProbability",
+            "columnName": "selectionProbability",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "reasonCode",
+            "columnName": "reasonCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "momentPlanId",
+            "columnName": "momentPlanId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "momentPlanUpdatedAtMillis",
+            "columnName": "momentPlanUpdatedAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "userOverrodeSuggestion",
+            "columnName": "userOverrodeSuggestion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "presentedAtMillis",
+            "columnName": "presentedAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "startedAtMillis",
+            "columnName": "startedAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "completedAtMillis",
+            "columnName": "completedAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dismissedAtMillis",
+            "columnName": "dismissedAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "feedbackCode",
+            "columnName": "feedbackCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "feedbackUpdatedAtMillis",
+            "columnName": "feedbackUpdatedAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "repeatDetectedWithin20Minutes",
+            "columnName": "repeatDetectedWithin20Minutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "firstRepeatAtMillis",
+            "columnName": "firstRepeatAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "observationDeadlineAtMillis",
+            "columnName": "observationDeadlineAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observationFinalisedAtMillis",
+            "columnName": "observationFinalisedAtMillis",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "decisionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_adaptive_decisions_protectionIncidentToken",
+            "unique": true,
+            "columnNames": [
+              "protectionIncidentToken"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_adaptive_decisions_protectionIncidentToken` ON `${TABLE_NAME}` (`protectionIncidentToken`)"
+          },
+          {
+            "name": "index_adaptive_decisions_createdAtMillis",
+            "unique": false,
+            "columnNames": [
+              "createdAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_adaptive_decisions_createdAtMillis` ON `${TABLE_NAME}` (`createdAtMillis`)"
+          },
+          {
+            "name": "index_adaptive_decisions_observationFinalisedAtMillis_observationDeadlineAtMillis",
+            "unique": false,
+            "columnNames": [
+              "observationFinalisedAtMillis",
+              "observationDeadlineAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_adaptive_decisions_observationFinalisedAtMillis_observationDeadlineAtMillis` ON `${TABLE_NAME}` (`observationFinalisedAtMillis`, `observationDeadlineAtMillis`)"
+          },
+          {
+            "name": "index_adaptive_decisions_actualIntervention_observationFinalisedAtMillis_createdAtMillis",
+            "unique": false,
+            "columnNames": [
+              "actualIntervention",
+              "observationFinalisedAtMillis",
+              "createdAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_adaptive_decisions_actualIntervention_observationFinalisedAtMillis_createdAtMillis` ON `${TABLE_NAME}` (`actualIntervention`, `observationFinalisedAtMillis`, `createdAtMillis`)"
+          },
+          {
+            "name": "index_adaptive_decisions_momentCue_observationFinalisedAtMillis_createdAtMillis",
+            "unique": false,
+            "columnNames": [
+              "momentCue",
+              "observationFinalisedAtMillis",
+              "createdAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_adaptive_decisions_momentCue_observationFinalisedAtMillis_createdAtMillis` ON `${TABLE_NAME}` (`momentCue`, `observationFinalisedAtMillis`, `createdAtMillis`)"
+          },
+          {
+            "name": "index_adaptive_decisions_momentPlanId",
+            "unique": false,
+            "columnNames": [
+              "momentPlanId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_adaptive_decisions_momentPlanId` ON `${TABLE_NAME}` (`momentPlanId`)"
+          },
+          {
+            "name": "index_adaptive_decisions_momentPlanId_momentPlanUpdatedAtMillis_startedAtMillis",
+            "unique": false,
+            "columnNames": [
+              "momentPlanId",
+              "momentPlanUpdatedAtMillis",
+              "startedAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_adaptive_decisions_momentPlanId_momentPlanUpdatedAtMillis_startedAtMillis` ON `${TABLE_NAME}` (`momentPlanId`, `momentPlanUpdatedAtMillis`, `startedAtMillis`)"
+          }
+        ]
+      },
+      {
+        "tableName": "moment_plans",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`planId` TEXT NOT NULL, `title` TEXT NOT NULL, `momentCue` TEXT, `actionText` TEXT NOT NULL, `futureCueText` TEXT NOT NULL, `actionType` TEXT NOT NULL, `actionTarget` TEXT, `enabled` INTEGER NOT NULL, `preferredForCue` INTEGER NOT NULL, `createdAtMillis` INTEGER NOT NULL, `updatedAtMillis` INTEGER NOT NULL, `rehearsedAtMillis` INTEGER, PRIMARY KEY(`planId`))",
+        "fields": [
+          {
+            "fieldPath": "planId",
+            "columnName": "planId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "momentCue",
+            "columnName": "momentCue",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "actionText",
+            "columnName": "actionText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "futureCueText",
+            "columnName": "futureCueText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actionType",
+            "columnName": "actionType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actionTarget",
+            "columnName": "actionTarget",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "preferredForCue",
+            "columnName": "preferredForCue",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMillis",
+            "columnName": "updatedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rehearsedAtMillis",
+            "columnName": "rehearsedAtMillis",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "planId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_moment_plans_enabled_updatedAtMillis",
+            "unique": false,
+            "columnNames": [
+              "enabled",
+              "updatedAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_moment_plans_enabled_updatedAtMillis` ON `${TABLE_NAME}` (`enabled`, `updatedAtMillis`)"
+          },
+          {
+            "name": "index_moment_plans_momentCue_enabled_preferredForCue",
+            "unique": false,
+            "columnNames": [
+              "momentCue",
+              "enabled",
+              "preferredForCue"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_moment_plans_momentCue_enabled_preferredForCue` ON `${TABLE_NAME}` (`momentCue`, `enabled`, `preferredForCue`)"
+          }
+        ]
+      },
+      {
+        "tableName": "adaptive_preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `personalSuggestionsEnabled` INTEGER NOT NULL DEFAULT 1, `gameSuggestionsEnabled` INTEGER NOT NULL DEFAULT 1, `readingSuggestionsEnabled` INTEGER NOT NULL DEFAULT 1, `momentPlanSuggestionsEnabled` INTEGER NOT NULL DEFAULT 1, `randomisedExplorationEnabled` INTEGER NOT NULL DEFAULT 1, `updatedAtMillis` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "personalSuggestionsEnabled",
+            "columnName": "personalSuggestionsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "gameSuggestionsEnabled",
+            "columnName": "gameSuggestionsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "readingSuggestionsEnabled",
+            "columnName": "readingSuggestionsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "momentPlanSuggestionsEnabled",
+            "columnName": "momentPlanSuggestionsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "randomisedExplorationEnabled",
+            "columnName": "randomisedExplorationEnabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "updatedAtMillis",
+            "columnName": "updatedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "moment_plan_rehearsals",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rehearsalId` TEXT NOT NULL, `planId` TEXT NOT NULL, `planUpdatedAtMillisAtStart` INTEGER NOT NULL, `mode` TEXT NOT NULL, `startedAtMillis` INTEGER NOT NULL, `completedAtMillis` INTEGER, `dismissedAtMillis` INTEGER, PRIMARY KEY(`rehearsalId`))",
+        "fields": [
+          {
+            "fieldPath": "rehearsalId",
+            "columnName": "rehearsalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "planId",
+            "columnName": "planId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "planUpdatedAtMillisAtStart",
+            "columnName": "planUpdatedAtMillisAtStart",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMillis",
+            "columnName": "startedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMillis",
+            "columnName": "completedAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dismissedAtMillis",
+            "columnName": "dismissedAtMillis",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "rehearsalId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_moment_plan_rehearsals_planId_startedAtMillis",
+            "unique": false,
+            "columnNames": [
+              "planId",
+              "startedAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_moment_plan_rehearsals_planId_startedAtMillis` ON `${TABLE_NAME}` (`planId`, `startedAtMillis`)"
+          },
+          {
+            "name": "index_moment_plan_rehearsals_planId_completedAtMillis",
+            "unique": false,
+            "columnNames": [
+              "planId",
+              "completedAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_moment_plan_rehearsals_planId_completedAtMillis` ON `${TABLE_NAME}` (`planId`, `completedAtMillis`)"
+          },
+          {
+            "name": "index_moment_plan_rehearsals_completedAtMillis_dismissedAtMillis_startedAtMillis",
+            "unique": false,
+            "columnNames": [
+              "completedAtMillis",
+              "dismissedAtMillis",
+              "startedAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_moment_plan_rehearsals_completedAtMillis_dismissedAtMillis_startedAtMillis` ON `${TABLE_NAME}` (`completedAtMillis`, `dismissedAtMillis`, `startedAtMillis`)"
+          },
+          {
+            "name": "index_moment_plan_rehearsals_completedAtMillis",
+            "unique": false,
+            "columnNames": [
+              "completedAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_moment_plan_rehearsals_completedAtMillis` ON `${TABLE_NAME}` (`completedAtMillis`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0bd6e481951e0313de69cb3ce37fc320')"
+    ]
+  }
+}

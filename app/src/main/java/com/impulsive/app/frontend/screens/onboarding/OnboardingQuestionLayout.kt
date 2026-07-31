@@ -1,7 +1,5 @@
 package com.impulsive.app.frontend.screens.onboarding
 
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -19,11 +17,13 @@ internal data class OnboardingQuestionMetrics(
     val optionAreaMinHeight: Dp,
 )
 
-@Composable
-internal fun rememberQuestionResponsiveMetrics(compactHeight: Boolean): OnboardingQuestionMetrics {
-    val widthDp = LocalConfiguration.current.screenWidthDp
+internal fun onboardingQuestionMetrics(
+    viewport: OnboardingViewport,
+): OnboardingQuestionMetrics {
+    val compactHeight = viewport.compactHeight
+
     return when {
-        widthDp < 380 -> OnboardingQuestionMetrics(
+        viewport.width < 380.dp -> OnboardingQuestionMetrics(
             titleFontSize = 25.sp,
             titleLineHeight = 31.sp,
             subtitleFontSize = 15.sp,
@@ -34,7 +34,8 @@ internal fun rememberQuestionResponsiveMetrics(compactHeight: Boolean): Onboardi
             subtitleToOptionsSpacing = if (compactHeight) 18.dp else 22.dp,
             optionAreaMinHeight = if (compactHeight) 320.dp else 350.dp,
         )
-        widthDp < 430 -> OnboardingQuestionMetrics(
+
+        viewport.width < 430.dp -> OnboardingQuestionMetrics(
             titleFontSize = 27.sp,
             titleLineHeight = 34.sp,
             subtitleFontSize = 15.sp,
@@ -45,7 +46,8 @@ internal fun rememberQuestionResponsiveMetrics(compactHeight: Boolean): Onboardi
             subtitleToOptionsSpacing = if (compactHeight) 20.dp else 26.dp,
             optionAreaMinHeight = if (compactHeight) 330.dp else 360.dp,
         )
-        widthDp < 600 -> OnboardingQuestionMetrics(
+
+        viewport.width < 600.dp -> OnboardingQuestionMetrics(
             titleFontSize = 29.sp,
             titleLineHeight = 36.sp,
             subtitleFontSize = 16.sp,
@@ -56,6 +58,7 @@ internal fun rememberQuestionResponsiveMetrics(compactHeight: Boolean): Onboardi
             subtitleToOptionsSpacing = if (compactHeight) 22.dp else 30.dp,
             optionAreaMinHeight = if (compactHeight) 340.dp else 370.dp,
         )
+
         else -> OnboardingQuestionMetrics(
             titleFontSize = 32.sp,
             titleLineHeight = 40.sp,

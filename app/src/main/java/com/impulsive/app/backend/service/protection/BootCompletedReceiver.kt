@@ -43,8 +43,9 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 val appContext = context.applicationContext
                 val setup = ProtectionSetupRepository(appContext).state.first()
                 val protectionConfigured =
-                    setup.appProtectionMonitorEnabled && setup.selectedBlockedAppPackageNames.isNotEmpty() ||
-                    setup.websiteProtectionEnabled
+                    setup.configurationDrivenAppProtectionConsented &&
+                        setup.selectedBlockedAppPackageNames.isNotEmpty() ||
+                        setup.websiteProtectionEnabled
                 if (protectionConfigured) {
                     ProtectionServiceController.start(
                         context = appContext,

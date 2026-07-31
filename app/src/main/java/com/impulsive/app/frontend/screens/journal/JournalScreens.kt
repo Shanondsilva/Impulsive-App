@@ -151,7 +151,7 @@ fun JournalHubScreen(
 
         JournalModeCard(
             title = "Notes",
-            subtitle = "${state.noteCount} / ${state.maxNotes} saves Â· notes, lists and reminders.",
+                subtitle = "${state.noteCount} / ${state.maxNotes} saves · notes, lists and reminders.",
             action = "Open",
             iconTint = ImpulsiveSpiritual.copy(alpha = 0.82f),
             icon = { Icon(Icons.Outlined.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface) },
@@ -802,6 +802,7 @@ fun JournalEditorScreen(
     noteId: Long,
     initialType: JournalNoteType,
     onBack: () -> Unit,
+    onAdaptiveSaved: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     viewModel: JournalViewModel = viewModel(),
 ) {
@@ -816,7 +817,10 @@ fun JournalEditorScreen(
     }
 
     fun exitEditor() {
-        viewModel.saveCurrentIfNeeded(onBack)
+        viewModel.saveCurrentIfNeeded(
+            onSaved = onBack,
+            onPersisted = { onAdaptiveSaved?.invoke() },
+        )
     }
 
     BackHandler { exitEditor() }

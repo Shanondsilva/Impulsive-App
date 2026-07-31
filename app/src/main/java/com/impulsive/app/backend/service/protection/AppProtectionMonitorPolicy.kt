@@ -1,27 +1,34 @@
 package com.impulsive.app.backend.service.protection
 
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentPhase
+import com.impulsive.app.backend.domain.model.protection.AppProtectionMonitoringPolicy
 
 internal fun shouldMonitorProtectedApps(
     appProtectionEnabled: Boolean,
     selectedPackages: Set<String>,
     usageAccessGranted: Boolean,
+    transitionCompleted: Boolean = false,
 ): Boolean =
-    appProtectionEnabled &&
-        selectedPackages.isNotEmpty() &&
-        usageAccessGranted
+    AppProtectionMonitoringPolicy.shouldMonitor(
+        selectedPackages = selectedPackages,
+        usageAccessGranted = usageAccessGranted,
+        legacyMonitorEnabled = appProtectionEnabled,
+        transitionCompleted = transitionCompleted,
+    )
 
 internal fun shouldRecoverProtectionService(
     appProtectionEnabled: Boolean,
     selectedPackages: Set<String>,
     usageAccessGranted: Boolean,
     websiteProtectionEnabled: Boolean,
+    transitionCompleted: Boolean = false,
 ): Boolean =
     websiteProtectionEnabled ||
         shouldMonitorProtectedApps(
             appProtectionEnabled = appProtectionEnabled,
             selectedPackages = selectedPackages,
             usageAccessGranted = usageAccessGranted,
+            transitionCompleted = transitionCompleted,
         )
 
 internal fun shouldBypassGenericAppInterceptionForWebsiteProtection(

@@ -13,15 +13,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.impulsive.app.frontend.theme.ImpulsivePsychological
-
-private val UrgeRatingSelectedText = Color(0xFF281D38)
 
 @Composable
 fun UrgeRatingRow(
@@ -45,15 +42,18 @@ fun UrgeRatingRow(
         ) {
             (0..10).forEach { value ->
                 val isSelected = selected == value
+                val selectedContainer = MaterialTheme.colorScheme.primaryContainer
+                val unselectedContainer =
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                 Box(
                     modifier = Modifier
                         .size(26.dp)
                         .clip(CircleShape)
                         .background(
                             if (isSelected) {
-                                ImpulsivePsychological
+                                selectedContainer
                             } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                                unselectedContainer
                             },
                         )
                         .clickable { onSelect(value) },
@@ -62,7 +62,7 @@ fun UrgeRatingRow(
                     Text(
                         text = value.toString(),
                         color = if (isSelected) {
-                            UrgeRatingSelectedText
+                            contentColorFor(selectedContainer)
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },

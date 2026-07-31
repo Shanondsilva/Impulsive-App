@@ -357,17 +357,21 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     private fun Intent?.toBlockRequestOrNull(): BlockRequest? {
         if (this == null) return null
+        val adaptiveDecisionId = getStringExtra(BlockRequest.ExtraAdaptiveDecisionId)
+            ?.takeIf { it.isNotBlank() }
         val sourcePackage = getStringExtra(BlockRequest.ExtraSourcePackage).orEmpty()
-        if (sourcePackage.isBlank()) return null
+        if (sourcePackage.isBlank() && adaptiveDecisionId == null) return null
         return BlockRequest(
-            sourcePackageName = sourcePackage,
-            sourceLabel = getStringExtra(BlockRequest.ExtraSourceLabel).orEmpty().ifBlank { sourcePackage },
+            sourcePackageName = sourcePackage.ifBlank { "adaptive" },
+            sourceLabel = getStringExtra(BlockRequest.ExtraSourceLabel).orEmpty()
+                .ifBlank { if (sourcePackage.isBlank()) "Impulsive" else sourcePackage },
             detectedAtMillis = getLongExtra(BlockRequest.ExtraDetectedAtMillis, System.currentTimeMillis()),
             launchTarget = getStringExtra(BlockRequest.ExtraLaunchTarget)
                 ?.let { stored ->
                     BlockLaunchTarget.entries.firstOrNull { target -> target.name == stored }
                 }
                 ?: BlockLaunchTarget.BlockScreen,
+            adaptiveDecisionId = adaptiveDecisionId,
         )
     }
 
@@ -451,13 +455,28 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             sourcePackageName: String,
             sourceLabel: String,
             launchTarget: BlockLaunchTarget = BlockLaunchTarget.BlockScreen,
+            detectedAtMillis: Long = System.currentTimeMillis(),
+            adaptiveDecisionId: String? = null,
         ): Intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(BlockRequest.ExtraSourcePackage, sourcePackageName)
             putExtra(BlockRequest.ExtraSourceLabel, sourceLabel)
-            putExtra(BlockRequest.ExtraDetectedAtMillis, System.currentTimeMillis())
+            putExtra(BlockRequest.ExtraDetectedAtMillis, detectedAtMillis)
             putExtra(BlockRequest.ExtraLaunchTarget, launchTarget.name)
+            adaptiveDecisionId?.let {
+                putExtra(BlockRequest.ExtraAdaptiveDecisionId, it)
+            }
+        }
+
+        fun createAdaptiveMomentIntent(
+            context: Context,
+            decisionId: String,
+        ): Intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(BlockRequest.ExtraLaunchTarget, BlockLaunchTarget.AdaptiveMoment.name)
+            putExtra(BlockRequest.ExtraAdaptiveDecisionId, decisionId)
         }
     }
 }

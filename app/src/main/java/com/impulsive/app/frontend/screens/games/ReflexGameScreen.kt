@@ -91,13 +91,14 @@ fun ReflexGameScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     onPlayAnother: () -> Unit = {},
+    onAdaptiveCompleted: (() -> Unit)? = null,
+    onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.RECOVERY_GAME,
     viewModel: ReflexGameViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
@@ -162,18 +163,35 @@ fun ReflexGameScreen(
     }
 
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
+    fun exitWithAdaptiveOutcome(completed: Boolean) {
+        onAdaptiveExit?.invoke(completed) ?: onExit()
+    }
+    LaunchedEffect(uiState.result?.validCompletion) {
+        if (uiState.result?.validCompletion == true) {
+            onAdaptiveCompleted?.invoke()
+        }
+    }
     val mustReplay = uiState.view == GameView.Result && uiState.result?.gameOver == true
     // A block-launched round that ended early has no allowed exit: swallow back so
     // the only way on is to finish a full round. Hub rounds keep back.
     BackHandler(enabled = mustReplay && taskLaunch) { }
 
-    Column(
+    AdaptiveGameContainer(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .systemBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .background(
+                MaterialTheme.colorScheme.background,
+            ),
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(
+                    horizontal = 20.dp,
+                    vertical = 16.dp,
+                ),
+        ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -194,7 +212,7 @@ fun ReflexGameScreen(
                                 },
                             )
                         }
-                        onExit()
+                        exitWithAdaptiveOutcome(uiState.result?.validCompletion == true)
                     },
                 ) {
                     Icon(
@@ -252,11 +270,15 @@ fun ReflexGameScreen(
                             ScoreSessionOutcome.ContinuedWithIntention
                         },
                     )
-                    onExit()
+                    exitWithAdaptiveOutcome(uiState.result?.validCompletion == true)
                 },
             )
-            GameView.Walked -> WalkedView(score = uiState.walkScore, onExit = onExit)
+            GameView.Walked -> WalkedView(
+                score = uiState.walkScore,
+                onExit = { exitWithAdaptiveOutcome(false) },
+            )
         }
+    }
     }
 }
 

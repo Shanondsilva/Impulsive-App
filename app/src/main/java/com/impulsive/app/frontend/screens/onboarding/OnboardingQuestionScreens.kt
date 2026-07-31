@@ -119,8 +119,8 @@ private fun ReduceQuestionScreen(
             onBack = onBack,
             onSkip = onSkip,
             bottomBar = { ContinueButton(enabled = selectedOptionIds.isNotEmpty(), onClick = onContinue) },
-        ) { compactHeight ->
-            val metrics = rememberQuestionResponsiveMetrics(compactHeight = compactHeight)
+        ) { viewport ->
+            val metrics = onboardingQuestionMetrics(viewport)
 
             Spacer(modifier = Modifier.height(metrics.headerToIconSpacing))
             OnboardingLogoVisual(
@@ -179,8 +179,8 @@ private fun TriggerQuestionScreen(
             onBack = onBack,
             onSkip = onSkip,
             bottomBar = { ContinueButton(enabled = selectedOptionIds.isNotEmpty(), onClick = onContinue) },
-        ) { compactHeight ->
-            val metrics = rememberQuestionResponsiveMetrics(compactHeight = compactHeight)
+        ) { viewport ->
+            val metrics = onboardingQuestionMetrics(viewport)
 
             Spacer(modifier = Modifier.height(metrics.headerToIconSpacing))
             OnboardingLogoVisual(
@@ -231,8 +231,8 @@ private fun TimingQuestionScreen(
             onBack = onBack,
             onSkip = onSkip,
             bottomBar = { ContinueButton(enabled = selectedOptionIds.isNotEmpty(), onClick = onContinue) },
-        ) { compactHeight ->
-            val metrics = rememberQuestionResponsiveMetrics(compactHeight = compactHeight)
+        ) { viewport ->
+            val metrics = onboardingQuestionMetrics(viewport)
 
             Spacer(modifier = Modifier.height(metrics.headerToIconSpacing))
             OnboardingLogoVisual(
@@ -283,8 +283,8 @@ private fun WeekOneQuestionScreen(
             onBack = onBack,
             onSkip = onSkip,
             bottomBar = { ContinueButton(enabled = selectedOptionId != null, onClick = onContinue) },
-        ) { compactHeight ->
-            val metrics = rememberQuestionResponsiveMetrics(compactHeight = compactHeight)
+        ) { viewport ->
+            val metrics = onboardingQuestionMetrics(viewport)
 
             Spacer(modifier = Modifier.height(metrics.headerToIconSpacing))
             OnboardingLogoVisual(

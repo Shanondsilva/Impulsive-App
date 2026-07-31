@@ -453,7 +453,7 @@ private fun CompletionResultCard(
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
-                    text = "Tasks",
+            text = "Tasks",
                     color = colors.primaryText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
@@ -832,7 +832,7 @@ private fun BottomNoteCard(colors: TaskModeColors) {
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "Rewards only apply after the task validates completion. Opening a task or tapping through does not count.",
+            text = "Rewards only apply after the task validates completion. Opening a task or tapping through does not count.",
                 color = colors.primaryText.copy(alpha = 0.82f),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -850,14 +850,14 @@ private fun AllTasksCompleteCard(colors: TaskModeColors) {
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(
-                text = "All Tasks tried",
+            text = "All Tasks tried",
                 color = colors.primaryText,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "You have tried every current Task. New choices will appear when more task types are added.",
+            text = "You have tried every current Task. New choices will appear when more task types are added.",
                 color = colors.mutedText,
                 style = MaterialTheme.typography.bodySmall,
             )

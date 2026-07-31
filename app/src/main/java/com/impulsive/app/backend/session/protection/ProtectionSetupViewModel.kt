@@ -48,7 +48,7 @@ class ProtectionSetupViewModel(
 
             repository.setSelectedBlockedAppPackageNames(packageNames)
 
-            if (willBeEnabled && state.value.appProtectionMonitorEnabled) {
+            if (willBeEnabled && state.value.configurationDrivenAppProtectionConsented) {
                 ProtectionServiceController.start(
                     context = getApplication(),
                     origin =
@@ -91,6 +91,20 @@ class ProtectionSetupViewModel(
                     ProtectionServiceStartOrigin
                         .VisibleApp,
             )
+        }
+    }
+
+    fun setProtectionMonitorTransitionCompleted(completed: Boolean) {
+        viewModelScope.launch {
+            repository.setProtectionMonitorTransitionCompleted(completed)
+            if (completed) {
+                ProtectionServiceController.start(
+                    context = getApplication(),
+                    origin =
+                        ProtectionServiceStartOrigin
+                            .VisibleApp,
+                )
+            }
         }
     }
 

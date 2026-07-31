@@ -54,6 +54,8 @@ object ProtectionInterruptionOverlay {
         val message: String,
         val isFocusSession: Boolean,
         val resetAtEpochMillis: Long? = null,
+        val incidentStartedAtMillis: Long,
+        val adaptiveDecisionId: String? = null,
     )
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -150,6 +152,8 @@ object ProtectionInterruptionOverlay {
         message: String,
         isFocusSession: Boolean,
         resetAtEpochMillis: Long? = null,
+        incidentStartedAtMillis: Long = System.currentTimeMillis(),
+        adaptiveDecisionId: String? = null,
         onShown: () -> Unit = {},
         onFailure: () -> Unit,
     ) {
@@ -196,6 +200,8 @@ object ProtectionInterruptionOverlay {
                     message = message,
                     isFocusSession = isFocusSession,
                     resetAtEpochMillis = resetAtEpochMillis,
+                    incidentStartedAtMillis = incidentStartedAtMillis,
+                    adaptiveDecisionId = adaptiveDecisionId,
                 )
             } catch (error: RuntimeException) {
                 ProtectionLog.error(
@@ -231,6 +237,8 @@ object ProtectionInterruptionOverlay {
                 message = message,
                 isFocusSession = isFocusSession,
                 resetAtEpochMillis = resetAtEpochMillis,
+                incidentStartedAtMillis = incidentStartedAtMillis,
+                adaptiveDecisionId = adaptiveDecisionId,
             )
 
             // Register all current state before addView: attachment can happen
@@ -411,6 +419,8 @@ object ProtectionInterruptionOverlay {
         message: String,
         isFocusSession: Boolean,
         resetAtEpochMillis: Long? = null,
+        incidentStartedAtMillis: Long,
+        adaptiveDecisionId: String?,
     ): View {
         val root = FrameLayout(context).apply {
             visibility = View.VISIBLE
@@ -542,34 +552,45 @@ object ProtectionInterruptionOverlay {
                 sourcePackageName = sourcePackageName,
                 sourceLabel = sourceLabel,
                 launchTarget = launchTarget,
+                incidentStartedAtMillis = incidentStartedAtMillis,
+                adaptiveDecisionId = adaptiveDecisionId,
                 onLaunchFailure = { resetLaunchInFlight = false },
             )
         }
 
-        resetChoices.addView(
-            resetChoice(context, "Pivot by Game", LavenderColor) {
-                launchResetOnce(
-                    if (isFocusSession) {
-                        BlockLaunchTarget.FocusRecovery
-                    } else {
-                        BlockLaunchTarget.RandomRecoveryGame
-                    },
-                )
-            },
-            resetChoiceLayoutParams(context, horizontalChoices, isFirst = true),
-        )
-        resetChoices.addView(
-            resetChoice(context, "Pivot by Reading", SkyColor) {
-                launchResetOnce(
-                    if (isFocusSession) {
-                        BlockLaunchTarget.FocusRecovery
-                    } else {
-                        BlockLaunchTarget.ReadingReset
-                    },
-                )
-            },
-            resetChoiceLayoutParams(context, horizontalChoices, isFirst = false),
-        )
+        if (!isFocusSession && adaptiveDecisionId != null) {
+            resetChoices.addView(
+                resetChoice(context, "Choose a different direction", LavenderColor) {
+                    launchResetOnce(BlockLaunchTarget.AdaptiveMoment)
+                },
+                resetChoiceLayoutParams(context, horizontal = false, isFirst = true),
+            )
+        } else {
+            resetChoices.addView(
+                resetChoice(context, "Pivot by Game", LavenderColor) {
+                    launchResetOnce(
+                        if (isFocusSession) {
+                            BlockLaunchTarget.FocusRecovery
+                        } else {
+                            BlockLaunchTarget.RandomRecoveryGame
+                        },
+                    )
+                },
+                resetChoiceLayoutParams(context, horizontalChoices, isFirst = true),
+            )
+            resetChoices.addView(
+                resetChoice(context, "Pivot by Reading", SkyColor) {
+                    launchResetOnce(
+                        if (isFocusSession) {
+                            BlockLaunchTarget.FocusRecovery
+                        } else {
+                            BlockLaunchTarget.ReadingReset
+                        },
+                    )
+                },
+                resetChoiceLayoutParams(context, horizontalChoices, isFirst = false),
+            )
+        }
 
         val footer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -896,6 +917,8 @@ object ProtectionInterruptionOverlay {
         sourcePackageName: String,
         sourceLabel: String,
         launchTarget: BlockLaunchTarget,
+        incidentStartedAtMillis: Long,
+        adaptiveDecisionId: String?,
         onLaunchFailure: () -> Unit,
     ) {
         if (currentOwner != owner || currentView !== expectedView) {
@@ -913,6 +936,8 @@ object ProtectionInterruptionOverlay {
             sourcePackageName = sourcePackageName,
             sourceLabel = sourceLabel,
             launchTarget = launchTarget,
+            detectedAtMillis = incidentStartedAtMillis,
+            adaptiveDecisionId = adaptiveDecisionId,
         )
         runCatching {
             context.startActivity(intent)

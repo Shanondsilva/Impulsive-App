@@ -90,13 +90,14 @@ fun RhythmTilesScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     onPlayAnother: () -> Unit = {},
+    onAdaptiveCompleted: (() -> Unit)? = null,
+    onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.RECOVERY_GAME,
     viewModel: RhythmTilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     appSettingsViewModel: AppSettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
-    LockPortraitOrientation()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
@@ -152,22 +153,36 @@ fun RhythmTilesScreen(
     }
 
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
+    val adaptiveCompleted =
+        uiState.result?.validCompletion == true && uiState.result?.gameOver == false
+    fun exitWithAdaptiveOutcome() {
+        onAdaptiveExit?.invoke(adaptiveCompleted) ?: onExit()
+    }
+    LaunchedEffect(adaptiveCompleted) {
+        if (adaptiveCompleted) onAdaptiveCompleted?.invoke()
+    }
     // A block-launched round that ended early has no allowed exit: the only way on
     // is to finish a full round. Hub rounds keep back.
     val mustReplay = uiState.view == GameView.Result && uiState.result?.gameOver == true
     BackHandler {
         if (!(mustReplay && taskLaunch)) {
-            onExit()
+            exitWithAdaptiveOutcome()
         }
     }
 
-    Column(
+    AdaptiveGameContainer(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .systemBarsPadding()
-            .padding(horizontal = 16.dp),
+            .background(
+                MaterialTheme.colorScheme.background,
+            ),
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(horizontal = 16.dp),
+        ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -175,7 +190,7 @@ fun RhythmTilesScreen(
                 .padding(top = 6.dp, bottom = 4.dp),
         ) {
             if (!(mustReplay && taskLaunch)) {
-                IconButton(onClick = onExit) {
+                IconButton(onClick = ::exitWithAdaptiveOutcome) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
@@ -222,10 +237,14 @@ fun RhythmTilesScreen(
                 onWalkAway = viewModel::walkAway,
                 onPlayAgain = viewModel::playAgain,
                 onPlayAnother = onPlayAnother,
-                onExit = onExit,
+                onExit = ::exitWithAdaptiveOutcome,
             )
-            GameView.Walked -> RhythmWalkedView(score = uiState.walkScore, onExit = onExit)
+            GameView.Walked -> RhythmWalkedView(
+                score = uiState.walkScore,
+                onExit = ::exitWithAdaptiveOutcome,
+            )
         }
+    }
     }
 }
 
