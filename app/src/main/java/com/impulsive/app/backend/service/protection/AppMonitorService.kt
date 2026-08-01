@@ -846,8 +846,9 @@ class AppMonitorService : Service() {
      * Debounced identically to handleBlockedAppOpen. Records a session
      * interruption instead of an urge event: focus interruptions are a
      * different signal and must not feed the urge trend or taper inputs.
-     * Interim: launches the existing block screen; a later prompt reroutes
-     * this to the focus recovery screen.
+     * Active Focus interruptions route to the Focus-specific recovery/options
+     * experience (overlay and fallback notification both target FocusRecovery),
+     * never the ordinary Game/Reading pivot choices.
      */
     private fun handleFocusInterruption(
         sourcePackageName: String,

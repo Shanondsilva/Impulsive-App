@@ -223,6 +223,63 @@ class MomentPlanPhase3Test {
     }
 
     @Test
+    fun stepThreeScopesBlankTextValidationToTextOnlyActions() {
+        val stepValidation = viewModels.substring(
+            viewModels.indexOf(
+                "private fun stepValidationMessage",
+            ),
+            viewModels.indexOf(
+                "private fun updateEditor",
+            ),
+        )
+
+        assertTrue(
+            stepValidation.contains(
+                "3 -> when (state.actionType)",
+            ),
+        )
+
+        val textOnlyBranch = stepValidation.substring(
+            stepValidation.indexOf(
+                "MomentPlanActionType.TextOnly ->",
+            ),
+            stepValidation.indexOf(
+                "MomentPlanActionType.OpenImpulsiveDestination,",
+            ),
+        )
+
+        assertTrue(
+            textOnlyBranch.contains(
+                "state.actionText.isBlank()",
+            ),
+        )
+
+        assertTrue(
+            textOnlyBranch.contains(
+                "MomentPlanPresentation.hasMeaningfulAction",
+            ),
+        )
+
+        val targetBranches = stepValidation.substring(
+            stepValidation.indexOf(
+                "MomentPlanActionType.OpenImpulsiveDestination,",
+            ),
+        )
+
+        assertTrue(
+            targetBranches.contains(
+                "selectedTargetValidationMessage(state)",
+            ),
+        )
+
+        assertFalse(
+            targetBranches.contains(
+                "state.actionText.isBlank()",
+            ),
+        )
+    }
+
+    @Test
     fun homeEmptyCardCopyIsPresent() {
         assertTrue(home.contains("R.string.moment_plan_home_title"))
         assertTrue(home.contains("private fun MomentPlanCompactCard("))

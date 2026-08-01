@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,11 +29,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.MilitaryTech
 import androidx.compose.material.icons.filled.Moving
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.ViewModule
@@ -48,6 +51,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -78,9 +82,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -138,6 +139,8 @@ private const val ScoreFlipInitialPauseMs = 15_000L
 private const val ScoreFlipDurationMs = 1_050
 private const val ScoreFlipPersonalBestHoldMs = 8_000L
 private val ScoreFlipCardHeight = 218.dp
+private val ScoreFlipControlReservedSpace = 52.dp
+private val ResetReadingGreenGlow = Color(0xFF93E9BE)
 
 private data class ScoreScreenColors(
     val background: Color,
@@ -263,13 +266,15 @@ fun ProgressDashboardScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(colors.background)
-            .statusBarsPadding(),
+            .background(colors.background),
     ) {
-        ImpulsiveAmbientBackground()
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
@@ -1118,9 +1123,6 @@ private fun ScoreRecordsCard(
         }
     }
 
-    val faceLabel = stringResource(
-        if (frontVisible) R.string.v28_personal_best else R.string.v28_recent_session,
-    )
     val actionLabel = stringResource(
         if (frontVisible) R.string.v28_show_recent_session else R.string.v28_show_personal_best,
     )
@@ -1163,17 +1165,7 @@ private fun ScoreRecordsCard(
                 clip = false,
                 ambientColor = accent.copy(alpha = 0.12f),
                 spotColor = accent.copy(alpha = 0.10f),
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Button,
-                onClickLabel = actionLabel,
-                onClick = requestManualFlip,
-            )
-            .semantics(mergeDescendants = true) {
-                contentDescription = faceLabel
-            },
+            ),
     ) {
         ScoreFlipFaceSurface(
             eyebrow = stringResource(R.string.v28_personal_best_eyebrow),
@@ -1210,6 +1202,15 @@ private fun ScoreRecordsCard(
                     cameraDistance = 24f * density
                     alpha = if (rotation.value >= 90f) 1f else 0f
                 },
+        )
+        ScoreFlipActionButton(
+            actionLabel = actionLabel,
+            enabled = !isFlipping,
+            onClick = requestManualFlip,
+            tint = colors.muted,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
         )
     }
 }
@@ -1303,40 +1304,70 @@ private fun ScoreFlipHeader(
     colors: ScoreScreenColors,
     isDark: Boolean,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(44.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(40.dp)
-                .background(
-                    color = if (isDark) {
-                        colors.surface.copy(alpha = 0.72f)
-                    } else {
-                        colors.elevatedSurface.copy(alpha = 0.84f)
-                    },
-                    shape = CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
+                .fillMaxWidth()
+                .heightIn(min = 40.dp)
+                .padding(end = ScoreFlipControlReservedSpace),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = iconContentDescription,
-                tint = colors.muted,
-                modifier = Modifier.size(22.dp),
-            )
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        color = if (isDark) {
+                            colors.surface.copy(alpha = 0.72f)
+                        } else {
+                            colors.elevatedSurface.copy(alpha = 0.84f)
+                        },
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = iconContentDescription,
+                    tint = colors.muted,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
-        Spacer(modifier = Modifier.width(12.dp))
+
+        Spacer(modifier = Modifier.height(6.dp))
+
         Text(
             text = eyebrow,
             color = colors.muted,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 2,
+            overflow = TextOverflow.Clip,
+        )
+    }
+}
+
+@Composable
+private fun ScoreFlipActionButton(
+    actionLabel: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.size(48.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.SyncAlt,
+            contentDescription = actionLabel,
+            tint = tint,
+            modifier = Modifier.size(20.dp),
         )
     }
 }
@@ -1676,7 +1707,12 @@ private fun ResetReadingProgressCard(
         }
     }
     val cardShape = RoundedCornerShape(30.dp)
-    val accent = ImpulsivePsychological
+    val accent = ResetReadingGreenGlow
+    val actionLabel = if (frontVisible) {
+        "Show Reset Reading details"
+    } else {
+        "Show Reset Reading summary"
+    }
 
     Box(
         modifier = modifier
@@ -1688,25 +1724,7 @@ private fun ResetReadingProgressCard(
                 clip = false,
                 ambientColor = accent.copy(alpha = if (isDark) 0.22f else 0.08f),
                 spotColor = accent.copy(alpha = if (isDark) 0.16f else 0.08f),
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Button,
-                onClickLabel = if (frontVisible) {
-                    "Show Reset Reading details"
-                } else {
-                    "Show Reset Reading summary"
-                },
-                onClick = requestManualFlip,
-            )
-            .semantics(mergeDescendants = true) {
-                contentDescription = if (frontVisible) {
-                    "Reset Reading summary"
-                } else {
-                    "Reset Reading details"
-                }
-            },
+            ),
     ) {
         ResetReadingFlipFaceSurface(
             eyebrow = "RESET READING",
@@ -1742,6 +1760,15 @@ private fun ResetReadingProgressCard(
                     alpha = if (rotation.value >= 90f) 1f else 0f
                 },
         )
+        ScoreFlipActionButton(
+            actionLabel = actionLabel,
+            enabled = !isFlipping,
+            onClick = requestManualFlip,
+            tint = if (isDark) accent.copy(alpha = 0.88f) else colors.muted,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
+        )
     }
 }
 
@@ -1761,7 +1788,7 @@ private fun ResetReadingFlipFaceSurface(
         color = colors.elevatedSurface,
         shape = RoundedCornerShape(30.dp),
         border = if (isDark) {
-            BorderStroke(1.dp, colors.lavenderGlow.copy(alpha = 0.34f))
+            BorderStroke(1.dp, accent.copy(alpha = 0.58f))
         } else {
             null
         },
@@ -1771,22 +1798,46 @@ private fun ResetReadingFlipFaceSurface(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ScoreIconBadge(
-                    icon = Icons.Filled.AutoAwesome,
-                    accentColor = accent,
-                    colors = colors,
-                    size = 32.dp,
-                    iconSize = 17.dp,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 32.dp)
+                        .padding(end = ScoreFlipControlReservedSpace),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(
+                                color = if (isDark) {
+                                    accent.copy(alpha = 0.30f)
+                                } else {
+                                    accent.copy(alpha = 0.24f)
+                                },
+                                shape = CircleShape,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.MenuBook,
+                            contentDescription = null,
+                            tint = if (isDark) accent else colors.text.copy(alpha = 0.74f),
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Text(
                     text = eyebrow,
-                    color = colors.muted,
+                    color = if (isDark) accent else colors.muted,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 2,
+                    overflow = TextOverflow.Clip,
                 )
             }
 

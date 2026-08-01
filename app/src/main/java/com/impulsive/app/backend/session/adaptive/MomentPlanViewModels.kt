@@ -429,13 +429,29 @@ class MomentPlanEditorViewModel(
     private fun stepValidationMessage(state: MomentPlanEditorUiState): String? = when (state.step) {
         1 -> when {
             state.title.isBlank() -> "Add a name for this plan."
+            !MomentPlanPresentation.hasMeaningfulTitle(state.title) ->
+                "Use at least two letters or numbers in the plan name."
             state.futureCueText.isBlank() -> "Add how you would like the next day to feel."
+            !MomentPlanPresentation.hasMeaningfulFutureCue(state.futureCueText) ->
+                "Add a little more detail about how you want the next day to feel."
             else -> null
         }
         2 -> if (state.momentCue == null) "Choose when this plan belongs." else null
-        3 -> when {
-            state.actionText.isBlank() -> "Choose or write an action."
-            else -> selectedTargetValidationMessage(state)
+        3 -> when (state.actionType) {
+            MomentPlanActionType.TextOnly -> when {
+                state.actionText.isBlank() ->
+                    "Choose or write an action."
+
+                !MomentPlanPresentation.hasMeaningfulAction(state.actionText) ->
+                    "Use at least three letters or numbers for the action."
+
+                else ->
+                    null
+            }
+
+            MomentPlanActionType.OpenImpulsiveDestination,
+            MomentPlanActionType.LaunchSelectedApp ->
+                selectedTargetValidationMessage(state)
         }
         else -> null
     }

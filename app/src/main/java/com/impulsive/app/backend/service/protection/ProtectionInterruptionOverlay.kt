@@ -375,7 +375,10 @@ object ProtectionInterruptionOverlay {
                         }
 
                         ProtectionLog.error(
-                            "Protection overlay attachment timed out: package=$sourcePackageName",
+                            message =
+                                "Protection overlay attachment timed out",
+                            debugDetails =
+                                "package=$sourcePackageName",
                         )
                         removeViewAfterFailedAdd(windowManager, view)
                         notifyFailure()
@@ -462,7 +465,7 @@ object ProtectionInterruptionOverlay {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.TRANSPARENT)
-                setStroke(2.dp(context), LavenderColor)
+                setStroke(2.dp(context), if (isFocusSession) FocusCoralColor else LavenderColor)
             }
         }
         logoFrame.addView(
@@ -488,7 +491,7 @@ object ProtectionInterruptionOverlay {
         )
         startBreathingPulse(breathingRing)
         card.addView(TextView(context).apply {
-            text = "IMPULSIVE"
+            text = if (isFocusSession) FocusEyebrowText else "IMPULSIVE"
             textSize = 13f
             letterSpacing = 0.18f
             setTextColor(MutedTextColor)
@@ -496,13 +499,23 @@ object ProtectionInterruptionOverlay {
             setPadding(0, 8.dp(context), 0, 0)
         })
         card.addView(TextView(context).apply {
-            text = message
+            text = if (isFocusSession) FocusPrimaryMessage else message
             textSize = 23f
             setTextColor(MainTextColor)
             gravity = Gravity.CENTER
             setLineSpacing(0f, 1.15f)
-            setPadding(0, 16.dp(context), 0, 24.dp(context))
+            setPadding(0, 16.dp(context), 0, if (isFocusSession) 6.dp(context) else 24.dp(context))
         })
+        if (isFocusSession) {
+            card.addView(TextView(context).apply {
+                text = FocusSupportingMessage
+                textSize = 14f
+                setTextColor(MutedTextColor)
+                gravity = Gravity.CENTER
+                setLineSpacing(0f, 1.15f)
+                setPadding(0, 0, 0, 24.dp(context))
+            })
+        }
         val resetText = TextView(context).apply {
             textSize = 14f
             setTextColor(MutedTextColor)
@@ -558,38 +571,40 @@ object ProtectionInterruptionOverlay {
             )
         }
 
-        if (!isFocusSession && adaptiveDecisionId != null) {
-            resetChoices.addView(
-                resetChoice(context, "Choose a different direction", LavenderColor) {
-                    launchResetOnce(BlockLaunchTarget.AdaptiveMoment)
-                },
-                resetChoiceLayoutParams(context, horizontal = false, isFirst = true),
-            )
-        } else {
-            resetChoices.addView(
-                resetChoice(context, "Pivot by Game", LavenderColor) {
-                    launchResetOnce(
-                        if (isFocusSession) {
-                            BlockLaunchTarget.FocusRecovery
-                        } else {
-                            BlockLaunchTarget.RandomRecoveryGame
-                        },
-                    )
-                },
-                resetChoiceLayoutParams(context, horizontalChoices, isFirst = true),
-            )
-            resetChoices.addView(
-                resetChoice(context, "Pivot by Reading", SkyColor) {
-                    launchResetOnce(
-                        if (isFocusSession) {
-                            BlockLaunchTarget.FocusRecovery
-                        } else {
-                            BlockLaunchTarget.ReadingReset
-                        },
-                    )
-                },
-                resetChoiceLayoutParams(context, horizontalChoices, isFirst = false),
-            )
+        // One explicit branch per interruption identity: an active Focus
+        // interruption never shares the ordinary adaptive/Game/Reading choices,
+        // and vice versa.
+        when {
+            isFocusSession -> {
+                resetChoices.addView(
+                    resetChoice(context, FocusPrimaryActionLabel, FocusCoralColor) {
+                        launchResetOnce(BlockLaunchTarget.FocusRecovery)
+                    },
+                    resetChoiceLayoutParams(context, horizontal = false, isFirst = true),
+                )
+            }
+            adaptiveDecisionId != null -> {
+                resetChoices.addView(
+                    resetChoice(context, "Choose a different direction", LavenderColor) {
+                        launchResetOnce(BlockLaunchTarget.AdaptiveMoment)
+                    },
+                    resetChoiceLayoutParams(context, horizontal = false, isFirst = true),
+                )
+            }
+            else -> {
+                resetChoices.addView(
+                    resetChoice(context, "Pivot by Game", LavenderColor) {
+                        launchResetOnce(BlockLaunchTarget.RandomRecoveryGame)
+                    },
+                    resetChoiceLayoutParams(context, horizontalChoices, isFirst = true),
+                )
+                resetChoices.addView(
+                    resetChoice(context, "Pivot by Reading", SkyColor) {
+                        launchResetOnce(BlockLaunchTarget.ReadingReset)
+                    },
+                    resetChoiceLayoutParams(context, horizontalChoices, isFirst = false),
+                )
+            }
         }
 
         val footer = LinearLayout(context).apply {
@@ -610,36 +625,44 @@ object ProtectionInterruptionOverlay {
         footer.addView(softAction(context, "Leave this app") {
             leaveProtectedApp(context, owner, root)
         })
-        if (!isFocusSession && owner == Owner.AppMonitor) {
-            lateinit var continueAction: TextView
-            continueAction = textAction(context, "Continue deliberately") {
-                grantTemporaryAccessSafely(
+        when {
+            !isFocusSession && owner == Owner.AppMonitor -> {
+                lateinit var continueAction: TextView
+                continueAction = textAction(context, "Continue deliberately") {
+                    grantTemporaryAccessSafely(
+                        context = context,
+                        owner = owner,
+                        sourcePackageName = sourcePackageName,
+                        errorText = errorText,
+                        expectedView = root,
+                        continueAction = continueAction,
+                    )
+                }
+                footer.addView(continueAction)
+                configureResetStatus(
                     context = context,
                     owner = owner,
-                    sourcePackageName = sourcePackageName,
-                    errorText = errorText,
                     expectedView = root,
+                    resetText = resetText,
+                    resetAtEpochMillis = resetAtEpochMillis,
                     continueAction = continueAction,
                 )
             }
-            footer.addView(continueAction)
-            configureResetStatus(
-                context = context,
-                owner = owner,
-                expectedView = root,
-                resetText = resetText,
-                resetAtEpochMillis = resetAtEpochMillis,
-                continueAction = continueAction,
-            )
-        } else {
-            configureResetStatus(
-                context = context,
-                owner = owner,
-                expectedView = root,
-                resetText = resetText,
-                resetAtEpochMillis = resetAtEpochMillis,
-                continueAction = null,
-            )
+            isFocusSession -> {
+                // Focus has no temporary-access cooldown to report here; the
+                // countdown to the end of the session lives in the persistent
+                // Focus notification, not this overlay.
+            }
+            else -> {
+                configureResetStatus(
+                    context = context,
+                    owner = owner,
+                    expectedView = root,
+                    resetText = resetText,
+                    resetAtEpochMillis = resetAtEpochMillis,
+                    continueAction = null,
+                )
+            }
         }
         card.addView(
             footer,
@@ -1218,4 +1241,13 @@ object ProtectionInterruptionOverlay {
     private val SoftNeutralColor = Color.argb(150, 255, 255, 255)
     private val DividerColor = Color.argb(34, 47, 38, 55)
     private const val BreathCycleMillis = 2_400L
+
+    // Active Focus interruption identity: the approved Focus coral, kept
+    // distinct from the ordinary lavender/sky choices so the overlay never
+    // misrepresents a Focus block as an ordinary protection choice.
+    private val FocusCoralColor = Color.parseColor("#F5A7A6")
+    private const val FocusEyebrowText = "FOCUS MODE"
+    private const val FocusPrimaryMessage = "Focus Mode is active."
+    private const val FocusSupportingMessage = "This app is blocked until your focus timer ends."
+    private const val FocusPrimaryActionLabel = "Review focus options"
 }

@@ -43,6 +43,14 @@
     <string name="notif_vpn_title">Website protection is on</string>
     <string name="notif_vpn_body">Impulsive is checking sites during your protected time.</string>
 
+    <!-- Focus Mode notifications -->
+    <string name="notif_focus_active_title">Focus Mode is active</string>
+    <string name="notif_focus_active_body">Protected apps stay blocked until the timer ends.</string>
+    <string name="notif_focus_paused_title">Focus Mode is paused</string>
+    <string name="notif_focus_paused_body">%1$s remaining. App blocking is paused.</string>
+    <string name="notif_focus_fallback_body">%1$s is blocked during this focus session. Open Focus options to continue.</string>
+    <string name="notif_action_focus_options">Focus options</string>
+
     <!-- Blocked attempt / full-screen notifications -->
     <string name="notif_blocked_attempt_title">Impulsive stepped in</string>
     <string name="notif_blocked_attempt_body">%1$s is protected right now. Tap to return to Impulsive.</string>
@@ -191,6 +199,15 @@
     <string name="moment_plan_app_icon_description">%1$s app icon</string>
     <string name="moment_plan_lock_title">Confirm it\'s you</string>
     <string name="moment_plan_lock_subtitle">Authenticate to open your Moment Plans.</string>
+
+    <!-- What Works for Me -->
+    <string name="what_works_for_me_title">What Works for Me</string>
+    <string name="what_works_for_me_info_description">About What Works for Me</string>
+    <string name="what_works_for_me_info_title">About What Works for Me</string>
+    <string name="what_works_for_me_info_body_privacy">Your support history stays encrypted on this device.</string>
+    <string name="what_works_for_me_info_body_summary">This screen summarises recorded patterns. It does not prove that one action caused another.</string>
+    <string name="what_works_for_me_info_body_more_useful">The summary becomes more useful as you record more moments and feedback.</string>
+    <string name="what_works_for_me_info_confirm">Got it</string>
 
     <!-- Personal support settings -->
     <string name="personal_support_title">Personal support</string>

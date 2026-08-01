@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
@@ -78,6 +79,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -102,6 +104,7 @@ import com.impulsive.app.backend.session.adaptive.MomentPlanEditorUiState
 import com.impulsive.app.backend.session.adaptive.MomentPlanEditorViewModel
 import com.impulsive.app.backend.session.adaptive.MomentPlanHomeUiState
 import com.impulsive.app.backend.session.adaptive.MomentPlanListViewModel
+import com.impulsive.app.backend.session.adaptive.MomentPlanPresentation
 import com.impulsive.app.backend.session.adaptive.MomentPlanRehearsalViewModel
 import com.impulsive.app.frontend.components.HomeSupportFeatureCard
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
@@ -126,7 +129,7 @@ fun MomentPlanHomeCard(
             buildString {
                 append(cueLabel(plan.momentCue))
                 append(" -> ")
-                append(shortActionPreview(plan.actionText))
+                append(shortActionPreview(MomentPlanPresentation.displayAction(plan)))
                 plan.rehearsedAtMillis?.let {
                     append(" · Last practised ")
                     append(formatDate(it))
@@ -136,7 +139,7 @@ fun MomentPlanHomeCard(
 
     HomeSupportFeatureCard(
         eyebrow = "MOMENT PLAN",
-        title = activePlan?.title?.let(::shortActionPreview)
+        title = activePlan?.let { shortActionPreview(MomentPlanPresentation.displayTitle(it)) }
             ?: "Prepare for your next difficult moment",
         body = body,
         actionLabel = if (activePlan == null) "Create plan >" else "Practise plan >",
@@ -178,106 +181,112 @@ fun MomentPlanListScreen(
             onDismiss = { aboutMomentPlansVisible = false },
         )
     }
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onBackground,
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.moment_plan_list_title),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(
+                        onClick = { aboutMomentPlansVisible = true },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "About Moment Plans",
+                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.76f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.moment_plan_list_title),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            },
+            snackbarHost = { SnackbarHost(snackbar) },
+            floatingActionButton = {
+                ExtendedFloatingActionButton(
+                    onClick = onCreate,
+                    containerColor = ImpulsivePsychological,
+                    icon = {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.moment_plan_add_description),
+                        )
+                    },
+                    text = { Text(stringResource(R.string.moment_plan_create)) },
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                IconButton(
-                    onClick = { aboutMomentPlansVisible = true },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = "About Moment Plans",
-                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.76f),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreate,
-                containerColor = ImpulsivePsychological,
-                icon = {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = stringResource(R.string.moment_plan_add_description),
-                    )
-                },
-                text = { Text(stringResource(R.string.moment_plan_create)) },
-            )
-        },
-    ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
-        ) {
-            ImpulsiveAmbientBackground()
-            when {
-                state.loading -> LoadingContent()
-                state.isEmpty -> EmptyPlans(onCreate)
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 20.dp,
-                        top = 12.dp,
-                        end = 20.dp,
-                        bottom = 96.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    if (state.plans.count { it.enabled } >= AdaptiveMomentLimits.MaximumEnabledPlans) {
-                        item(key = "enabled-limit") {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                            ) {
-                                Text(
-                                    stringResource(R.string.moment_plan_enabled_limit),
-                                    modifier = Modifier.padding(14.dp),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
+            },
+        ) { padding ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                when {
+                    state.loading -> LoadingContent()
+                    state.isEmpty -> EmptyPlans(onCreate)
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            start = 20.dp,
+                            top = 12.dp,
+                            end = 20.dp,
+                            bottom = 96.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (state.plans.count { it.enabled } >= AdaptiveMomentLimits.MaximumEnabledPlans) {
+                            item(key = "enabled-limit") {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                ) {
+                                    Text(
+                                        stringResource(R.string.moment_plan_enabled_limit),
+                                        modifier = Modifier.padding(14.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
                             }
                         }
-                    }
-                    items(state.plans, key = { it.planId }) { plan ->
-                        PlanListCard(
-                            plan = plan,
-                            onOpen = { onOpen(plan.planId) },
-                            onEdit = { onEdit(plan.planId) },
-                            onEnableChanged = { viewModel.setEnabled(plan, it) },
-                            onPreferred = { viewModel.makePreferred(plan) },
-                            onPractise = { onPractise(plan.planId) },
-                            onDelete = { viewModel.requestDelete(plan.planId) },
-                        )
+                        items(state.plans, key = { it.planId }) { plan ->
+                            PlanListCard(
+                                plan = plan,
+                                onOpen = { onOpen(plan.planId) },
+                                onEdit = { onEdit(plan.planId) },
+                                onEnableChanged = { viewModel.setEnabled(plan, it) },
+                                onPreferred = { viewModel.makePreferred(plan) },
+                                onPractise = { onPractise(plan.planId) },
+                                onDelete = { viewModel.requestDelete(plan.planId) },
+                            )
+                        }
                     }
                 }
             }
@@ -336,6 +345,7 @@ private fun EmptyPlans(onCreate: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlanListCard(
     plan: MomentPlan,
@@ -347,6 +357,8 @@ private fun PlanListCard(
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val displayTitle = MomentPlanPresentation.displayTitle(plan)
+    val displayAction = MomentPlanPresentation.displayAction(plan)
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -359,37 +371,14 @@ private fun PlanListCard(
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            plan.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        if (plan.preferredForCue) {
-                            AssistChip(
-                                onClick = onOpen,
-                                label = { Text(stringResource(R.string.moment_plan_preferred)) },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Filled.Star,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                },
-                            )
-                        }
-                    }
-                    Text(
-                        cueLabel(plan.momentCue),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                Text(
+                    displayTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(
@@ -425,8 +414,31 @@ private fun PlanListCard(
                     }
                 }
             }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    cueLabel(plan.momentCue),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                if (plan.preferredForCue) {
+                    AssistChip(
+                        onClick = onOpen,
+                        label = { Text(stringResource(R.string.moment_plan_preferred)) },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                    )
+                }
+            }
             Text(
-                plan.actionText,
+                displayAction,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
@@ -453,16 +465,27 @@ private fun PlanListCard(
                     onCheckedChange = onEnableChanged,
                 )
             }
+            HorizontalDivider()
             TextButton(
                 onClick = onOpen,
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.primary,
                 ),
                 modifier = Modifier
-                    .align(Alignment.End)
+                    .fillMaxWidth()
                     .heightIn(min = 48.dp),
             ) {
-                Text(stringResource(R.string.moment_plan_open))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(R.string.moment_plan_open))
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                    )
+                }
             }
         }
     }
@@ -1065,8 +1088,8 @@ private fun GuidedRehearsalContent(
     val privateContent = when (stage) {
         1 -> cueLabel(plan.momentCue)
         2 -> plan.futureCueText
-        3 -> plan.actionText
-        else -> plan.title
+        3 -> MomentPlanPresentation.displayAction(plan)
+        else -> MomentPlanPresentation.displayTitle(plan)
     }
     Column(
         modifier = modifier
@@ -1168,6 +1191,8 @@ private fun QuickRehearsalContent(
 
 @Composable
 private fun PlanPreview(plan: MomentPlan) {
+    val displayTitle = MomentPlanPresentation.displayTitle(plan)
+    val displayAction = MomentPlanPresentation.displayAction(plan)
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -1182,7 +1207,7 @@ private fun PlanPreview(plan: MomentPlan) {
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
             )
-            Text(plan.title, style = MaterialTheme.typography.headlineSmall)
+            Text(displayTitle, style = MaterialTheme.typography.headlineSmall)
             DetailValue(
                 stringResource(R.string.moment_plan_when),
                 stringResource(
@@ -1192,7 +1217,7 @@ private fun PlanPreview(plan: MomentPlan) {
             )
             DetailValue(
                 stringResource(R.string.moment_plan_then),
-                stringResource(R.string.moment_plan_i_will, plan.actionText.replaceFirstChar { it.lowercase() }),
+                stringResource(R.string.moment_plan_i_will, displayAction.replaceFirstChar { it.lowercase() }),
             )
             DetailValue(stringResource(R.string.moment_plan_why), plan.futureCueText)
         }

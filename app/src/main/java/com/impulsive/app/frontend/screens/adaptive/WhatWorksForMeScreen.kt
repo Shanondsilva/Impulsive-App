@@ -1,6 +1,8 @@
 package com.impulsive.app.frontend.screens.adaptive
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,10 +11,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,17 +30,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.impulsive.app.R
+import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.backend.domain.engine.adaptive.RecentSupportRecord
 import com.impulsive.app.backend.domain.engine.adaptive.WhatWorksForMeBuilder
 import com.impulsive.app.backend.domain.engine.adaptive.WhatWorksForMeReport
@@ -55,44 +67,138 @@ fun WhatWorksForMeScreen(
     viewModel: WhatWorksForMeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("What Works for Me") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        when {
-            state.loading -> Column(
-                Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                CircularProgressIndicator()
-            }
-            state.report != null -> WhatWorksContent(
-                report = checkNotNull(state.report),
-                modifier = Modifier.padding(padding),
-            )
-            else -> Column(
-                Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    state.message ?: "Your personal patterns could not be loaded.",
-                    style = MaterialTheme.typography.bodyLarge,
+    val colorScheme = MaterialTheme.colorScheme
+    var showInformation by rememberSaveable {
+        mutableStateOf(false)
+    }
+    if (showInformation) {
+        WhatWorksForMeInfoDialog(onDismiss = { showInformation = false })
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colorScheme.background),
+    ) {
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentColor = colorScheme.onBackground,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    R.string.what_works_for_me_title,
+                                ),
+                                color = colorScheme.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    showInformation = true
+                                },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Info,
+                                    contentDescription = stringResource(
+                                        R.string.what_works_for_me_info_description,
+                                    ),
+                                    tint = colorScheme.onBackground,
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = colorScheme.onBackground,
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
+                        navigationIconContentColor = colorScheme.onBackground,
+                        titleContentColor = colorScheme.onBackground,
+                        actionIconContentColor = colorScheme.onBackground,
+                    ),
                 )
+            },
+        ) { padding ->
+            when {
+                state.loading -> Column(
+                    Modifier.fillMaxSize().padding(padding),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+                state.report != null -> WhatWorksContent(
+                    report = checkNotNull(state.report),
+                    modifier = Modifier.padding(padding),
+                )
+                else -> Column(
+                    Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        state.message ?: "Your personal patterns could not be loaded.",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun WhatWorksForMeInfoDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.what_works_for_me_info_title),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    stringResource(R.string.what_works_for_me_info_body_privacy),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    stringResource(R.string.what_works_for_me_info_body_summary),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    stringResource(R.string.what_works_for_me_info_body_more_useful),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.what_works_for_me_info_confirm),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+    )
 }
 
 @Composable
@@ -280,7 +386,8 @@ private fun InsightCard(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ),
     ) {
         Column(

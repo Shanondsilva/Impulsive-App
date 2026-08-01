@@ -158,12 +158,15 @@ fun FocusScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        ImpulsiveAmbientBackground()
-        BoxWithConstraints(
+        ImpulsiveAmbientBackground(
             modifier = Modifier.fillMaxSize(),
+        )
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
         ) {
             val compactHeight = maxHeight < 720.dp
             val compactWidth = maxWidth < 380.dp
@@ -403,6 +406,7 @@ fun FocusScreen(
                 selectedPackageNames = effectiveFocusApps,
                 onSelectedPackageNamesChanged = focusViewModel::setFocusBlockedPackages,
                 onDone = { showFocusAppsSheet = false },
+                containerColor = Color.Transparent,
                 allowShowMoreApps = true,
                 useFocusCopy = true,
             )

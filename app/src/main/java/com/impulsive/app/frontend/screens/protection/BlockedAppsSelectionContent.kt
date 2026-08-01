@@ -1,11 +1,13 @@
 package com.impulsive.app.frontend.screens.protection
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -56,6 +58,7 @@ fun BlockedAppsSelectionContent(
     onSelectedPackageNamesChanged: (Set<String>) -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.background,
     allowShowMoreApps: Boolean = false,
     seedRecommendedBrowsers: Boolean = false,
     useFocusCopy: Boolean = false,
@@ -144,178 +147,183 @@ fun BlockedAppsSelectionContent(
         isLoadingApps = false
     }
 
-    Column(
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .fillMaxHeight()
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .fillMaxSize()
+            .background(containerColor),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = titleText,
-                color = if (isDarkTheme) Color(0xFFF4ECFF) else Color(0xFF1F1B2E),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            IconButton(onClick = { showAppsInfo = true }) {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = infoContentDescription,
-                    tint = if (isDarkTheme) lavenderColor else accentColor,
-                )
-            }
-        }
-
-        Text(
-            text = subtitleText,
-            color = secondaryTextColor,
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        if (seedRecommendedBrowsers) {
-            Text(
-                text = "Detected browsers are pre-selected. You can untick any.",
-                color = if (isDarkTheme) lavenderColor else accentColor,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            TextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search installed apps") },
-                singleLine = true,
-            )
-
-            if (useFocusCopy) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(
-                        onClick = {
-                            localSelection = if (allSelectableAppsSelected) {
-                                localSelection - selectablePackageNames
-                            } else {
-                                localSelection + selectablePackageNames
-                            }
-                        },
-                        enabled = selectablePackageNames.isNotEmpty(),
-                    ) {
-                        Text(if (allSelectableAppsSelected) "Deselect all" else "Select all apps")
-                    }
-                }
-            }
-        }
-
-        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (isLoadingApps) {
-                item {
-                    Text(
-                        text = "Loading installed apps...",
-                        color = secondaryTextColor,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else if (candidates.isEmpty()) {
-                item {
-                    Text(
-                        text = "No installed apps found.",
-                        color = secondaryTextColor,
-                        style = MaterialTheme.typography.bodyMedium,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = titleText,
+                    color = if (isDarkTheme) Color(0xFFF4ECFF) else Color(0xFF1F1B2E),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                IconButton(onClick = { showAppsInfo = true }) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = infoContentDescription,
+                        tint = if (isDarkTheme) lavenderColor else accentColor,
                     )
                 }
             }
 
-            candidateSection(
-                title = selectedSectionTitle,
-                candidates = groups.selected,
-                localSelection = localSelection,
-                primaryTextColor = primaryTextColor,
-                secondaryTextColor = secondaryTextColor,
-            ) { localSelection = localSelection.toggle(it) }
-
-            candidateSection(
-                title = recommendedSectionTitle,
-                candidates = groups.recommended,
-                localSelection = localSelection,
-                primaryTextColor = primaryTextColor,
-                secondaryTextColor = secondaryTextColor,
-            ) { localSelection = localSelection.toggle(it) }
-
-            candidateSection(
-                title = reviewSectionTitle,
-                candidates = groups.review,
-                localSelection = localSelection,
-                primaryTextColor = primaryTextColor,
-                secondaryTextColor = secondaryTextColor,
-            ) { localSelection = localSelection.toggle(it) }
-
-            candidateSection(
-                title = hiddenSafeSectionTitle,
-                candidates = groups.hiddenSafe,
-                localSelection = localSelection,
-                primaryTextColor = primaryTextColor,
-                secondaryTextColor = secondaryTextColor,
-            ) { localSelection = localSelection.toggle(it) }
-
-            if (allowShowMoreApps && !showMoreApps) {
-                item {
-                    TextButton(onClick = { showMoreApps = true }) {
-                        Text("Show more apps")
-                    }
-                }
-            }
-        }
-
-        if (useFocusCopy && localSelection.isEmpty()) {
             Text(
-                text = "No apps selected. Focus will still run as a timer, but no apps will be blocked.",
+                text = subtitleText,
                 color = secondaryTextColor,
                 style = MaterialTheme.typography.bodySmall,
             )
-        }
 
-        Button(
-            onClick = {
-                onSelectedPackageNamesChanged(localSelection)
-                onDone()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                containerColor = accentColor,
-                contentColor = Color.White,
-            ),
-        ) {
-            Text(saveButtonText)
-        }
+            if (seedRecommendedBrowsers) {
+                Text(
+                    text = "Detected browsers are pre-selected. You can untick any.",
+                    color = if (isDarkTheme) lavenderColor else accentColor,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Search installed apps") },
+                    singleLine = true,
+                )
 
-        OutlinedButton(
-            onClick = onDone,
-            modifier = Modifier.fillMaxWidth(),
-            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                contentColor = if (isDarkTheme) lavenderColor else accentColor,
-            ),
-            border = BorderStroke(
-                width = 1.dp,
-                color = if (isDarkTheme) lavenderColor else accentColor.copy(alpha = 0.72f),
-            ),
-        ) {
-            Text("Cancel")
+                if (useFocusCopy) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(
+                            onClick = {
+                                localSelection = if (allSelectableAppsSelected) {
+                                    localSelection - selectablePackageNames
+                                } else {
+                                    localSelection + selectablePackageNames
+                                }
+                            },
+                            enabled = selectablePackageNames.isNotEmpty(),
+                        ) {
+                            Text(if (allSelectableAppsSelected) "Deselect all" else "Select all apps")
+                        }
+                    }
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (isLoadingApps) {
+                    item {
+                        Text(
+                            text = "Loading installed apps...",
+                            color = secondaryTextColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                } else if (candidates.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No installed apps found.",
+                            color = secondaryTextColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+
+                candidateSection(
+                    title = selectedSectionTitle,
+                    candidates = groups.selected,
+                    localSelection = localSelection,
+                    primaryTextColor = primaryTextColor,
+                    secondaryTextColor = secondaryTextColor,
+                ) { localSelection = localSelection.toggle(it) }
+
+                candidateSection(
+                    title = recommendedSectionTitle,
+                    candidates = groups.recommended,
+                    localSelection = localSelection,
+                    primaryTextColor = primaryTextColor,
+                    secondaryTextColor = secondaryTextColor,
+                ) { localSelection = localSelection.toggle(it) }
+
+                candidateSection(
+                    title = reviewSectionTitle,
+                    candidates = groups.review,
+                    localSelection = localSelection,
+                    primaryTextColor = primaryTextColor,
+                    secondaryTextColor = secondaryTextColor,
+                ) { localSelection = localSelection.toggle(it) }
+
+                candidateSection(
+                    title = hiddenSafeSectionTitle,
+                    candidates = groups.hiddenSafe,
+                    localSelection = localSelection,
+                    primaryTextColor = primaryTextColor,
+                    secondaryTextColor = secondaryTextColor,
+                ) { localSelection = localSelection.toggle(it) }
+
+                if (allowShowMoreApps && !showMoreApps) {
+                    item {
+                        TextButton(onClick = { showMoreApps = true }) {
+                            Text("Show more apps")
+                        }
+                    }
+                }
+            }
+
+            if (useFocusCopy && localSelection.isEmpty()) {
+                Text(
+                    text = "No apps selected. Focus will still run as a timer, but no apps will be blocked.",
+                    color = secondaryTextColor,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            Button(
+                onClick = {
+                    onSelectedPackageNamesChanged(localSelection)
+                    onDone()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = accentColor,
+                    contentColor = Color.White,
+                ),
+            ) {
+                Text(saveButtonText)
+            }
+
+            OutlinedButton(
+                onClick = onDone,
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                    contentColor = if (isDarkTheme) lavenderColor else accentColor,
+                ),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (isDarkTheme) lavenderColor else accentColor.copy(alpha = 0.72f),
+                ),
+            ) {
+                Text("Cancel")
+            }
         }
     }
 

@@ -984,8 +984,9 @@ ActionRefreshAllowedApplications -> {
             key = "doh_resolve_failure",
             message =
                 "DoH resolve failed " +
-                    "(consecutiveFailures=${health.consecutiveFailureCount}, " +
-                    "reason=$reason)",
+                    "(consecutiveFailures=${health.consecutiveFailureCount})",
+            debugDetails =
+                "reason=$reason",
         )
 
         if (
@@ -1022,8 +1023,10 @@ ActionRefreshAllowedApplications -> {
             )
         } else {
             ProtectionLog.warn(
-                "DoH self-test failed " +
-                    "(reason=${health.lastFailureReason ?: "unknown"})",
+                message =
+                    "DoH self-test failed",
+                debugDetails =
+                    "reason=${health.lastFailureReason ?: "unknown"}",
             )
         }
     }

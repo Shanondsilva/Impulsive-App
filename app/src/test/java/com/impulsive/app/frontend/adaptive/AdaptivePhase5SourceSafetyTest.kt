@@ -67,7 +67,7 @@ class AdaptivePhase5SourceSafetyTest {
     @Test
     fun adaptiveChoiceDoesNotCreateAnUnrestrictedContinueBypass() {
         val adaptiveChoice = overlay.substring(
-            overlay.indexOf("if (!isFocusSession && adaptiveDecisionId != null)"),
+            overlay.indexOf("// One explicit branch per interruption identity:"),
             overlay.indexOf("val footer ="),
         )
         assertFalse(adaptiveChoice.contains("Continue deliberately"))

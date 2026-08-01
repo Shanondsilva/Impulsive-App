@@ -13,7 +13,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -49,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -79,13 +77,10 @@ fun ModeSelectionSheet(
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val mindAccent = if (isDark) Color(0xFFF2ECFF) else Color(0xFF66517F)
     val mindBackground = if (isDark) Color(0xFF332642) else Color(0xFFF2E9FB)
-    val mindBorder = if (isDark) Color(0xFFD0C3F1).copy(alpha = 0.62f) else Color(0xFFD0C3F1).copy(alpha = 0.88f)
     val bodyAccent = if (isDark) Color(0xFFD9F0FF) else Color(0xFF4E7191)
     val bodyBackground = if (isDark) Color(0xFF1D2B36) else Color(0xFFE9F5FF)
-    val bodyBorder = if (isDark) Color(0xFFBDE0FE).copy(alpha = 0.38f) else Color(0xFFBDE0FE).copy(alpha = 0.9f)
     val soulAccent = if (isDark) Color(0xFFFFF4C7) else Color(0xFF8B7242)
     val soulBackground = if (isDark) Color(0xFF332D20) else Color(0xFFFFF7D8)
-    val soulBorder = if (isDark) Color(0xFFFEF1AB).copy(alpha = 0.42f) else Color(0xFFFEF1AB).copy(alpha = 0.92f)
     val context = LocalContext.current
     val reducedMotion = remember(context) {
         android.provider.Settings.Global.getFloat(
@@ -117,7 +112,12 @@ fun ModeSelectionSheet(
 
     val transition = updateTransition(targetState = visible, label = "mode_bubble_selector")
     val scrimAlpha by transition.animateFloat(
-        transitionSpec = { tween(durationMillis = 160, easing = FastOutSlowInEasing) },
+        transitionSpec = {
+            tween(
+                durationMillis = 160,
+                easing = FastOutSlowInEasing,
+            )
+        },
         label = "mode_bubble_scrim_alpha",
     ) { open ->
         if (open) 1f else 0f
@@ -176,7 +176,13 @@ fun ModeSelectionSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    (if (isDark) Color(0x660A0710) else Color(0x44FFFFFF)).copy(alpha = scrimAlpha),
+                    (
+                        if (isDark) {
+                            Color(0x660A0710)
+                        } else {
+                            Color(0x44FFFFFF)
+                        }
+                    ).copy(alpha = scrimAlpha),
                 )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -199,7 +205,6 @@ fun ModeSelectionSheet(
                 symbol = "\u2726",
                 locked = false,
                 background = mindBackground,
-                border = mindBorder,
                 accent = mindAccent,
                 reducedMotion = reducedMotion,
                 phaseOffsetMillis = 0,
@@ -219,7 +224,6 @@ fun ModeSelectionSheet(
                 symbol = null,
                 locked = true,
                 background = bodyBackground,
-                border = bodyBorder,
                 accent = bodyAccent,
                 reducedMotion = reducedMotion,
                 phaseOffsetMillis = 1_650,
@@ -239,7 +243,6 @@ fun ModeSelectionSheet(
                 symbol = null,
                 locked = true,
                 background = soulBackground,
-                border = soulBorder,
                 accent = soulAccent,
                 reducedMotion = reducedMotion,
                 phaseOffsetMillis = 3_300,
@@ -318,22 +321,22 @@ private fun LockedModePreviewSheet(
     onDismissRequest: () -> Unit,
     bottomNavReservedSpace: Dp,
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val screenBackground = if (isDark) Color(0xFF11161A) else Color(0xFFFBF8FE)
-    val deepText = if (isDark) Color(0xFFFFFBFF) else Color(0xFF15121D)
-    val bodyText = if (isDark) Color(0xFFEFE7FA) else Color(0xFF342D3F)
-    val mutedText = if (isDark) Color(0xFFCFC4DD) else Color(0xFF7B7384)
-    val cardColor = if (isDark) Color(0xFF171D22) else Color(0xFFFFFBFF)
-    val screenBrush = Brush.verticalGradient(listOf(screenBackground, screenBackground))
+    val colorScheme = MaterialTheme.colorScheme
+    val deepText = colorScheme.onBackground
+    val bodyText = colorScheme.onSurface
+    val mutedText = colorScheme.onSurfaceVariant
 
     BackHandler(onBack = onDismissRequest)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(screenBrush),
+            .background(colorScheme.background),
     ) {
-        ImpulsiveAmbientBackground()
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -341,7 +344,10 @@ private fun LockedModePreviewSheet(
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 28.dp)
-                .padding(top = 16.dp, bottom = bottomNavReservedSpace),
+                .padding(
+                    top = 16.dp,
+                    bottom = bottomNavReservedSpace,
+                ),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -390,7 +396,6 @@ private fun LockedModePreviewSheet(
                     Surface(
                         color = soft,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
-                        border = BorderStroke(1.dp, accent.copy(alpha = if (isDark) 0.46f else 0.56f)),
                     ) {
                         Text(
                             text = badge,
@@ -431,26 +436,24 @@ private fun LockedModePreviewSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Surface(
-                color = cardColor,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(34.dp),
-                border = BorderStroke(1.dp, accent.copy(alpha = if (isDark) 0.38f else 0.22f)),
-                modifier = Modifier.fillMaxWidth(),
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
             ) {
-                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp)) {
-                    steps.forEachIndexed { index, step ->
-                        LockedModeStep(
-                            number = index + 1,
-                            title = step.first,
-                            description = step.second,
-                            accent = accent,
-                            soft = soft,
-                            deepText = deepText,
-                            bodyText = bodyText,
-                        )
-                        if (index != steps.lastIndex) {
-                            Spacer(modifier = Modifier.height(22.dp))
-                        }
+                steps.forEachIndexed { index, step ->
+                    LockedModeStep(
+                        number = index + 1,
+                        title = step.first,
+                        description = step.second,
+                        accent = accent,
+                        soft = soft,
+                        deepText = deepText,
+                        bodyText = bodyText,
+                    )
+
+                    if (index != steps.lastIndex) {
+                        Spacer(modifier = Modifier.height(22.dp))
                     }
                 }
             }
@@ -518,7 +521,6 @@ private fun ModeBubble(
     symbol: String?,
     locked: Boolean,
     background: Color,
-    border: Color,
     accent: Color,
     reducedMotion: Boolean,
     phaseOffsetMillis: Int,
@@ -550,7 +552,6 @@ private fun ModeBubble(
     Surface(
         color = background,
         shape = CircleShape,
-        border = BorderStroke(1.dp, border),
         tonalElevation = 6.dp,
         modifier = modifier
             .graphicsLayer {

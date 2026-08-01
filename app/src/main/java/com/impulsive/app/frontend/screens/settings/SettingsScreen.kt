@@ -125,6 +125,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -809,13 +810,15 @@ fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(background)
-            .statusBarsPadding(),
+            .background(background),
     ) {
-        ImpulsiveAmbientBackground()
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(top = 18.dp, bottom = 144.dp),
@@ -1189,6 +1192,7 @@ fun SettingsScreen(
                     selectedPackageNames = protectionSetupState.selectedBlockedAppPackageNames,
                     onSelectedPackageNamesChanged = protectionSetupViewModel::setSelectedBlockedAppPackageNames,
                     onDone = { showBlockedAppsSheet = false },
+                    containerColor = Color.Transparent,
                     allowShowMoreApps = true,
                 )
             }
@@ -1443,7 +1447,7 @@ private fun ProfileGroup(
 
     AccordionGroup(
         title = "Profile",
-        summary = "$displayName \u2022 Mind mode \u2022 Edit profile",
+        summary = SettingsGroupSummaries.Profile,
         icon = Icons.Filled.Person,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(ProfileGlow),
@@ -1650,7 +1654,7 @@ private fun AppearanceGroup(
 ) {
     AccordionGroup(
         title = "Appearance",
-        summary = "Theme, Haptics, Home guide",
+        summary = SettingsGroupSummaries.Appearance,
         icon = Icons.Filled.Palette,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(AppearanceGlow),
@@ -1756,7 +1760,7 @@ private fun RecoverySetupGroup(
 
     AccordionGroup(
         title = "Pivot setup",
-        summary = "Onboarding answers can be updated",
+        summary = SettingsGroupSummaries.PivotSetup,
         icon = Icons.Filled.Spa,
         haptics = null,
         glowSpec = SettingsGlowSpec.single(RecoverySetupGlow),
@@ -1899,7 +1903,7 @@ private fun PersonalSupportSettingsGroup(
 
     AccordionGroup(
         title = stringResource(R.string.personal_support_title),
-        summary = stringResource(R.string.personal_support_summary),
+        summary = SettingsGroupSummaries.PersonalSupport,
         icon = Icons.Filled.AutoAwesome,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(RecoverySetupGlow),
@@ -2489,7 +2493,7 @@ private fun ProtectionFocusGroup(
 
     AccordionGroup(
         title = "Protection & Focus",
-        summary = "Protected apps, permissions",
+        summary = SettingsGroupSummaries.ProtectionAndFocus,
         icon = Icons.Filled.Security,
         haptics = null,
         glowSpec = SettingsGlowSpec.split(ProtectionGlow, FocusGlow),
@@ -2565,7 +2569,7 @@ private fun ProtectionFocusGroup(
         SettingsDivider()
         if (websiteProtectionPlusUnlocked) {
             SettingsRow(
-                title = "Website Protection, DNS Blocking, ",
+                title = "Website Protection & DNS Blocking",
                 value = when {
                     !protectionState.websiteProtectionEnabled -> "Off"
                     protectionState.websiteProtectionAlwaysOn -> "Always on"
@@ -2629,7 +2633,7 @@ private fun PrivacyAccountGroup(
 
     AccordionGroup(
         title = "Privacy & account",
-        summary = "App lock, Link and Delete Account",
+        summary = SettingsGroupSummaries.PrivacyAndAccount,
         icon = Icons.Filled.PrivacyTip,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(PrivacyGlow),
@@ -2813,7 +2817,7 @@ private fun SupportGroup(
 
     AccordionGroup(
         title = "Support",
-        summary = "Help, Terms, Privacy, Contact",
+        summary = SettingsGroupSummaries.Support,
         icon = Icons.Filled.AutoAwesome,
         haptics = haptics,
         glowSpec = SettingsGlowSpec.single(SupportGlow),
@@ -3031,7 +3035,7 @@ private fun PlusGroup(
 
     AccordionGroup(
         title = "Impulsive Plus",
-        summary = "Website Protection",
+        summary = SettingsGroupSummaries.Plus,
         icon = Icons.Filled.AutoAwesome,
         haptics = haptics,
         leadingContent = {
@@ -3327,12 +3331,16 @@ private fun AccordionGroup(
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = summary,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                         lineHeight = 17.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 headerExtra?.invoke()
@@ -4101,6 +4109,17 @@ private const val SettingsFadeInDelayMillis = 35
 private const val SettingsFadeOutMillis = 85
 private const val SettingsArrowExpandMillis = 180
 private const val SettingsArrowCollapseMillis = 140
+
+private object SettingsGroupSummaries {
+    const val Profile = "Profile details • Mind Mode"
+    const val Appearance = "Theme • Haptics"
+    const val PivotSetup = "Cues • Timing • Goals"
+    const val PersonalSupport = "Moment Plans • Suggestions"
+    const val ProtectionAndFocus = "Protected apps • Permissions • Focus"
+    const val PrivacyAndAccount = "App lock • Accounts • Data"
+    const val Support = "Help • Legal • Contact"
+    const val Plus = "VPN • Website Protection"
+}
 
 private val SettingsBoxBorder = Color(0xFFD0C3F1)
 private val ProfileGlow = SettingsBoxBorder

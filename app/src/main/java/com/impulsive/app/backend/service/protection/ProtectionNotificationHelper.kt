@@ -140,12 +140,18 @@ class ProtectionNotificationHelper(
                     .toEpochMilli()
 
                 builder
-                    .setContentTitle(if (hideSensitive) "Impulsive" else "Focus is running")
+                    .setContentTitle(
+                        if (hideSensitive) {
+                            "Impulsive"
+                        } else {
+                            context.getString(R.string.notif_focus_active_title)
+                        },
+                    )
                     .setContentText(
                         if (hideSensitive) {
                             "Session active. Time remaining."
                         } else {
-                            "Guarding your focus. Time remaining."
+                            context.getString(R.string.notif_focus_active_body)
                         },
                     )
                     .setWhen(focusEndMillis)
@@ -159,12 +165,18 @@ class ProtectionNotificationHelper(
                 val remaining = session.formattedRemaining(now)
 
                 builder
-                    .setContentTitle(if (hideSensitive) "Impulsive" else "Focus is paused")
+                    .setContentTitle(
+                        if (hideSensitive) {
+                            "Impulsive"
+                        } else {
+                            context.getString(R.string.notif_focus_paused_title)
+                        },
+                    )
                     .setContentText(
                         if (hideSensitive) {
                             "Session paused. $remaining remaining."
                         } else {
-                            "$remaining remaining."
+                            context.getString(R.string.notif_focus_paused_body, remaining)
                         },
                     )
                     .setShowWhen(false)
@@ -327,6 +339,16 @@ class ProtectionNotificationHelper(
         submitStandardNotification(BlockedAttemptNotificationId, notification)
     }
 
+    private data class InterruptionNotificationAction(
+        val label: String,
+        val pendingIntent: PendingIntent,
+    )
+
+    private data class InterruptionNotificationDestinationConfig(
+        val contentIntent: PendingIntent,
+        val actions: List<InterruptionNotificationAction>,
+    )
+
     fun showInterruptionFallback(
         sourcePackageName: String,
         sourceLabel: String,
@@ -343,60 +365,112 @@ class ProtectionNotificationHelper(
             return InterruptionNotificationResult.Unavailable(status)
         }
         return try {
-            val homePendingIntent = PendingIntent.getActivity(
-                context,
-                InterruptionHomeRequestCode,
-                adaptiveDecisionId?.let {
-                    MainActivity.createAdaptiveMomentIntent(context, it)
-                } ?: MainActivity
-                    .createHomeIntent(context)
-                    .apply {
-                        action = ActionOpenInterruptionHome
-                        putExtra(
-                            AppMonitorService.ExtraFallbackIncidentPackageName,
-                            sourcePackageName,
-                        )
-                    },
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                    PendingIntent.FLAG_IMMUTABLE,
-            )
+            // Three distinct interruption concepts share this notification: an
+            // adaptive-decision interruption, an active Focus interruption, and
+            // ordinary app/website protection. Each branch below constructs only
+            // the PendingIntents it actually uses; the Focus branch must never
+            // construct or expose the ordinary Game/Reading actions or
+            // destinations, and the ordinary branch never touches FocusRecovery.
+            val isFocusFallback = isFocusSession && adaptiveDecisionId == null
 
-            val gameLaunchTarget =
-                if (isFocusSession) {
-                    BlockLaunchTarget.FocusRecovery
-                } else {
-                    BlockLaunchTarget.RandomRecoveryGame
+            val destination = when {
+                adaptiveDecisionId != null -> InterruptionNotificationDestinationConfig(
+                    contentIntent = PendingIntent.getActivity(
+                        context,
+                        InterruptionHomeRequestCode,
+                        MainActivity.createAdaptiveMomentIntent(context, adaptiveDecisionId),
+                        PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                    actions = emptyList(),
+                )
+
+                isFocusFallback -> {
+                    val focusPendingIntent = PendingIntent.getActivity(
+                        context,
+                        InterruptionFocusOptionsRequestCode,
+                        MainActivity.createBlockIntent(
+                            context = context,
+                            sourcePackageName = sourcePackageName,
+                            sourceLabel = sourceLabel,
+                            launchTarget = BlockLaunchTarget.FocusRecovery,
+                        ).apply {
+                            action = ActionOpenInterruptionFocusOptions
+                        },
+                        PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    InterruptionNotificationDestinationConfig(
+                        contentIntent = focusPendingIntent,
+                        actions = listOf(
+                            InterruptionNotificationAction(
+                                label = context.getString(R.string.notif_action_focus_options),
+                                pendingIntent = focusPendingIntent,
+                            ),
+                        ),
+                    )
                 }
 
-            val gamePendingIntent = PendingIntent.getActivity(
-                context,
-                InterruptionGameRequestCode,
-                MainActivity.createBlockIntent(
-                    context = context,
-                    sourcePackageName = sourcePackageName,
-                    sourceLabel = sourceLabel,
-                    launchTarget = gameLaunchTarget,
-                ).apply {
-                    action = ActionOpenInterruptionGame
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                    PendingIntent.FLAG_IMMUTABLE,
-            )
+                else -> {
+                    val homePendingIntent = PendingIntent.getActivity(
+                        context,
+                        InterruptionHomeRequestCode,
+                        MainActivity
+                            .createHomeIntent(context)
+                            .apply {
+                                action = ActionOpenInterruptionHome
+                                putExtra(
+                                    AppMonitorService.ExtraFallbackIncidentPackageName,
+                                    sourcePackageName,
+                                )
+                            },
+                        PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    val gamePendingIntent = PendingIntent.getActivity(
+                        context,
+                        InterruptionGameRequestCode,
+                        MainActivity.createBlockIntent(
+                            context = context,
+                            sourcePackageName = sourcePackageName,
+                            sourceLabel = sourceLabel,
+                            launchTarget = BlockLaunchTarget.RandomRecoveryGame,
+                        ).apply {
+                            action = ActionOpenInterruptionGame
+                        },
+                        PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    val readingPendingIntent = PendingIntent.getActivity(
+                        context,
+                        InterruptionReadingRequestCode,
+                        MainActivity.createBlockIntent(
+                            context = context,
+                            sourcePackageName = sourcePackageName,
+                            sourceLabel = sourceLabel,
+                            launchTarget = BlockLaunchTarget.ReadingReset,
+                        ).apply {
+                            action = ActionOpenInterruptionReading
+                        },
+                        PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    InterruptionNotificationDestinationConfig(
+                        contentIntent = homePendingIntent,
+                        actions = listOf(
+                            InterruptionNotificationAction(
+                                label = context.getString(R.string.notif_action_game),
+                                pendingIntent = gamePendingIntent,
+                            ),
+                            InterruptionNotificationAction(
+                                label = context.getString(R.string.notif_action_reading),
+                                pendingIntent = readingPendingIntent,
+                            ),
+                        ),
+                    )
+                }
+            }
 
-            val readingPendingIntent = PendingIntent.getActivity(
-                context,
-                InterruptionReadingRequestCode,
-                MainActivity.createBlockIntent(
-                    context = context,
-                    sourcePackageName = sourcePackageName,
-                    sourceLabel = sourceLabel,
-                    launchTarget = BlockLaunchTarget.ReadingReset,
-                ).apply {
-                    action = ActionOpenInterruptionReading
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                    PendingIntent.FLAG_IMMUTABLE,
-            )
             val deletePendingIntent = PendingIntent.getService(
                 context,
                 InterruptionDismissedRequestCode,
@@ -426,21 +500,18 @@ class ProtectionNotificationHelper(
                 PendingIntent.FLAG_UPDATE_CURRENT or
                     PendingIntent.FLAG_IMMUTABLE,
             )
-            val displayedTitle =
-                if (adaptiveDecisionId != null || hideSensitive) {
-                    "Impulsive"
-                } else {
-                    InterruptionFallbackNotificationTitle
-                }
+            val displayedTitle = when {
+                adaptiveDecisionId != null || hideSensitive -> "Impulsive"
+                isFocusFallback -> context.getString(R.string.notif_focus_active_title)
+                else -> InterruptionFallbackNotificationTitle
+            }
 
-            val displayedBody =
-                if (adaptiveDecisionId != null) {
-                    "Choose a different direction"
-                } else if (hideSensitive) {
-                    "Open Impulsive to continue."
-                } else {
-                    InterruptionFallbackNotificationBody
-                }
+            val displayedBody = when {
+                adaptiveDecisionId != null -> "Choose a different direction"
+                hideSensitive -> "Open Impulsive to continue."
+                isFocusFallback -> context.getString(R.string.notif_focus_fallback_body, sourceLabel)
+                else -> InterruptionFallbackNotificationBody
+            }
 
             val builder =
                 NotificationCompat.Builder(
@@ -461,7 +532,7 @@ class ProtectionNotificationHelper(
                             .setBigContentTitle(displayedTitle)
                             .bigText(displayedBody),
                     )
-                    .setContentIntent(homePendingIntent)
+                    .setContentIntent(destination.contentIntent)
                     .setDeleteIntent(deletePendingIntent)
                     .setAutoCancel(true)
                     .setOnlyAlertOnce(true)
@@ -474,21 +545,12 @@ class ProtectionNotificationHelper(
                     )
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
-            if (adaptiveDecisionId == null) {
+            destination.actions.forEach { action ->
                 builder.addAction(
-                        R.drawable.ic_notification,
-                        context.getString(
-                            R.string.notif_action_game,
-                        ),
-                        gamePendingIntent,
-                    )
-                builder.addAction(
-                        R.drawable.ic_notification,
-                        context.getString(
-                            R.string.notif_action_reading,
-                        ),
-                        readingPendingIntent,
-                    )
+                    R.drawable.ic_notification,
+                    action.label,
+                    action.pendingIntent,
+                )
             }
             val notification = builder.build()
             when (
@@ -891,6 +953,7 @@ class ProtectionNotificationHelper(
         private const val InterruptionGameRequestCode = 4221
         private const val InterruptionReadingRequestCode = 4222
         private const val InterruptionDismissedRequestCode = 4223
+        private const val InterruptionFocusOptionsRequestCode = 4224
 
         internal const val ActionOpenInterruptionHome =
             "com.impulsive.app.action.OPEN_INTERRUPTION_HOME"
@@ -900,6 +963,9 @@ class ProtectionNotificationHelper(
 
         private const val ActionOpenInterruptionReading =
             "com.impulsive.app.action.OPEN_INTERRUPTION_READING"
+
+        private const val ActionOpenInterruptionFocusOptions =
+            "com.impulsive.app.action.OPEN_INTERRUPTION_FOCUS_OPTIONS"
 
         private const val ActionOpenProtectionRecovery =
             "com.impulsive.app.action.OPEN_PROTECTION_RECOVERY"

@@ -1,6 +1,8 @@
 package com.impulsive.app.frontend.screens.tips
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +37,7 @@ import com.impulsive.app.backend.domain.tips.ImpulsiveTip
 import com.impulsive.app.backend.domain.tips.ImpulsiveTipId
 import com.impulsive.app.backend.domain.tips.TipAction
 import com.impulsive.app.backend.domain.tips.TipCategory
+import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.components.ImpulsiveTopAppBar
 
 @Composable
@@ -193,26 +197,37 @@ private fun TipsScaffold(
     onBack: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            ImpulsiveTopAppBar(
-                title = title,
-                onBack = onBack,
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            content()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        Scaffold(
+            topBar = {
+                ImpulsiveTopAppBar(
+                    title = title,
+                    onBack = onBack,
+                    containerColor = Color.Transparent,
+                )
+            },
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onBackground,
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                content()
+            }
         }
     }
 }

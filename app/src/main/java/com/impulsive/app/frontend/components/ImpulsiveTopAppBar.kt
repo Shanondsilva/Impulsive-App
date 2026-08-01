@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,12 +28,13 @@ fun ImpulsiveTopAppBar(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     navigationEnabled: Boolean = true,
+    containerColor: Color = MaterialTheme.colorScheme.background,
     trailingAction: (@Composable RowScope.() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
+            .background(containerColor)
             .statusBarsPadding()
             .padding(horizontal = 8.dp, vertical = 10.dp)
             .heightIn(min = 48.dp),

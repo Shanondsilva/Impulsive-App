@@ -9,7 +9,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -65,7 +64,6 @@ import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.impulsive.app.R
-import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import kotlinx.coroutines.delay
 
 @Composable
@@ -78,7 +76,6 @@ fun MindModeStatusSheet(
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
 
-    val screenBackground = colorScheme.background
     val deepText = colorScheme.onBackground
     val bodyText = colorScheme.onSurface
     val mutedText = colorScheme.onSurfaceVariant
@@ -95,30 +92,32 @@ fun MindModeStatusSheet(
         Color(0xFF685985)
     }
     val onLavender = if (isDark) Color(0xFF281D38) else Color(0xFF3A2E50)
-    val cardSurface = colorScheme.surface
-    val cardBorder = if (isDark) {
-        colorScheme.primary.copy(alpha = 0.38f)
-    } else {
-        Color(0xFFE9DFF2)
-    }
+    val cardSurface = colorScheme.surface.copy(
+        alpha = if (isDark) 0.92f else 0.96f,
+    )
 
     BackHandler(onBack = onDismissRequest)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(screenBackground),
+            .background(colorScheme.background),
     ) {
-        ImpulsiveAmbientBackground()
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 28.dp)
-                .padding(top = 8.dp, bottom = bottomNavReservedSpace),
+                .padding(
+                    top = 8.dp,
+                    bottom = bottomNavReservedSpace,
+                ),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -178,11 +177,9 @@ fun MindModeStatusSheet(
 
             Surface(
                 color = cardSurface,
+                contentColor = colorScheme.onSurface,
                 shape = RoundedCornerShape(34.dp),
-                border = BorderStroke(
-                    1.dp,
-                    cardBorder,
-                ),
+                tonalElevation = 0.dp,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 MindModeExplainerCarousel(
@@ -200,11 +197,9 @@ fun MindModeStatusSheet(
 
             Surface(
                 color = cardSurface,
+                contentColor = colorScheme.onSurface,
                 shape = RoundedCornerShape(34.dp),
-                border = BorderStroke(
-                    1.dp,
-                    cardBorder,
-                ),
+                tonalElevation = 0.dp,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 MindModeDecisionTreeVisual(
@@ -287,23 +282,9 @@ private fun ActiveMindModeBadge(
     lavenderSoft: Color,
     lavenderDeep: Color,
 ) {
-    val badgePulse = rememberInfiniteTransition(label = "active_mind_badge_pulse")
-    val borderAlpha by badgePulse.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 0.65f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "active_mind_badge_border_alpha",
-    )
     Surface(
         color = if (isDark) lavender.copy(alpha = 0.14f) else lavenderSoft.copy(alpha = 0.86f),
         shape = RoundedCornerShape(50),
-        border = BorderStroke(
-            1.dp,
-            if (isDark) lavender.copy(alpha = borderAlpha) else ImpulsivePsychological.copy(alpha = borderAlpha),
-        ),
     ) {
         Text(
             text = "ACTIVE",
@@ -315,7 +296,15 @@ private fun ActiveMindModeBadge(
     }
 }
 
+private enum class MindModeExplainerVisual {
+    Notice,
+    Pause,
+    Pivot,
+    Understand,
+}
+
 private data class MindModeExplainerStep(
+    val visual: MindModeExplainerVisual,
     val title: String,
     val description: String,
 )
@@ -323,6 +312,56 @@ private data class MindModeExplainerStep(
 private fun Int.asMindModeStepIndex(stepCount: Int): Int {
     return ((this % stepCount) + stepCount) % stepCount
 }
+
+private data class MindModePathwayStage(
+    val title: String,
+    val description: String,
+)
+
+private data class MindModeSupportFamily(
+    val title: String,
+    val detail: String? = null,
+)
+
+private data class MindModePathwayModel(
+    val notice: MindModePathwayStage,
+    val privateCues: List<String>,
+    val privateCuesDescription: String,
+    val decision: MindModePathwayStage,
+    val supportFamilies: List<MindModeSupportFamily>,
+    val outcome: MindModePathwayStage,
+    val learning: MindModePathwayStage,
+)
+
+private val MindModePathway = MindModePathwayModel(
+    notice = MindModePathwayStage(
+        title = "Notice",
+        description = "Impulsive recognises the difficult moment.",
+    ),
+    privateCues = listOf("urge", "time", "pattern"),
+    privateCuesDescription = "These cues stay on this device.",
+    decision = MindModePathwayStage(
+        title = "Mind suggests support",
+        description = "One eligible option is selected.",
+    ),
+    supportFamilies = listOf(
+        MindModeSupportFamily(title = "Short Pause"),
+        MindModeSupportFamily(
+            title = "Pivot Game",
+            detail = "Reflex • Block • SkyStack • Rhythm",
+        ),
+        MindModeSupportFamily(title = "Reset Reading"),
+        MindModeSupportFamily(title = "Moment Plan"),
+    ),
+    outcome = MindModePathwayStage(
+        title = "Outcome recorded",
+        description = "What happened is stored privately.",
+    ),
+    learning = MindModePathwayStage(
+        title = "Private learning",
+        description = "Later suggestions can adjust without changing the core rules.",
+    ),
+)
 
 @Composable
 private fun MindModeDecisionTreeVisual(
@@ -353,8 +392,8 @@ private fun MindModeDecisionTreeVisual(
             1f,
         ) == 0f
     }
-    // Seven sequential stages: trigger, pause, state chips, decision node,
-    // task branches, complete and reward, learn loop.
+    // Seven sequential stages: notice, private cues, decision, the four
+    // support-family nodes, outcome, private learning, return loop.
     val stages = remember { List(7) { Animatable(0f) } }
     LaunchedEffect(Unit) {
         if (reducedMotion) {
@@ -383,16 +422,16 @@ private fun MindModeDecisionTreeVisual(
             .height(388.dp)
             .padding(horizontal = 12.dp),
     ) {
+        val pathway = MindModePathway
         val w = maxWidth
         val centerX = w / 2
-        val triggerY = 26.dp
-        val pauseY = 72.dp
-        val chipsY = 118.dp
-        val decisionY = 170.dp
-        val branchTopY = 228.dp
-        val branchBottomY = 268.dp
-        val branchThirdY = 308.dp
-        val rewardY = 354.dp
+        val noticeY = 26.dp
+        val cuesY = 76.dp
+        val decisionY = 132.dp
+        val branchTopY = 194.dp
+        val branchBottomY = 238.dp
+        val outcomeY = 300.dp
+        val learningY = 348.dp
         val branchLeftX = w * 0.26f
         val branchRightX = w * 0.74f
         val lineColor = lavender.copy(alpha = if (isDark) 0.55f else 0.45f)
@@ -413,35 +452,39 @@ private fun MindModeDecisionTreeVisual(
                     cap = StrokeCap.Round,
                 )
             }
-            seg(Offset(cx, triggerY.toPx() + 14.dp.toPx()), Offset(cx, pauseY.toPx() - 14.dp.toPx()), stages[1].value)
-            seg(Offset(cx, pauseY.toPx() + 14.dp.toPx()), Offset(cx, chipsY.toPx() - 12.dp.toPx()), stages[2].value)
-            seg(Offset(cx, chipsY.toPx() + 12.dp.toPx()), Offset(cx, decisionY.toPx() - 16.dp.toPx()), stages[3].value)
+            // Notice -> private cues -> decision.
+            seg(Offset(cx, noticeY.toPx() + 14.dp.toPx()), Offset(cx, cuesY.toPx() - 12.dp.toPx()), stages[1].value)
+            seg(Offset(cx, cuesY.toPx() + 12.dp.toPx()), Offset(cx, decisionY.toPx() - 16.dp.toPx()), stages[2].value)
+
+            // Decision fans out to every one of the four support families.
             val branchTargets = listOf(
                 Offset(branchLeftX.toPx(), branchTopY.toPx() - 12.dp.toPx()),
                 Offset(branchRightX.toPx(), branchTopY.toPx() - 12.dp.toPx()),
                 Offset(branchLeftX.toPx(), branchBottomY.toPx() - 12.dp.toPx()),
                 Offset(branchRightX.toPx(), branchBottomY.toPx() - 12.dp.toPx()),
-                Offset(cx, branchThirdY.toPx() - 12.dp.toPx()),
             )
             branchTargets.forEachIndexed { index, target ->
-                val p = ((stages[4].value * 5f) - index).coerceIn(0f, 1f)
+                val p = ((stages[3].value * 4f) - index).coerceIn(0f, 1f)
                 seg(Offset(cx, decisionY.toPx() + 16.dp.toPx()), target, p)
             }
-            seg(
+
+            // Every support family converges into the same outcome node.
+            val branchSources = listOf(
+                Offset(branchLeftX.toPx(), branchTopY.toPx() + 12.dp.toPx()),
+                Offset(branchRightX.toPx(), branchTopY.toPx() + 12.dp.toPx()),
                 Offset(branchLeftX.toPx(), branchBottomY.toPx() + 12.dp.toPx()),
-                Offset((w * 0.34f).toPx(), rewardY.toPx() - 12.dp.toPx()),
-                stages[5].value,
-            )
-            seg(
                 Offset(branchRightX.toPx(), branchBottomY.toPx() + 12.dp.toPx()),
-                Offset((w * 0.66f).toPx(), rewardY.toPx() - 12.dp.toPx()),
-                stages[5].value,
             )
-            seg(
-                Offset(cx, branchThirdY.toPx() + 12.dp.toPx()),
-                Offset(cx, rewardY.toPx() - 12.dp.toPx()),
-                stages[5].value,
-            )
+            val outcomeTarget = Offset(cx, outcomeY.toPx() - 12.dp.toPx())
+            branchSources.forEach { source ->
+                seg(source, outcomeTarget, stages[4].value)
+            }
+
+            // Outcome -> private learning.
+            seg(Offset(cx, outcomeY.toPx() + 12.dp.toPx()), Offset(cx, learningY.toPx() - 12.dp.toPx()), stages[5].value)
+
+            // Return loop: private learning visually points back toward the
+            // decision area. It never rewrites the fixed rules directly.
             if (stages[6].value > 0f) {
                 drawArc(
                     color = lineColor,
@@ -451,7 +494,7 @@ private fun MindModeDecisionTreeVisual(
                     topLeft = Offset((w * 0.62f).toPx(), decisionY.toPx()),
                     size = androidx.compose.ui.geometry.Size(
                         (w * 0.30f).toPx(),
-                        (rewardY - decisionY).toPx(),
+                        (learningY - decisionY).toPx(),
                     ),
                     style = androidx.compose.ui.graphics.drawscope.Stroke(
                         width = 2.dp.toPx(),
@@ -469,12 +512,13 @@ private fun MindModeDecisionTreeVisual(
             progress: Float,
             emphasised: Boolean = false,
             scaleOverride: Float = 1f,
+            pillWidth: Dp = 160.dp,
         ) {
             if (progress <= 0f) return
             Box(
                 modifier = Modifier
-                    .offset(x = xCenter - 80.dp, y = yCenter - 16.dp)
-                    .width(160.dp)
+                    .offset(x = xCenter - pillWidth / 2, y = yCenter - 16.dp)
+                    .width(pillWidth)
                     .height(32.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -497,33 +541,52 @@ private fun MindModeDecisionTreeVisual(
                         },
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
             }
         }
 
-        nodePill("Trigger", centerX, triggerY, stages[0].value)
-        nodePill("Pause", centerX, pauseY, stages[1].value)
-        nodePill("urge", w * 0.26f, chipsY, stages[2].value)
-        nodePill("time", centerX, chipsY, stages[2].value)
-        nodePill("pattern", w * 0.74f, chipsY, stages[2].value)
+        nodePill(pathway.notice.title, centerX, noticeY, stages[0].value)
+        nodePill(pathway.privateCues[0], branchLeftX, cuesY, stages[1].value)
+        nodePill(pathway.privateCues[1], centerX, cuesY, stages[1].value)
+        nodePill(pathway.privateCues[2], branchRightX, cuesY, stages[1].value)
         nodePill(
-            label = "Mind picks a task",
+            label = pathway.decision.title,
             xCenter = centerX,
             yCenter = decisionY,
-            progress = stages[3].value,
+            progress = stages[2].value,
             emphasised = true,
             scaleOverride = pulse,
+            pillWidth = 200.dp,
         )
-        nodePill("Reflex Override", branchLeftX, branchTopY, ((stages[4].value * 5f) - 0f).coerceIn(0f, 1f))
-        nodePill("Block Cascade", branchRightX, branchTopY, ((stages[4].value * 5f) - 1f).coerceIn(0f, 1f))
-        nodePill("SkyStack", branchLeftX, branchBottomY, ((stages[4].value * 5f) - 2f).coerceIn(0f, 1f))
-        nodePill("Reset Reading", branchRightX, branchBottomY, ((stages[4].value * 5f) - 3f).coerceIn(0f, 1f))
-        nodePill("Piano steps", centerX, branchThirdY, ((stages[4].value * 5f) - 4f).coerceIn(0f, 1f))
-        nodePill("Complete", w * 0.30f, rewardY, stages[5].value)
-        nodePill("Wait cut + LP", w * 0.70f, rewardY, stages[5].value)
-        nodePill("Learn", w * 0.94f, (decisionY + rewardY) / 2, stages[6].value)
+        nodePill(
+            pathway.supportFamilies[0].title,
+            branchLeftX,
+            branchTopY,
+            ((stages[3].value * 4f) - 0f).coerceIn(0f, 1f),
+        )
+        nodePill(
+            pathway.supportFamilies[1].title,
+            branchRightX,
+            branchTopY,
+            ((stages[3].value * 4f) - 1f).coerceIn(0f, 1f),
+        )
+        nodePill(
+            pathway.supportFamilies[2].title,
+            branchLeftX,
+            branchBottomY,
+            ((stages[3].value * 4f) - 2f).coerceIn(0f, 1f),
+        )
+        nodePill(
+            pathway.supportFamilies[3].title,
+            branchRightX,
+            branchBottomY,
+            ((stages[3].value * 4f) - 3f).coerceIn(0f, 1f),
+        )
+        nodePill(pathway.outcome.title, centerX, outcomeY, stages[4].value)
+        nodePill(pathway.learning.title, centerX, learningY, stages[5].value)
     }
 }
 
@@ -536,15 +599,21 @@ private fun MindModeDecisionTreeList(
     lavenderDeep: Color,
     isDark: Boolean,
 ) {
-    val steps = listOf(
-        "Trigger" to "Impulsive notices the difficult moment.",
-        "Pause" to "The moment slows before autopilot takes over.",
-        "Private cues" to "Urge, timing and pattern context stay on this device.",
-        "Mind picks a task" to "A short support action is selected from eligible options.",
-        "Pivot task" to "A game, reading reset or Moment Plan redirects attention.",
-        "Complete" to "Finishing records the support outcome privately.",
-        "Wait cut + LP" to "Progress and learning update without changing the core rules.",
-    )
+    val pathway = MindModePathway
+    val decisionIndex = 2
+    val steps = buildList {
+        add(pathway.notice.title to pathway.notice.description)
+        add(
+            "Private cues" to
+                "${pathway.privateCues.joinToString(" • ")}. ${pathway.privateCuesDescription}",
+        )
+        add(pathway.decision.title to pathway.decision.description)
+        pathway.supportFamilies.forEach { family ->
+            add(family.title to (family.detail ?: "One eligible support family."))
+        }
+        add(pathway.outcome.title to pathway.outcome.description)
+        add(pathway.learning.title to pathway.learning.description)
+    }
     Column(
         modifier = Modifier.padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -555,12 +624,12 @@ private fun MindModeDecisionTreeList(
                 verticalAlignment = Alignment.Top,
             ) {
                 Surface(
-                    color = if (index == 3) lavender else lavenderSoft,
+                    color = if (index == decisionIndex) lavender else lavenderSoft,
                     shape = CircleShape,
                 ) {
                     Text(
                         text = (index + 1).toString(),
-                        color = if (index == 3) {
+                        color = if (index == decisionIndex) {
                             if (isDark) Color(0xFF1C1430) else MaterialTheme.colorScheme.onPrimary
                         } else {
                             lavenderDeep
@@ -589,14 +658,13 @@ private fun MindModeDecisionTreeList(
     }
 }
 
-private fun mindModeStepLottieRawRes(stepTitle: String): Int? {
-    return when (stepTitle) {
-        "Trigger" -> R.raw.mind_trigger_lottie
-        "Pause" -> R.raw.mind_pause_lottie
-        "Pivot" -> R.raw.mind_pivot_lottie
-        "Control" -> R.raw.mind_control_lottie
-        else -> null
-    }
+private fun mindModeStepLottieRawRes(
+    visual: MindModeExplainerVisual,
+): Int = when (visual) {
+    MindModeExplainerVisual.Notice -> R.raw.mind_trigger_lottie
+    MindModeExplainerVisual.Pause -> R.raw.mind_pause_lottie
+    MindModeExplainerVisual.Pivot -> R.raw.mind_pivot_lottie
+    MindModeExplainerVisual.Understand -> R.raw.mind_control_lottie
 }
 
 @Composable
@@ -612,20 +680,24 @@ private fun MindModeExplainerCarousel(
     val steps = remember {
         listOf(
             MindModeExplainerStep(
-                title = "Trigger",
-                description = "The moment the urge starts. Impulsive catches the spark before it becomes autopilot.",
+                visual = MindModeExplainerVisual.Notice,
+                title = "Notice",
+                description = "A difficult moment is noticed before it becomes autopilot.",
             ),
             MindModeExplainerStep(
+                visual = MindModeExplainerVisual.Pause,
                 title = "Pause",
-                description = "Slow the moment down. Create space before the next action.",
+                description = "Sometimes the lightest support is a short pause before the next action.",
             ),
             MindModeExplainerStep(
+                visual = MindModeExplainerVisual.Pivot,
                 title = "Pivot",
-                description = "Redirect the urge into a safer action that keeps you in control.",
+                description = "Mind can suggest a Pivot Game, Reset Reading, or a prepared Moment Plan.",
             ),
             MindModeExplainerStep(
-                title = "Control",
-                description = "The loop closes. You return to yourself with control restored.",
+                visual = MindModeExplainerVisual.Understand,
+                title = "Understand",
+                description = "Your private outcome can help shape future suggestions.",
             ),
         )
     }
@@ -664,7 +736,6 @@ private fun MindModeExplainerCarousel(
                 mutedText = mutedText,
                 lavender = lavender,
                 lavenderSoft = lavenderSoft,
-                lavenderDeep = lavenderDeep,
                 isDark = isDark,
             )
         }
@@ -703,7 +774,6 @@ private fun MindModeExplainerPage(
     mutedText: Color,
     lavender: Color,
     lavenderSoft: Color,
-    lavenderDeep: Color,
     isDark: Boolean,
 ) {
     Column(
@@ -715,10 +785,9 @@ private fun MindModeExplainerPage(
             modifier = Modifier.fillMaxWidth(),
         ) {
             MindModeSafeStepVisual(
-                stepTitle = step.title,
+                visual = step.visual,
                 lavender = lavender,
                 lavenderSoft = lavenderSoft,
-                lavenderDeep = lavenderDeep,
                 isDark = isDark,
             )
         }
@@ -749,10 +818,9 @@ private fun MindModeExplainerPage(
 
 @Composable
 private fun MindModeSafeStepVisual(
-    stepTitle: String,
+    visual: MindModeExplainerVisual,
     lavender: Color,
     lavenderSoft: Color,
-    lavenderDeep: Color,
     isDark: Boolean,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "mind_step_visual")
@@ -776,25 +844,17 @@ private fun MindModeSafeStepVisual(
         label = "mind_step_float",
     )
 
-    val visualBackground = if (isDark) {
-        Color(0xFF202832)
-    } else {
-        Color(0xFFF8F2FF)
-    }
-    val symbolVerticalOffset = if (stepTitle == "Trigger") 8.dp else 0.dp
-    val lottieRawRes = mindModeStepLottieRawRes(stepTitle)
-    val lottieSize = if (stepTitle == "Trigger") 64.dp else 78.dp
-    val lottieYOffset = if (stepTitle == "Trigger") 8.dp else 0.dp
+    val lottieRawRes = mindModeStepLottieRawRes(visual)
+    val lottieSize = if (visual == MindModeExplainerVisual.Notice) 64.dp else 78.dp
+    val lottieYOffset = if (visual == MindModeExplainerVisual.Notice) 8.dp else 0.dp
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(150.dp)
-            .clip(RoundedCornerShape(32.dp))
-            .background(visualBackground),
+            .height(150.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (stepTitle == "Control") {
+        if (visual == MindModeExplainerVisual.Understand) {
             Box(
                 modifier = Modifier
                     .size(124.dp)
@@ -815,30 +875,14 @@ private fun MindModeSafeStepVisual(
                 .background(lavenderSoft),
             contentAlignment = Alignment.Center,
         ) {
-            if (lottieRawRes != null) {
-                val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(lottieRawRes))
-                LottieAnimation(
-                    composition = composition,
-                    iterations = LottieConstants.IterateForever,
-                    modifier = Modifier
-                        .size(lottieSize)
-                        .offset(y = lottieYOffset),
-                )
-            } else {
-                Text(
-                    text = when (stepTitle) {
-                        "Trigger" -> "!"
-                        "Pause" -> "\u2161"
-                        "Pivot" -> "\u21B7"
-                        else -> "\u2726"
-                    },
-                    color = lavenderDeep,
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = symbolVerticalOffset),
-                )
-            }
+            val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(lottieRawRes))
+            LottieAnimation(
+                composition = composition,
+                iterations = LottieConstants.IterateForever,
+                modifier = Modifier
+                    .size(lottieSize)
+                    .offset(y = lottieYOffset),
+            )
         }
     }
 }

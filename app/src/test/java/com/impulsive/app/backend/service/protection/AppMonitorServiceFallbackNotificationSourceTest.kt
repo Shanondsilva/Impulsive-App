@@ -40,7 +40,7 @@ class AppMonitorServiceFallbackNotificationSourceTest {
         assertTrue(fallback.contains("BlockedAttemptNotificationId"))
         assertTrue(fallback.contains(".setOnlyAlertOnce(true)"))
         assertTrue(fallback.contains("NotificationCompat.BigTextStyle()"))
-        assertTrue(fallback.contains(".setContentIntent(homePendingIntent)"))
+        assertTrue(fallback.contains(".setContentIntent(destination.contentIntent)"))
         assertTrue(fallback.contains(".setDeleteIntent(deletePendingIntent)"))
         assertFalse(fallback.contains("NotificationCompat.DecoratedCustomViewStyle()"))
         assertFalse(fallback.contains("setCustomContentView"))
@@ -50,26 +50,23 @@ class AppMonitorServiceFallbackNotificationSourceTest {
     }
 
     @Test
-    fun gameAndReadingUseExactlyTwoIndependentSystemActions() {
+    fun genericDestinationBranchConstructsBothOrdinaryActionsAndDestinations() {
         val fallback = fallbackHelperSource()
+        val genericBranch = genericDestinationBranch(fallback)
 
         assertTrue(fallback.contains("InterruptionGameRequestCode"))
         assertTrue(fallback.contains("InterruptionReadingRequestCode"))
-        assertTrue(fallback.contains("gamePendingIntent"))
-        assertTrue(fallback.contains("readingPendingIntent"))
-        assertTrue(fallback.contains("R.string.notif_action_game"))
-        assertTrue(fallback.contains("R.string.notif_action_reading"))
-        assertEquals(
-            2,
-            fallback
-                .split(".addAction(")
-                .size - 1,
-        )
+        assertTrue(genericBranch.contains("gamePendingIntent"))
+        assertTrue(genericBranch.contains("readingPendingIntent"))
+        assertTrue(genericBranch.contains("launchTarget = BlockLaunchTarget.RandomRecoveryGame"))
+        assertTrue(genericBranch.contains("launchTarget = BlockLaunchTarget.ReadingReset"))
+        assertEquals(2, genericBranch.split("InterruptionNotificationAction(").size - 1)
+        assertTrue(genericBranch.contains("R.string.notif_action_game"))
+        assertTrue(genericBranch.contains("R.string.notif_action_reading"))
+        assertFalse(genericBranch.contains("BlockLaunchTarget.FocusRecovery"))
+        assertFalse(genericBranch.contains("InterruptionFocusOptionsRequestCode"))
         assertTrue(helperSource.contains("ActionOpenInterruptionGame"))
         assertTrue(helperSource.contains("ActionOpenInterruptionReading"))
-        assertTrue(helperSource.contains("BlockLaunchTarget.FocusRecovery"))
-        assertTrue(helperSource.contains("BlockLaunchTarget.RandomRecoveryGame"))
-        assertTrue(helperSource.contains("BlockLaunchTarget.ReadingReset"))
         assertFalse(fallback.contains("interruption_notification_game"))
         assertFalse(fallback.contains("interruption_notification_reading"))
         assertFalse(helperSource.contains("RemoteViews"))
@@ -103,6 +100,86 @@ class AppMonitorServiceFallbackNotificationSourceTest {
         assertTrue(stringsSource.contains(
             "<string name=\"notif_action_reading\">Reset reading</string>",
         ))
+    }
+
+    @Test
+    fun focusFallbackHasItsOwnTruthfulTitleAndBody() {
+        assertTrue(stringsSource.contains(
+            "<string name=\"notif_focus_active_title\">Focus Mode is active</string>",
+        ))
+        assertTrue(stringsSource.contains(
+            "notif_focus_fallback_body\">%1\$s is blocked during this focus session. " +
+                "Open Focus options to continue.</string>",
+        ))
+        assertTrue(stringsSource.contains(
+            "<string name=\"notif_action_focus_options\">Focus options</string>",
+        ))
+        assertTrue(helperSource.contains("val isFocusFallback = isFocusSession && adaptiveDecisionId == null"))
+        assertTrue(helperSource.contains("isFocusFallback -> context.getString(R.string.notif_focus_active_title)"))
+        assertTrue(
+            helperSource.contains(
+                "isFocusFallback -> context.getString(R.string.notif_focus_fallback_body, sourceLabel)",
+            ),
+        )
+    }
+
+    @Test
+    fun focusDestinationBranchConstructsOnlyFocusRecoveryWithOneAction() {
+        val fallback = fallbackHelperSource()
+        val focusBranch = focusDestinationBranch(fallback)
+
+        assertTrue(fallback.contains("InterruptionFocusOptionsRequestCode"))
+        assertTrue(fallback.contains(".setContentIntent(destination.contentIntent)"))
+        assertTrue(fallback.contains("destination.actions.forEach { action ->"))
+
+        assertTrue(focusBranch.contains("val focusPendingIntent"))
+        assertTrue(focusBranch.contains("launchTarget = BlockLaunchTarget.FocusRecovery"))
+        assertTrue(focusBranch.contains("ActionOpenInterruptionFocusOptions"))
+        assertTrue(focusBranch.contains("contentIntent = focusPendingIntent"))
+        assertTrue(focusBranch.contains("R.string.notif_action_focus_options"))
+        assertEquals(1, focusBranch.split("InterruptionNotificationAction(").size - 1)
+
+        // The Focus branch must neither construct nor expose the ordinary
+        // Game/Reading actions or destinations.
+        assertFalse(focusBranch.contains("BlockLaunchTarget.RandomRecoveryGame"))
+        assertFalse(focusBranch.contains("BlockLaunchTarget.ReadingReset"))
+        assertFalse(focusBranch.contains("InterruptionGameRequestCode"))
+        assertFalse(focusBranch.contains("InterruptionReadingRequestCode"))
+        assertFalse(focusBranch.contains("R.string.notif_action_game"))
+        assertFalse(focusBranch.contains("R.string.notif_action_reading"))
+        assertFalse(focusBranch.contains("gamePendingIntent"))
+        assertFalse(focusBranch.contains("readingPendingIntent"))
+    }
+
+    @Test
+    fun adaptiveDestinationBranchRemainsSeparateWithNoActions() {
+        val fallback = fallbackHelperSource()
+        val adaptiveBranch = adaptiveDestinationBranch(fallback)
+
+        assertTrue(adaptiveBranch.contains("createAdaptiveMomentIntent"))
+        assertTrue(adaptiveBranch.contains("actions = emptyList()"))
+        assertFalse(adaptiveBranch.contains("BlockLaunchTarget.FocusRecovery"))
+        assertFalse(adaptiveBranch.contains("BlockLaunchTarget.RandomRecoveryGame"))
+        assertFalse(adaptiveBranch.contains("BlockLaunchTarget.ReadingReset"))
+    }
+
+    @Test
+    fun focusFallbackHideSensitiveCopyNeverExposesSourceLabel() {
+        val fallback = fallbackHelperSource()
+        val bodyBlock = fallback.substring(
+            fallback.indexOf("val displayedBody = when {"),
+            fallback.indexOf("val builder ="),
+        )
+
+        assertTrue(bodyBlock.contains("hideSensitive -> \"Open Impulsive to continue.\""))
+        assertTrue(
+            bodyBlock.contains(
+                "isFocusFallback -> context.getString(R.string.notif_focus_fallback_body, sourceLabel)",
+            ),
+        )
+        // hideSensitive must be evaluated before the Focus/sourceLabel branch so a
+        // hidden-sensitive Focus fallback can never leak sourceLabel.
+        assertTrue(bodyBlock.indexOf("hideSensitive ->") < bodyBlock.indexOf("isFocusFallback ->"))
     }
 
     @Test
@@ -220,6 +297,34 @@ class AppMonitorServiceFallbackNotificationSourceTest {
         helperSource.indexOf("fun showInterruptionFallback"),
         helperSource.indexOf("fun showProtectionRecoveryNotification"),
     )
+
+    /**
+     * The `val destination = when { ... }` block: each branch below constructs
+     * only the PendingIntents that branch actually needs, so scoping assertions
+     * to one branch proves the others were never touched.
+     */
+    private fun destinationBlock(fallback: String): String = fallback.substring(
+        fallback.indexOf("val destination = when {"),
+        fallback.indexOf("val deletePendingIntent = PendingIntent.getService("),
+    )
+
+    private fun adaptiveDestinationBranch(fallback: String): String {
+        val block = destinationBlock(fallback)
+        return block.substring(
+            block.indexOf("adaptiveDecisionId != null -> InterruptionNotificationDestinationConfig("),
+            block.indexOf("isFocusFallback -> {"),
+        )
+    }
+
+    private fun focusDestinationBranch(fallback: String): String {
+        val block = destinationBlock(fallback)
+        return block.substring(block.indexOf("isFocusFallback -> {"), block.indexOf("else -> {"))
+    }
+
+    private fun genericDestinationBranch(fallback: String): String {
+        val block = destinationBlock(fallback)
+        return block.substring(block.indexOf("else -> {"))
+    }
 
     private fun source(relativePath: String): String =
         File(relativePath).readText()

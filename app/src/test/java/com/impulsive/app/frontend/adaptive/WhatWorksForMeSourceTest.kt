@@ -1,6 +1,7 @@
 package com.impulsive.app.frontend.adaptive
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -66,6 +67,21 @@ class WhatWorksForMeSourceTest {
         assertTrue(userCopy.contains("does not show that practice caused"))
     }
 
+    @Test
+    fun withinOptionPatternsLoopRendersExactlyOnce() {
+        val content = screen.section(
+            "private fun WhatWorksContent(",
+            "private fun InterventionCard(",
+        )
+        assertEquals(1, content.count("report.withinOptionPatterns.forEach"))
+    }
+
     private fun source(path: String): String =
         File("src/main/java/com/impulsive/app/$path").readText()
+
+    private fun String.section(from: String, to: String): String =
+        substring(indexOf(from), indexOf(to, indexOf(from) + from.length))
+
+    private fun String.count(value: String): Int =
+        windowed(value.length, step = 1).count { it == value }
 }

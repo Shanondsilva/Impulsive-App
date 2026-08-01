@@ -314,13 +314,15 @@ fun HomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        ImpulsiveAmbientBackground()
+        ImpulsiveAmbientBackground(
+            modifier = Modifier.fillMaxSize(),
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 120.dp),
         ) {
@@ -1357,26 +1359,11 @@ private fun MomentPlanCompactCard(
 ) {
     val isDark = palette.cardSurface != Color.Unspecified
     val title = activePlan
-        ?.title
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-        ?: if (activePlan == null) {
-            stringResource(R.string.moment_plan_home_title)
-        } else {
-            "Your plan"
-        }
-    val summary = activePlan?.let { plan ->
-        plan.actionText
-            .trim()
-            .takeIf { it.isNotBlank() }
-            ?: MomentPlanPresentation.actionSummary(
-                type = plan.actionType,
-                text = plan.actionText,
-                target = plan.actionTarget,
-                selectedAppLabel = null,
-            ).takeIf { it.isNotBlank() }
-            ?: stringResource(R.string.moment_plan_home_summary)
-    } ?: "Have one action ready for later."
+        ?.let { MomentPlanPresentation.displayTitle(it) }
+        ?: stringResource(R.string.moment_plan_home_title)
+    val summary = activePlan
+        ?.let { MomentPlanPresentation.displayAction(it) }
+        ?: "Have one action ready for later."
     SmallActionCard(
         modifier = modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },

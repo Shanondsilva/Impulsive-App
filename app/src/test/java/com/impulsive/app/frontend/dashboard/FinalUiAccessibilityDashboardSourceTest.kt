@@ -49,7 +49,7 @@ class FinalUiAccessibilityDashboardSourceTest {
     fun mindPivotExplanationUsesVerticalSequenceAtHighFontScale() {
         assertTrue(mindSheet.contains("LocalDensity.current.fontScale >= 1.6f"))
         assertTrue(mindSheet.contains("MindModeDecisionTreeList("))
-        assertTrue(mindSheet.contains("\"Wait cut + LP\""))
+        assertTrue(mindSheet.contains("Private learning"))
     }
 
     private fun source(path: String): String =
