@@ -76,6 +76,7 @@ import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.game.ReflexGameUiState
 import com.impulsive.app.backend.session.game.ReflexGameViewModel
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
 import com.impulsive.app.frontend.components.GameSoundToggle
@@ -94,6 +95,7 @@ fun ReflexGameScreen(
     onAdaptiveCompleted: (() -> Unit)? = null,
     onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.RECOVERY_GAME,
+    gameLaunchContext: RecoveryGameLaunchContext = RecoveryGameLaunchContext.Standalone,
     viewModel: ReflexGameViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -104,6 +106,9 @@ fun ReflexGameScreen(
     val taskRewardStoreState by taskRewardViewModel.storeState.collectAsStateWithLifecycle()
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(gameLaunchContext) {
+        if (!viewModel.configureLaunchContext(gameLaunchContext)) onExit()
+    }
     val sounds = rememberImpulsiveSounds(appSettingsState.soundEffectsEnabled)
     LaunchedEffect(uiState.result) {
         val soundResult = uiState.result
@@ -129,17 +134,22 @@ fun ReflexGameScreen(
         adjustedNextReleaseWindow = taskRewardState.adjustedNextReleaseWindow,
         now = currentNow,
     )
-    var rewardedResultScore by remember(launchSource) { mutableStateOf<Int?>(null) }
+    var rewardedCompletionToken by remember(launchSource) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uiState.result, launchSource) {
         val result = uiState.result
+        val completionToken = if (result != null) {
+            viewModel.taskRewardCompletionToken()
+        } else {
+            null
+        }
         if (
             launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE &&
             result != null &&
             result.validCompletion &&
-            rewardedResultScore != result.score
+            rewardedCompletionToken != completionToken
         ) {
-            rewardedResultScore = result.score
+            rewardedCompletionToken = completionToken
             taskRewardViewModel.completeTask(
                 taskType = PsychologyTaskType.ReflexOverride,
                 releasePlan = releasePlan,
@@ -149,6 +159,7 @@ fun ReflexGameScreen(
                 score = result.score,
                 durationSec = result.durationSec,
                 validCompletion = result.validCompletion,
+                completionToken = checkNotNull(completionToken),
             )
         }
     }
@@ -164,11 +175,8 @@ fun ReflexGameScreen(
 
     val taskLaunch = launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE
     fun exitWithAdaptiveOutcome(completed: Boolean) {
-        onAdaptiveExit?.invoke(completed) ?: onExit()
-    }
-    LaunchedEffect(uiState.result?.validCompletion) {
-        if (uiState.result?.validCompletion == true) {
-            onAdaptiveCompleted?.invoke()
+        viewModel.finishSupportCycleAfterChoice {
+            onAdaptiveExit?.invoke(completed) ?: onExit()
         }
     }
     val mustReplay = uiState.view == GameView.Result && uiState.result?.gameOver == true
@@ -254,10 +262,12 @@ fun ReflexGameScreen(
                 nextWindowText = releasePlan.formattedTimeUntilNextWindow(),
                 onWalkAway = viewModel::walkAway,
                 onPlayAgain = {
-                    viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
-                    viewModel.startCountdown()
+                    viewModel.replayWithRemainingBudget {
+                        viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
+                        viewModel.startCountdown()
+                    }
                 },
-                onPlayAnother = onPlayAnother,
+                onPlayAnother = { viewModel.continueWithAnotherGame(onPlayAnother) },
                 onExit = {
                     viewModel.recordCurrentResult(
                         outcome = if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {

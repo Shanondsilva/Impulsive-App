@@ -43,7 +43,17 @@ class ManualBackupManager(context: Context) {
 
     suspend fun exportTo(output: OutputStream, password: CharArray) =
         withContext(Dispatchers.IO) {
-            val payloadJson = RestoreBundleWriter(appContext).buildPayloadJson()
+            val rawPayloadJson =
+                RestoreBundleWriter(
+                    appContext,
+                )
+                    .buildPayloadJson()
+
+            val payloadJson =
+                RestorePayloadSizePolicy
+                    .requireWithinLimit(
+                        rawPayloadJson,
+                    )
 
             val random = SecureRandom()
             val salt = ByteArray(SaltBytes).also { bytes -> random.nextBytes(bytes) }
@@ -340,7 +350,8 @@ class ManualBackupManager(context: Context) {
         const val FileExtension = "impulsivebackup"
         const val SuggestedFileName = "impulsive-backup-v1.impulsivebackup"
         private const val MaxManualEnvelopeBytes = 12 * 1024 * 1024
-        private const val MaxPayloadBytes = 8 * 1024 * 1024
+        private const val MaxPayloadBytes =
+            RestorePayloadSizePolicy.MaximumPayloadBytes
 
         private const val FormatName = "impulsive-backup"
         private const val FormatVersion = 1

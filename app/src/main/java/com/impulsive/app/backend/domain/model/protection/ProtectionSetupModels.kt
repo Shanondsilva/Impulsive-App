@@ -59,6 +59,9 @@ data class ProtectionSetupState(
     val protectionMonitorTransitionCompleted: Boolean = false,
     val websiteProtectionEnabled: Boolean = false,
     val websiteProtectionAlwaysOn: Boolean = false,
+    val websiteProtectionDisclosureConsentVersion:
+        Int =
+        0,
     val interruptionPermissionEnabled: Boolean = false,
     val backgroundActivityEnabled: Boolean = false,
     val notificationPermissionEnabled: Boolean = false,
@@ -66,6 +69,32 @@ data class ProtectionSetupState(
 ) {
     val blockedAppsSelected: Boolean
         get() = selectedBlockedAppPackageNames.isNotEmpty()
+
+    val websiteProtectionDisclosureAccepted:
+        Boolean
+        get() =
+            WebsiteProtectionDisclosurePolicy
+                .isCurrent(
+                    websiteProtectionDisclosureConsentVersion,
+                )
+
+    val websiteProtectionRuntimeEnabled:
+        Boolean
+        get() =
+            websiteProtectionEnabled &&
+                websiteProtectionDisclosureAccepted
+
+    /**
+     * A legacy installation that had Website Protection configured on before the
+     * current disclosure version existed. Runtime protection stays off until the
+     * current disclosure is accepted, so the UI must route the user back to the
+     * disclosure instead of describing protection as operational.
+     */
+    val websiteProtectionDisclosureReviewRequired:
+        Boolean
+        get() =
+            websiteProtectionEnabled &&
+                !websiteProtectionDisclosureAccepted
 
     val configurationDrivenAppProtectionConsented: Boolean
         get() = appProtectionMonitorEnabled || protectionMonitorTransitionCompleted

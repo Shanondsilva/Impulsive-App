@@ -53,6 +53,11 @@ class SettingsGroupSummarySourceTest {
     }
 
     @Test
+    fun personalSupportSummaryIsExact() {
+        assertTrue(settings.contains("const val PersonalSupport = \"Insights • Privacy\""))
+    }
+
+    @Test
     fun accordionGroupTitleAndSummaryUseSingleLineEllipsis() {
         val accordionGroup = settings.section(
             "private fun AccordionGroup(",
@@ -85,9 +90,15 @@ class SettingsGroupSummarySourceTest {
     }
 
     @Test
-    fun protectionAndFocusCommaRoughnessIsFixed() {
+    fun dedicatedWebsiteProtectionRowIsRemovedFromProtectionFocus() {
+        val protectionFocusGroup = settings.section(
+            "private fun ProtectionFocusGroup(",
+            "private fun PrivacyAccountGroup(",
+        )
+
         assertFalse(settings.contains("Website Protection, DNS Blocking,"))
-        assertTrue(settings.contains("Website Protection & DNS Blocking"))
+        assertFalse(protectionFocusGroup.contains("Website Protection & DNS Blocking"))
+        assertFalse(protectionFocusGroup.contains("title = \"Website Protection\""))
     }
 
     private fun String.section(from: String, to: String): String =

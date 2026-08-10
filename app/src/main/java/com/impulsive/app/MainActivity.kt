@@ -38,8 +38,8 @@ import com.impulsive.app.backend.service.protection.InterruptionNotificationLimi
 import com.impulsive.app.backend.service.protection.AppMonitorService
 import com.impulsive.app.backend.service.protection.ProtectionNotificationHelper
 import com.impulsive.app.backend.service.billing.BillingManager
-import com.impulsive.app.backend.service.billing.shouldReconcileBillingAfterAuthChange
 import com.impulsive.app.backend.session.auth.AuthViewModel
+import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.theme.ThemeViewModel
 import com.impulsive.app.core.util.resolveSceneTime
 import com.impulsive.app.core.util.shouldUseDarkTheme
@@ -49,11 +49,13 @@ import com.impulsive.app.frontend.theme.ImpulsiveTheme
 import java.time.LocalTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
+    private val onboardingViewModel: OnboardingViewModel by viewModels()
     private val appLockDataSource by lazy {
         AppLockPreferencesDataSource(applicationContext)
     }
@@ -61,18 +63,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         PlayStoreRatingPromptDataSource(applicationContext)
     }
     private val billingManager by lazy { BillingManager(applicationContext) }
-    private var lastBillingAuthenticatedUserId: String? = null
     private val billingAuthStateListener = FirebaseAuth.AuthStateListener { auth ->
-        val currentUserId = auth.currentUser?.uid
-        if (
-            shouldReconcileBillingAfterAuthChange(
-                previousUserId = lastBillingAuthenticatedUserId,
-                currentUserId = currentUserId,
-            )
-        ) {
-            billingManager.onAuthenticatedUserAvailable()
-        }
-        lastBillingAuthenticatedUserId = currentUserId
+        onAuthenticationStateChanged(
+            auth.currentUser
+                ?.takeUnless { user -> user.isAnonymous }
+                ?.uid,
+        )
     }
     private val pendingBlockRequest = mutableStateOf<BlockRequest?>(null)
     private val pendingJournalNoteId = mutableStateOf<Long?>(null)
@@ -80,10 +76,26 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val showGuestPinResetDialog = mutableStateOf(false)
     private var foregroundSessionValidationInFlight = false
     private var remoteAccountDeletionHandled = false
+    private var startupContentReady = false
+
+    private fun onAuthenticationStateChanged(currentAuthenticatedUid: String?) {
+        billingManager.onAuthenticationStateChanged(currentAuthenticatedUid)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        /*
+         * Keep the native Android splash visible until real startup content has
+         * successfully composed. This prevents the intermediate
+         * "Loading Impulsive..." Compose surface from flashing between the splash
+         * and Home.
+         */
+        splashScreen.setKeepOnScreenCondition {
+            !startupContentReady
+        }
+
         enableEdgeToEdge()
 
         endFallbackNotificationIfRequested(intent)
@@ -119,12 +131,40 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     )
                     .delete()
             }
+
+            // Legacy temporary-access state removed by APP-011.
+            runCatching {
+                applicationContext
+                    .preferencesDataStoreFile(
+                        "one_minute_access",
+                    )
+                    .delete()
+            }
+
+            ProtectionNotificationHelper(applicationContext)
+                .cancelLegacyTemporaryAccessNotification()
         }
 
         setContent {
             val themeViewModel: ThemeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
             val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
-            val appLockEnabled by appLockDataSource.enabled.collectAsStateWithLifecycle(initialValue = false)
+            val appLockEnabled by produceState<Boolean?>(
+                initialValue = null,
+                key1 = appLockDataSource,
+            ) {
+                /*
+                 * Null means DataStore has not produced its first value yet.
+                 *
+                 * Do not assume false while loading because that could briefly expose
+                 * Home before an enabled app lock is discovered.
+                 */
+                appLockDataSource
+                    .enabled
+                    .collect { enabled ->
+                        value = enabled
+                    }
+            }
+            val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
             val unlocked by unlockedThisSession
             val systemInDark = isSystemInDarkTheme()
 
@@ -149,7 +189,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 }
             }
 
-            val locked = appLockEnabled && !unlocked
+            val locked = appLockEnabled == true && !unlocked
 
             LaunchedEffect(locked, pendingBlockRequest.value) {
                 if (locked && pendingBlockRequest.value != null) {
@@ -158,25 +198,61 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             }
 
             ImpulsiveTheme(darkTheme = useDark) {
-                if (locked) {
-                    AppLockGateScreen(
-                        onUnlocked = { unlockedThisSession.value = true },
-                        onForgotPin = { handleForgotPin() },
-                    )
-                } else {
-                    AppNavHost(
-                        authViewModel = authViewModel,
-                        billingManager = billingManager,
-                        initialBlockRequest = if (!locked) pendingBlockRequest.value else null,
-                        onBlockRequestConsumed = {
-                            if (pendingBlockRequest.value != null) {
-                                ProtectionInterruptionOverlay.dismissAny()
-                                pendingBlockRequest.value = null
-                            }
-                        },
-                        initialJournalNoteId = pendingJournalNoteId.value,
-                        onJournalNoteConsumed = { pendingJournalNoteId.value = null },
-                    )
+                when {
+                    /*
+                     * Keep the native splash while the app-lock preference is unknown.
+                     * Rendering Home from an assumed false value could expose private
+                     * content for one frame.
+                     */
+                    appLockEnabled == null -> Unit
+
+                    locked -> {
+                        AppLockGateScreen(
+                            onUnlocked = { unlockedThisSession.value = true },
+                            onForgotPin = { handleForgotPin() },
+                        )
+
+                        /*
+                         * SideEffect runs only after this real screen has successfully
+                         * composed, so the native splash cannot disappear into an empty
+                         * or transitional frame.
+                         */
+                        SideEffect {
+                            startupContentReady = true
+                        }
+                    }
+
+                    /*
+                     * App lock is known to be disabled, but onboarding persistence has
+                     * not produced its first snapshot. Render nothing behind the native
+                     * splash.
+                     */
+                    onboardingState.isLoading -> Unit
+
+                    else -> {
+                        AppNavHost(
+                            onboardingViewModel = onboardingViewModel,
+                            authViewModel = authViewModel,
+                            billingManager = billingManager,
+                            initialBlockRequest = if (!locked) pendingBlockRequest.value else null,
+                            onBlockRequestConsumed = {
+                                if (pendingBlockRequest.value != null) {
+                                    ProtectionInterruptionOverlay.dismissAny()
+                                    pendingBlockRequest.value = null
+                                }
+                            },
+                            initialJournalNoteId = pendingJournalNoteId.value,
+                            onJournalNoteConsumed = { pendingJournalNoteId.value = null },
+                        )
+
+                        /*
+                         * Release the splash only after AppNavHost has successfully
+                         * composed its real first destination.
+                         */
+                        SideEffect {
+                            startupContentReady = true
+                        }
+                    }
                 }
                 if (showGuestPinResetDialog.value) {
                     AlertDialog(

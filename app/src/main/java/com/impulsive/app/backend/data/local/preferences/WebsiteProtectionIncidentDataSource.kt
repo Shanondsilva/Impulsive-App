@@ -3,128 +3,26 @@ package com.impulsive.app.backend.data.local.preferences
 import android.content.Context
 import org.json.JSONObject
 
-enum class WebsiteProtectionIncidentPhase {
-    Friction,
-    Cooldown,
-}
-
 data class WebsiteProtectionIncidentRecord(
     val packageName: String,
     val sourceLabel: String,
     val blockedDomain: String,
-    val phase: WebsiteProtectionIncidentPhase,
-    val accumulatedFrictionMillis: Long,
-    val lastAdultActivityAtEpochMillis: Long?,
-    val activeSegmentStartedAtEpochMillis: Long?,
-    val pausedAtEpochMillis: Long?,
-    val cooldownStartedAtEpochMillis: Long?,
-    val cooldownUntilEpochMillis: Long?,
+    val lastAdultActivityAtEpochMillis: Long,
     val incidentStartedAtEpochMillis: Long,
-) {
-    fun frictionElapsedMillis(
-        nowEpochMillis: Long,
-    ): Long {
-        if (phase != WebsiteProtectionIncidentPhase.Friction) {
-            return WebsiteProtectionIncidentPolicy.FrictionMillis
-        }
-
-        val activeSegmentElapsed =
-            activeSegmentStartedAtEpochMillis
-                ?.let { startedAt ->
-                    val leaseUntil =
-                        lastAdultActivityAtEpochMillis
-                            ?.plus(
-                                WebsiteProtectionIncidentPolicy.ResumeGraceMillis,
-                            )
-                            ?: startedAt
-
-                    val effectiveNow =
-                        minOf(
-                            nowEpochMillis,
-                            leaseUntil,
-                        )
-
-                    (
-                        effectiveNow -
-                            startedAt
-                    ).coerceAtLeast(0L)
-                }
-                ?: 0L
-
-        return (
-            accumulatedFrictionMillis +
-                activeSegmentElapsed
-        ).coerceIn(
-            0L,
-            WebsiteProtectionIncidentPolicy.FrictionMillis,
-        )
-    }
-
-    fun frictionRemainingMillis(
-        nowEpochMillis: Long,
-    ): Long =
-        (
-            WebsiteProtectionIncidentPolicy.FrictionMillis -
-                frictionElapsedMillis(
-                    nowEpochMillis,
-                )
-        ).coerceAtLeast(0L)
-
-    fun isCooldownActive(
-        nowEpochMillis: Long,
-    ): Boolean =
-        phase == WebsiteProtectionIncidentPhase.Cooldown &&
-            cooldownUntilEpochMillis != null &&
-            nowEpochMillis < cooldownUntilEpochMillis
-
-    fun cooldownRemainingMillis(
-        nowEpochMillis: Long,
-    ): Long =
-        if (phase == WebsiteProtectionIncidentPhase.Cooldown) {
-            (
-                (cooldownUntilEpochMillis ?: nowEpochMillis) -
-                    nowEpochMillis
-            ).coerceAtLeast(0L)
-        } else {
-            0L
-        }
-}
-
-internal fun deriveWebsiteProtectionIncidentStartedAt(
-    explicitIncidentStartedAtEpochMillis: Long?,
-    activeSegmentStartedAtEpochMillis: Long?,
-    lastAdultActivityAtEpochMillis: Long?,
-    cooldownStartedAtEpochMillis: Long?,
-    accumulatedFrictionMillis: Long,
-    nowEpochMillis: Long,
-): Long =
-    explicitIncidentStartedAtEpochMillis
-        ?.takeIf { it >= 0L }
-        ?: activeSegmentStartedAtEpochMillis
-            ?.takeIf { it >= 0L }
-        ?: lastAdultActivityAtEpochMillis
-            ?.takeIf { it >= 0L }
-        ?: cooldownStartedAtEpochMillis
-            ?.takeIf {
-                accumulatedFrictionMillis in
-                    0L..WebsiteProtectionIncidentPolicy.FrictionMillis &&
-                    it >= accumulatedFrictionMillis
-            }
-            ?.minus(accumulatedFrictionMillis)
-        ?: nowEpochMillis
+)
 
 object WebsiteProtectionIncidentPolicy {
-    const val FrictionMillis =
-        30_000L
-
-    const val ResumeGraceMillis =
+    /**
+     * Internal pending-event freshness only.
+     *
+     * This is not a user-facing wait period and not a cooldown. A qualifying
+     * incident is eligible immediately. The freshness limit only prevents an
+     * old persisted DNS event from unexpectedly opening an interruption later.
+     */
+    const val IncidentFreshnessMillis =
         15_000L
 
-    const val CooldownMillis =
-        7 * 60_000L
-
-
-    fun createFriction(
+    fun createImmediateIncident(
         packageName: String,
         sourceLabel: String,
         blockedDomain: String,
@@ -139,20 +37,8 @@ object WebsiteProtectionIncidentPolicy {
                 sourceLabel,
             blockedDomain =
                 blockedDomain,
-            phase =
-                WebsiteProtectionIncidentPhase.Friction,
-            accumulatedFrictionMillis =
-                0L,
             lastAdultActivityAtEpochMillis =
                 nowEpochMillis,
-            activeSegmentStartedAtEpochMillis =
-                nowEpochMillis,
-            pausedAtEpochMillis =
-                null,
-            cooldownStartedAtEpochMillis =
-                null,
-            cooldownUntilEpochMillis =
-                null,
             incidentStartedAtEpochMillis =
                 nowEpochMillis,
         )
@@ -164,279 +50,142 @@ object WebsiteProtectionIncidentPolicy {
         nowEpochMillis: Long,
     ): WebsiteProtectionIncidentRecord {
         val current =
-            reconcile(
-                record =
-                    record,
-                foregroundPackage =
-                    record.packageName,
-                nowEpochMillis =
-                    nowEpochMillis,
-            ) ?: return createFriction(
-                packageName =
-                    record.packageName,
-                sourceLabel =
-                    sourceLabel,
-                blockedDomain =
-                    blockedDomain,
-                nowEpochMillis =
-                    nowEpochMillis,
+            validate(
+                record,
             )
 
-        return when (current.phase) {
-            WebsiteProtectionIncidentPhase.Friction ->
-                current.copy(
-                    sourceLabel =
-                        sourceLabel,
-                    blockedDomain =
-                        blockedDomain,
-                    lastAdultActivityAtEpochMillis =
-                        nowEpochMillis,
-                )
-
-            WebsiteProtectionIncidentPhase.Cooldown ->
-                current.copy(
-                    sourceLabel =
-                        sourceLabel,
-                    blockedDomain =
-                        blockedDomain,
-                )
+        if (
+            current == null ||
+            !isFresh(
+                record = current,
+                nowEpochMillis = nowEpochMillis,
+            )
+        ) {
+            return createImmediateIncident(
+                packageName = record.packageName,
+                sourceLabel = sourceLabel,
+                blockedDomain = blockedDomain,
+                nowEpochMillis = nowEpochMillis,
+            )
         }
+
+        return current.copy(
+            sourceLabel =
+                sourceLabel,
+            blockedDomain =
+                blockedDomain,
+            lastAdultActivityAtEpochMillis =
+                nowEpochMillis,
+        )
     }
+
     fun reconcile(
         record: WebsiteProtectionIncidentRecord,
         foregroundPackage: String?,
         nowEpochMillis: Long,
-    ): WebsiteProtectionIncidentRecord? =
-        when (record.phase) {
-            WebsiteProtectionIncidentPhase.Friction ->
-                reconcileFriction(
-                    record =
-                        record,
-                    foregroundPackage =
-                        foregroundPackage,
-                    nowEpochMillis =
-                        nowEpochMillis,
-                )
-
-            WebsiteProtectionIncidentPhase.Cooldown ->
-                reconcileCooldown(
-                    record =
-                        record,
-                    nowEpochMillis =
-                        nowEpochMillis,
-                )
-        }
-
-    fun validate(
-        record: WebsiteProtectionIncidentRecord,
     ): WebsiteProtectionIncidentRecord? {
-        if (record.packageName.isBlank()) {
+        val current =
+            validate(
+                record,
+            ) ?: return null
+
+        val foregroundKey =
+            foregroundPackage
+                ?.let(::canonicalAccessKey)
+                ?.ifBlank {
+                    null
+                }
+                ?: return null
+
+        if (foregroundKey != current.packageName) {
             return null
         }
 
         if (
-            record.incidentStartedAtEpochMillis < 0L ||
-            record.accumulatedFrictionMillis < 0L ||
-            record.accumulatedFrictionMillis > FrictionMillis
+            !isFresh(
+                record = current,
+                nowEpochMillis = nowEpochMillis,
+            )
         ) {
             return null
         }
 
-        return when (record.phase) {
-            WebsiteProtectionIncidentPhase.Friction -> {
-                if (
-                    record.cooldownStartedAtEpochMillis != null ||
-                    record.cooldownUntilEpochMillis != null
-                ) {
-                    return null
-                }
-
-                if (record.lastAdultActivityAtEpochMillis == null) {
-                    return null
-                }
-
-                val hasActiveSegment =
-                    record.activeSegmentStartedAtEpochMillis != null
-                val hasPausedMarker =
-                    record.pausedAtEpochMillis != null
-
-                if (hasActiveSegment == hasPausedMarker) {
-                    null
-                } else {
-                    record
-                }
-            }
-            WebsiteProtectionIncidentPhase.Cooldown -> {
-                val cooldownStartedAt =
-                    record.cooldownStartedAtEpochMillis
-                        ?: return null
-                val cooldownUntil =
-                    record.cooldownUntilEpochMillis
-                        ?: return null
-
-                if (
-                    record.activeSegmentStartedAtEpochMillis != null ||
-                    record.pausedAtEpochMillis != null ||
-                    record.lastAdultActivityAtEpochMillis != null ||
-                    cooldownUntil <= cooldownStartedAt
-                ) {
-                    null
-                } else {
-                    record.copy(
-                        accumulatedFrictionMillis =
-                            FrictionMillis,
-                    )
-                }
-            }
-        }
+        return current
     }
 
-    private fun reconcileFriction(
+    fun validate(
         record: WebsiteProtectionIncidentRecord,
-        foregroundPackage: String?,
-        nowEpochMillis: Long,
     ): WebsiteProtectionIncidentRecord? {
-        val lastAdultActivityAt =
+        val canonicalPackageName =
+            canonicalAccessKey(
+                record.packageName,
+            )
+
+        if (canonicalPackageName.isBlank()) {
+            return null
+        }
+
+        if (
+            record.lastAdultActivityAtEpochMillis < 0L ||
+            record.incidentStartedAtEpochMillis < 0L ||
+            record.incidentStartedAtEpochMillis >
             record.lastAdultActivityAtEpochMillis
-                ?: return null
-
-        val activityLeaseUntil =
-            lastAdultActivityAt +
-                ResumeGraceMillis
-
-        val activeSegmentStartedAt =
-            record.activeSegmentStartedAtEpochMillis
-
-        val pausedAt =
-            record.pausedAtEpochMillis
-
-        if (activeSegmentStartedAt != null) {
-            val effectiveSegmentEnd =
-                minOf(
-                    nowEpochMillis,
-                    activityLeaseUntil,
-                )
-
-            val segmentElapsed =
-                (
-                    effectiveSegmentEnd -
-                        activeSegmentStartedAt
-                ).coerceAtLeast(0L)
-
-            val elapsed =
-                (
-                    record.accumulatedFrictionMillis +
-                        segmentElapsed
-                ).coerceAtMost(
-                    FrictionMillis,
-                )
-
-            if (elapsed >= FrictionMillis) {
-                val remainingBeforeSegment =
-                    (
-                        FrictionMillis -
-                            record.accumulatedFrictionMillis
-                    ).coerceAtLeast(0L)
-
-                val cooldownStartedAt =
-                    activeSegmentStartedAt +
-                        remainingBeforeSegment
-
-                return beginCooldown(
-                    record =
-                        record,
-                    cooldownStartedAtEpochMillis =
-                        cooldownStartedAt,
-                )
-            }
-
-            // No adult-domain activity for more than 15 seconds:
-            // clear the partial friction session.
-            if (nowEpochMillis > activityLeaseUntil) {
-                return null
-            }
-
-            return if (foregroundPackage == record.packageName) {
-                record
-            } else {
-                record.copy(
-                    accumulatedFrictionMillis =
-                        elapsed,
-                    activeSegmentStartedAtEpochMillis =
-                        null,
-                    pausedAtEpochMillis =
-                        nowEpochMillis,
-                )
-            }
+        ) {
+            return null
         }
 
-        if (pausedAt != null) {
-            if (nowEpochMillis > activityLeaseUntil) {
-                return null
-            }
-
-            return if (foregroundPackage == record.packageName) {
-                record.copy(
-                    activeSegmentStartedAtEpochMillis =
-                        nowEpochMillis,
-                    pausedAtEpochMillis =
-                        null,
-                )
-            } else {
-                record
-            }
-        }
-
-        return null
-    }
-    private fun reconcileCooldown(
-        record: WebsiteProtectionIncidentRecord,
-        nowEpochMillis: Long,
-    ): WebsiteProtectionIncidentRecord? {
-        val cooldownUntil =
-            record.cooldownUntilEpochMillis
-                ?: return null
-
-        return if (nowEpochMillis < cooldownUntil) {
+        return if (
+            canonicalPackageName ==
+            record.packageName
+        ) {
             record
         } else {
-            null
+            record.copy(
+                packageName =
+                    canonicalPackageName,
+            )
         }
     }
 
-    private fun beginCooldown(
+    fun isFresh(
         record: WebsiteProtectionIncidentRecord,
-        cooldownStartedAtEpochMillis: Long,
-    ): WebsiteProtectionIncidentRecord =
-        record.copy(
-            phase =
-                WebsiteProtectionIncidentPhase.Cooldown,
-            accumulatedFrictionMillis =
-                FrictionMillis,
-            activeSegmentStartedAtEpochMillis =
-                null,
-            pausedAtEpochMillis =
-                null,
-            lastAdultActivityAtEpochMillis =
-                null,
-            cooldownStartedAtEpochMillis =
-                cooldownStartedAtEpochMillis,
-            cooldownUntilEpochMillis =
-                cooldownStartedAtEpochMillis +
-                    CooldownMillis,
-        )
+        nowEpochMillis: Long,
+    ): Boolean {
+        val ageMillis =
+            nowEpochMillis -
+                record.lastAdultActivityAtEpochMillis
+
+        return ageMillis in
+            0L..IncidentFreshnessMillis
+    }
 }
 
 class WebsiteProtectionIncidentDataSource(
     context: Context,
 ) {
+    private val appContext =
+        context.applicationContext
+
     private val preferences =
-        context
-            .applicationContext
+        appContext.getSharedPreferences(
+            PreferencesName,
+            Context.MODE_PRIVATE,
+        )
+
+    init {
+        /*
+         * v3 contained the removed friction/cooldown state machine.
+         * The v4 store deliberately does not decode or migrate those records.
+         */
+        appContext
             .getSharedPreferences(
-                PreferencesName,
+                LegacyPreferencesName,
                 Context.MODE_PRIVATE,
             )
+            .edit()
+            .clear()
+            .apply()
+    }
 
     fun recordAdultActivity(
         packageName: String,
@@ -449,6 +198,12 @@ class WebsiteProtectionIncidentDataSource(
                 canonicalAccessKey(
                     packageName,
                 )
+
+            require(
+                key.isNotBlank(),
+            ) {
+                "Website Protection incident package must not be blank"
+            }
 
             val current =
                 readAndEvaluateLocked(
@@ -463,7 +218,7 @@ class WebsiteProtectionIncidentDataSource(
             val updated =
                 if (current == null) {
                     WebsiteProtectionIncidentPolicy
-                        .createFriction(
+                        .createImmediateIncident(
                             packageName =
                                 key,
                             sourceLabel =
@@ -502,28 +257,35 @@ class WebsiteProtectionIncidentDataSource(
             val foregroundKey =
                 foregroundPackage
                     ?.let(::canonicalAccessKey)
-                    ?.ifBlank { null }
-            var foregroundIncident: WebsiteProtectionIncidentRecord? = null
+                    ?.ifBlank {
+                        null
+                    }
 
-            activeKeysLocked().forEach { packageName ->
-                val evaluated =
-                    readAndEvaluateLocked(
-                        packageName =
-                            packageName,
-                        foregroundPackage =
-                            foregroundKey,
-                        nowEpochMillis =
-                            nowEpochMillis,
-                    )
+            var foregroundIncident:
+                WebsiteProtectionIncidentRecord? =
+                null
 
-                if (
-                    evaluated != null &&
-                    evaluated.packageName == foregroundKey
-                ) {
-                    foregroundIncident =
-                        evaluated
+            activeKeysLocked()
+                .forEach { packageName ->
+                    val evaluated =
+                        readAndEvaluateLocked(
+                            packageName =
+                                packageName,
+                            foregroundPackage =
+                                foregroundKey,
+                            nowEpochMillis =
+                                nowEpochMillis,
+                        )
+
+                    if (
+                        evaluated != null &&
+                        evaluated.packageName ==
+                        foregroundKey
+                    ) {
+                        foregroundIncident =
+                            evaluated
+                    }
                 }
-            }
 
             foregroundIncident
         }
@@ -533,13 +295,20 @@ class WebsiteProtectionIncidentDataSource(
         nowEpochMillis: Long,
     ): WebsiteProtectionIncidentRecord? =
         synchronized(ProcessLock) {
+            val key =
+                canonicalAccessKey(
+                    packageName,
+                )
+
+            if (key.isBlank()) {
+                return@synchronized null
+            }
+
             readAndEvaluateLocked(
                 packageName =
-                    canonicalAccessKey(
-                        packageName,
-                    ),
+                    key,
                 foregroundPackage =
-                    null,
+                    key,
                 nowEpochMillis =
                     nowEpochMillis,
             )
@@ -572,8 +341,7 @@ class WebsiteProtectionIncidentDataSource(
 
         val decoded =
             decode(
-                raw = raw,
-                nowEpochMillis = nowEpochMillis,
+                raw,
             )
 
         if (decoded == null) {
@@ -645,6 +413,10 @@ class WebsiteProtectionIncidentDataSource(
     private fun removeLocked(
         packageName: String,
     ) {
+        if (packageName.isBlank()) {
+            return
+        }
+
         preferences
             .edit()
             .remove(
@@ -665,85 +437,32 @@ class WebsiteProtectionIncidentDataSource(
 
     private fun encode(
         record: WebsiteProtectionIncidentRecord,
-    ): String {
-        val json =
-            JSONObject()
-                .put(
-                    PackageNameKey,
-                    record.packageName,
-                )
-                .put(
-                    SourceLabelKey,
-                    record.sourceLabel,
-                )
-                .put(
-                    BlockedDomainKey,
-                    record.blockedDomain,
-                )
-                .put(
-                    PhaseKey,
-                    record.phase.name,
-                )
-                .put(
-                    AccumulatedFrictionKey,
-                    record.accumulatedFrictionMillis,
-                )
-                .put(
-                    IncidentStartedAtKey,
-                    record.incidentStartedAtEpochMillis,
-                )
-
-        record
-            .lastAdultActivityAtEpochMillis
-            ?.let {
-                json.put(
-                    LastAdultActivityAtKey,
-                    it,
-                )
-            }
-
-        record
-            .activeSegmentStartedAtEpochMillis
-            ?.let {
-                json.put(
-                    ActiveSegmentStartedAtKey,
-                    it,
-                )
-            }
-
-        record
-            .pausedAtEpochMillis
-            ?.let {
-                json.put(
-                    PausedAtKey,
-                    it,
-                )
-            }
-
-        record
-            .cooldownStartedAtEpochMillis
-            ?.let {
-                json.put(
-                    CooldownStartedAtKey,
-                    it,
-                )
-            }
-
-        record
-            .cooldownUntilEpochMillis
-            ?.let {
-                json.put(
-                    CooldownUntilKey,
-                    it,
-                )
-            }
-
-        return json.toString()
-    }
+    ): String =
+        JSONObject()
+            .put(
+                PackageNameKey,
+                record.packageName,
+            )
+            .put(
+                SourceLabelKey,
+                record.sourceLabel,
+            )
+            .put(
+                BlockedDomainKey,
+                record.blockedDomain,
+            )
+            .put(
+                LastAdultActivityAtKey,
+                record.lastAdultActivityAtEpochMillis,
+            )
+            .put(
+                IncidentStartedAtKey,
+                record.incidentStartedAtEpochMillis,
+            )
+            .toString()
 
     private fun decode(
         raw: String,
-        nowEpochMillis: Long,
     ): WebsiteProtectionIncidentRecord? =
         runCatching {
             val json =
@@ -768,95 +487,26 @@ class WebsiteProtectionIncidentDataSource(
                             json.optString(
                                 BlockedDomainKey,
                             ),
-                        phase =
-                            WebsiteProtectionIncidentPhase
-                                .valueOf(
-                                    json.getString(
-                                        PhaseKey,
-                                    ),
-                                ),
-                        accumulatedFrictionMillis =
-                            json.getLong(
-                                AccumulatedFrictionKey,
-                            ),
                         lastAdultActivityAtEpochMillis =
-                            optionalLong(
-                                json =
-                                    json,
-                                key =
-                                    LastAdultActivityAtKey,
-                            ),
-                        activeSegmentStartedAtEpochMillis =
-                            optionalLong(
-                                json =
-                                    json,
-                                key =
-                                    ActiveSegmentStartedAtKey,
-                            ),
-                        pausedAtEpochMillis =
-                            optionalLong(
-                                json =
-                                    json,
-                                key =
-                                    PausedAtKey,
-                            ),
-                        cooldownStartedAtEpochMillis =
-                            optionalLong(
-                                json =
-                                    json,
-                                key =
-                                    CooldownStartedAtKey,
-                            ),
-                        cooldownUntilEpochMillis =
-                            optionalLong(
-                                json =
-                                    json,
-                                key =
-                                    CooldownUntilKey,
+                            json.getLong(
+                                LastAdultActivityAtKey,
                             ),
                         incidentStartedAtEpochMillis =
-                            deriveWebsiteProtectionIncidentStartedAt(
-                                explicitIncidentStartedAtEpochMillis =
-                                    optionalLong(json, IncidentStartedAtKey),
-                                activeSegmentStartedAtEpochMillis =
-                                    optionalLong(json, ActiveSegmentStartedAtKey),
-                                lastAdultActivityAtEpochMillis =
-                                    optionalLong(json, LastAdultActivityAtKey),
-                                cooldownStartedAtEpochMillis =
-                                    optionalLong(json, CooldownStartedAtKey),
-                                accumulatedFrictionMillis =
-                                    json.getLong(AccumulatedFrictionKey),
-                                nowEpochMillis =
-                                    nowEpochMillis,
+                            json.getLong(
+                                IncidentStartedAtKey,
                             ),
                     ),
                 )
         }.getOrNull()
-
-    private fun optionalLong(
-        json: JSONObject,
-        key: String,
-    ): Long? =
-        if (
-            json.has(
-                key,
-            ) &&
-            !json.isNull(
-                key,
-            )
-        ) {
-            json.getLong(
-                key,
-            )
-        } else {
-            null
-        }
 
     private companion object {
         private val ProcessLock =
             Any()
 
         const val PreferencesName =
+            "website_protection_incidents_v4"
+
+        const val LegacyPreferencesName =
             "website_protection_incidents_v3"
 
         const val IncidentKeyPrefix =
@@ -871,28 +521,10 @@ class WebsiteProtectionIncidentDataSource(
         const val BlockedDomainKey =
             "blockedDomain"
 
-        const val PhaseKey =
-            "phase"
-
-        const val AccumulatedFrictionKey =
-            "accumulatedFrictionMillis"
-
-        const val IncidentStartedAtKey =
-            "incidentStartedAtEpochMillis"
-
         const val LastAdultActivityAtKey =
             "lastAdultActivityAtEpochMillis"
 
-        const val ActiveSegmentStartedAtKey =
-            "activeSegmentStartedAtEpochMillis"
-
-        const val PausedAtKey =
-            "pausedAtEpochMillis"
-
-        const val CooldownStartedAtKey =
-            "cooldownStartedAtEpochMillis"
-
-        const val CooldownUntilKey =
-            "cooldownUntilEpochMillis"
+        const val IncidentStartedAtKey =
+            "incidentStartedAtEpochMillis"
     }
 }

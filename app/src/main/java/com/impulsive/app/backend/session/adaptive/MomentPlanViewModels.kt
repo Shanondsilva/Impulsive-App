@@ -27,7 +27,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
-import com.impulsive.app.backend.session.pathshift.PathShiftDependencies
 import kotlinx.coroutines.launch
 
 data class MomentPlanListUiState(
@@ -630,18 +629,17 @@ class AdaptivePreferencesViewModel(application: Application) : AndroidViewModel(
         if (_state.value.saving) return
         val previousRetentionPolicy =
             _state.value.preferences.historyRetentionPolicy
-        val pathShiftWasEnabled = _state.value.preferences.pathShiftEnabled
-        val preferences = transform(_state.value.preferences)
+        val preferences =
+            transform(
+                _state.value.preferences,
+            ).copy(
+                pathShiftEnabled =
+                    true,
+            )
         _state.update { it.copy(preferences = preferences, saving = true, message = null) }
         viewModelScope.launch {
             try {
                 repository.update(preferences, System.currentTimeMillis())
-                if (pathShiftWasEnabled && !preferences.pathShiftEnabled) {
-                    PathShiftDependencies
-                        .coordinator(getApplication())
-                        .cancelActive()
-                    PathShiftDependencies.scheduler(getApplication()).cancelAll()
-                }
                 if (preferences.historyRetentionPolicy != previousRetentionPolicy) {
                     AdaptiveRetentionDependencies
                         .coordinator(getApplication())

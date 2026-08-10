@@ -1,6 +1,9 @@
 package com.impulsive.app.backend.data.local.preferences
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -22,6 +25,7 @@ import com.impulsive.app.backend.domain.model.tasks.calculateDynamicRequestedWai
 import com.impulsive.app.backend.domain.model.tasks.calculateLevelPointsForTask
 import com.impulsive.app.backend.domain.model.tasks.calculateWaitReductionMinutesToApply
 import com.impulsive.app.backend.domain.model.tasks.isSameLocalDay
+import com.impulsive.app.backend.domain.model.tasks.pointsNeededForNextLevel
 import com.impulsive.app.backend.domain.model.tasks.recommendPsychologyTask
 import com.impulsive.app.backend.domain.model.tasks.rewardStatusFor
 import kotlinx.coroutines.flow.Flow
@@ -33,10 +37,10 @@ import java.time.ZoneId
 
 private val Context.taskRewardDataStore by preferencesDataStore(name = "task_rewards")
 
-class TaskRewardDataSource(
-    context: Context,
+class TaskRewardDataSource internal constructor(
+    private val dataStore: DataStore<Preferences>,
 ) {
-    private val dataStore = context.applicationContext.taskRewardDataStore
+    constructor(context: Context) : this(context.applicationContext.taskRewardDataStore)
 
     val storeState: Flow<TaskRewardStoreState> = dataStore.data.map { preferences ->
         val today = LocalDate.now()
@@ -90,7 +94,10 @@ class TaskRewardDataSource(
         score: Int? = null,
         durationSec: Int? = null,
         validCompletion: Boolean = true,
+        completionToken: String? = null,
     ): TaskCompletionResult {
+        val normalizedCompletionToken = TaskCompletionReceiptLedger.normalizeToken(completionToken)
+
         var result = TaskCompletionResult(
             taskType = taskType,
             taskTitle = taskType.taskTitle,
@@ -102,6 +109,25 @@ class TaskRewardDataSource(
         )
 
         dataStore.edit { preferences ->
+            val existingReceipts = TaskCompletionReceiptLedger.decode(
+                preferences[TaskCompletionReceiptsKey],
+            )
+
+            val existingReceipt = normalizedCompletionToken?.let { token ->
+                existingReceipts.lastOrNull { it.completionToken == token }
+            }
+
+            /*
+             * The reward and its receipt are committed through the same DataStore edit.
+             * A recreated process therefore receives the original result instead of
+             * applying another completion.
+             */
+            if (existingReceipt != null) {
+                result = existingReceipt.result
+
+                return@edit
+            }
+
             if (!validCompletion) {
                 preferences[LastGameTypeKey] = gameType
                 preferences[LastTaskTypeKey] = taskType.id.uppercase()
@@ -110,6 +136,25 @@ class TaskRewardDataSource(
                 score?.let { preferences[LastScoreKey] = it }
                 durationSec?.let { preferences[LastDurationSecKey] = it }
                 preferences[LastValidCompletionKey] = 0
+
+                val currentLevel = preferences[CurrentLevelKey] ?: InitialLevel
+
+                result = TaskCompletionResult(
+                    taskType = taskType,
+                    taskTitle = taskType.taskTitle,
+                    waitReductionMinutes = 0,
+                    levelPointsAwarded = 0,
+                    currentLevel = currentLevel,
+                    currentLevelPoints = preferences[CurrentLevelPointsKey] ?: InitialLevelPoints,
+                    pointsNeededForNextLevel = pointsNeededForNextLevel(currentLevel),
+                )
+
+                preferences.storeCompletionReceipt(
+                    existingReceipts = existingReceipts,
+                    completionToken = normalizedCompletionToken,
+                    result = result,
+                )
+
                 return@edit
             }
             val definition = PsychologyTaskRewardDefinitions.first { it.taskType == taskType }
@@ -263,9 +308,35 @@ class TaskRewardDataSource(
                 currentLevelPoints = levelProgress.currentLevelPoints,
                 pointsNeededForNextLevel = levelProgress.pointsNeededForNextLevel,
             )
+
+            preferences.storeCompletionReceipt(
+                existingReceipts = existingReceipts,
+                completionToken = normalizedCompletionToken,
+                result = result,
+            )
         }
 
         return result
+    }
+
+    private fun MutablePreferences.storeCompletionReceipt(
+        existingReceipts: List<TaskCompletionReceipt>,
+        completionToken: String?,
+        result: TaskCompletionResult,
+    ) {
+        if (completionToken == null) {
+            return
+        }
+
+        this[TaskCompletionReceiptsKey] = TaskCompletionReceiptLedger.encode(
+            TaskCompletionReceiptLedger.upsert(
+                receipts = existingReceipts,
+                receipt = TaskCompletionReceipt(
+                    completionToken = completionToken,
+                    result = result,
+                ),
+            ),
+        )
     }
 
     private fun completedEverKey(taskType: PsychologyTaskType) =
@@ -520,5 +591,6 @@ class TaskRewardDataSource(
         val LastFocusTimeAwardedSessionIdKey =
             stringPreferencesKey("last_focus_time_awarded_session_id")
         val LastFocusTimeAwardedPointsKey = intPreferencesKey("last_focus_time_awarded_points")
+        val TaskCompletionReceiptsKey = stringPreferencesKey("task_completion_receipts")
     }
 }

@@ -10,13 +10,21 @@ import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
 import com.impulsive.app.backend.domain.model.adaptive.MomentCue
 import com.impulsive.app.backend.domain.model.adaptive.MomentIntensity
 import com.impulsive.app.backend.domain.model.adaptive.MomentPlan
-import com.impulsive.app.backend.domain.model.adaptive.MomentPlanActionType
+import com.impulsive.app.backend.session.progress.SafeExitRecordingCoordinator
+import com.impulsive.app.backend.data.local.device.InstalledAppScanner
+import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
+import com.impulsive.app.backend.domain.engine.adaptive.MomentPlanActionSafetyContext
+import com.impulsive.app.backend.domain.engine.adaptive.MomentPlanActionSafetyPolicy
+import com.impulsive.app.backend.domain.engine.adaptive.MomentPlanActionSafetyResult
+import com.impulsive.app.backend.session.progress.SafeExitRecordingResult
+import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 enum class AdaptiveMomentUiMode {
@@ -50,6 +58,13 @@ data class AdaptiveMomentUiState(
     val routing: Boolean = false,
     val message: String? = null,
     val routeRequest: AdaptiveRouteRequest? = null,
+    val momentPlanSafeExitRequestStatus:
+        MomentPlanSafeExitRequestStatus =
+        MomentPlanSafeExitRequestStatus.Idle,
+    val familiarStepState: FamiliarStepSessionState =
+        FamiliarStepSessionState.Unavailable(
+            com.impulsive.app.backend.domain.model.adaptive.FamiliarStepNoMatchReason.FirstAttempt,
+        ),
 ) {
     val assignedIntervention: InterventionFamily?
         get() = decision?.assignment?.assignedSuggestion
@@ -73,6 +88,9 @@ class AdaptiveMomentViewModel(
     private val savedStateHandle: SavedStateHandle,
 ) : AndroidViewModel(application) {
     private val decisionId = savedStateHandle.get<String>("decisionId").orEmpty()
+    private val triggeringPackageName = savedStateHandle
+        .get<String>("triggeringPackageName")
+        ?.takeIf(String::isNotBlank)
     private val decisions = AdaptivePhase4Dependencies.decisions(application)
     private val plans = AdaptivePhase4Dependencies.momentPlans(application)
     private val chooserRefresh = AdaptiveChooserRefresh(decisions, plans)
@@ -80,6 +98,22 @@ class AdaptiveMomentViewModel(
     private val followUpSupport = AdaptivePhase4Dependencies.followUpSupport(application)
     private val outcomeCoordinator =
         AdaptivePhase4Dependencies.outcomeCoordinator(application)
+    private val familiarSteps = AdaptivePhase4Dependencies.familiarSteps(application)
+    private val familiarStepControls =
+        AdaptivePhase4Dependencies.familiarStepControls(application)
+    private val protectionSetup = ProtectionSetupRepository(application)
+    private val installedAppScanner = InstalledAppScanner(application)
+    private val momentPlanSafeExitRecorder =
+        MomentPlanSafeExitRecorder(
+            SafeExitRecordingCoordinator(
+                application,
+            ),
+            ZoneId.systemDefault(),
+        )
+    private val momentPlanSafeExitReconciliationScheduler =
+        WorkManagerMomentPlanSafeExitReconciliationScheduler(
+            application,
+        )
     private val promptStateStore = AdaptiveOptionalPromptStateStore(savedStateHandle)
     private val choiceOperationGuard = AdaptiveChoiceOperationGuard()
     private val refreshInFlight = AtomicBoolean(false)
@@ -108,6 +142,16 @@ class AdaptiveMomentViewModel(
                 }
                 val decision = loaded.decision
                 val enabledPlans = loaded.availablePlans
+                val familiarStepState = if (
+                    decision.assignment.momentIntensity == MomentIntensity.FirstAttempt
+                ) {
+                    FamiliarStepSessionState.Unavailable(
+                        com.impulsive.app.backend.domain.model.adaptive
+                            .FamiliarStepNoMatchReason.FirstAttempt,
+                    )
+                } else {
+                    familiarSteps.state(decision.decisionId)
+                }
                 val mode = if (momentPlanDelivery) {
                     val selectedId = decision.assignment.momentPlanId
                     if (
@@ -139,6 +183,7 @@ class AdaptiveMomentViewModel(
                     urgePromptState = promptStateStore.urgePromptState(
                         decision.baselineUrgeRating,
                     ),
+                    familiarStepState = familiarStepState,
                 )
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -235,6 +280,108 @@ class AdaptiveMomentViewModel(
 
     fun toggleExplanation() {
         _state.update { it.copy(explanationVisible = !it.explanationVisible) }
+    }
+
+    fun startFamiliarStep() {
+        val available = _state.value.familiarStepState as?
+            FamiliarStepSessionState.FamiliarStepAvailable ?: return
+        if (!choiceOperationGuard.tryStart()) return
+        _state.update { it.copy(savingChoice = true, message = null) }
+        viewModelScope.launch {
+            try {
+                when (
+                    val result = familiarSteps.start(decisionId, available.routeIdentity)
+                ) {
+                    is FamiliarStepStartResult.Ready -> {
+                        refreshDecision(
+                            if (result.routeRequest == null) {
+                                AdaptiveMomentUiMode.PauseRunning
+                            } else {
+                                null
+                            },
+                        )
+                        _state.update {
+                            it.copy(
+                                savingChoice = false,
+                                routing = result.routeRequest != null,
+                                routeRequest = result.routeRequest,
+                            )
+                        }
+                    }
+                    is FamiliarStepStartResult.ResumeExistingCycle -> {
+                        _state.update {
+                            it.copy(
+                                savingChoice = false,
+                                routing = true,
+                                routeRequest = result.routeRequest,
+                                message = null,
+                            )
+                        }
+                    }
+                    is FamiliarStepStartResult.Unavailable -> _state.update {
+                        it.copy(
+                            savingChoice = false,
+                            familiarStepState = FamiliarStepSessionState.Unavailable(
+                                result.reason,
+                            ),
+                            message = "That familiar step is no longer available.",
+                        )
+                    }
+                    is FamiliarStepStartResult.LifecycleRejected,
+                    FamiliarStepStartResult.SupportCycleUnavailable -> _state.update {
+                        it.copy(
+                            savingChoice = false,
+                            message = "That support option could not be started. Please try again.",
+                        )
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                _state.update {
+                    it.copy(
+                        savingChoice = false,
+                        message = "That support option could not be started. Please try again.",
+                    )
+                }
+            } finally {
+                choiceOperationGuard.clear()
+            }
+        }
+    }
+
+    fun chooseAnotherSupportFromFamiliarStep() = showOtherOptions()
+
+    fun leaveFamiliarStepMoment() = dismissCurrentIntervention()
+
+    fun clearFamiliarStepHistory() {
+        viewModelScope.launch {
+            if (familiarStepControls.clearAdaptiveHistory() == AdaptiveLifecycleResult.Applied) {
+                _state.update {
+                    it.copy(
+                        familiarStepState = FamiliarStepSessionState.Unavailable(
+                            com.impulsive.app.backend.domain.model.adaptive
+                                .FamiliarStepNoMatchReason.InsufficientEvidence,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun setPersonalSuggestionsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            familiarStepControls.setPersonalSuggestionsEnabled(enabled)
+            val nextState = if (!enabled) {
+                FamiliarStepSessionState.Unavailable(
+                    com.impulsive.app.backend.domain.model.adaptive
+                        .FamiliarStepNoMatchReason.PersonalSuggestionsDisabled,
+                )
+            } else {
+                familiarSteps.state(decisionId)
+            }
+            _state.update { it.copy(familiarStepState = nextState) }
+        }
     }
 
     fun refreshAfterReturn() {
@@ -508,24 +655,178 @@ class AdaptiveMomentViewModel(
             return
         }
         if (snapshot.routing) return
-        if (plan.actionType == MomentPlanActionType.TextOnly) {
-            markStartedAfterSuccessfulEntry()
-            return
-        }
-        val route = AdaptiveMomentRoutingPolicy.forPlanAction(decision.decisionId, plan)
-        if (route == null) {
-            _state.update {
-                it.copy(message = "That plan action is unavailable. Choose another option.")
+        viewModelScope.launch {
+            val protection = protectionSetup.state.first()
+            val expectedRevision = decision.assignment.actualPlanContentRevisionId
+                ?: decision.assignment.assignedPlanContentRevisionId
+                ?: plan.contentRevisionId
+            val safety = MomentPlanActionSafetyPolicy.evaluate(
+                plan,
+                MomentPlanActionSafetyContext(
+                    expectedContentRevisionId = expectedRevision,
+                    availablePackageNames = installedAppScanner.getLaunchableAppCandidates()
+                        .mapTo(mutableSetOf()) { it.packageName },
+                    protectedPackageNames = protection.selectedBlockedAppPackageNames +
+                        protection.websiteProtectedAppPackageNames,
+                    triggeringPackageName = triggeringPackageName,
+                ),
+            )
+            if (safety !is MomentPlanActionSafetyResult.Available) {
+                _state.update {
+                    it.copy(message = "That plan action is unavailable. Choose another option.")
+                }
+                return@launch
             }
-            return
+            val route = AdaptiveMomentRoutingPolicy.forPlanAction(decision.decisionId, plan)
+            if (route == null) {
+                _state.update {
+                    it.copy(message = "That plan action is unavailable. Choose another option.")
+                }
+                return@launch
+            }
+            _state.update { it.copy(routing = true, routeRequest = route) }
         }
-        _state.update { it.copy(routing = true, routeRequest = route) }
     }
 
     fun completeCurrentIntervention() {
         finishCurrentIntervention(completed = true)
     }
 
+    fun requestCompletedMomentPlanWalkAway() {
+        val decision =
+            _state.value.decision
+                ?: return
+
+        if (
+            _state.value
+                .momentPlanSafeExitRequestStatus ==
+                MomentPlanSafeExitRequestStatus
+                    .Recording ||
+            _state.value
+                .momentPlanSafeExitRequestStatus ==
+                MomentPlanSafeExitRequestStatus
+                    .Durable
+        ) {
+            return
+        }
+
+        val candidate =
+            MomentPlanSafeExitCandidateFactory
+                .createOrNull(
+                    decision =
+                        decision,
+                    zoneId =
+                        ZoneId.systemDefault(),
+                )
+
+        if (
+            candidate == null
+        ) {
+            _state.update {
+                it.copy(
+                    momentPlanSafeExitRequestStatus =
+                        MomentPlanSafeExitRequestStatus
+                            .Failed,
+                )
+            }
+
+            return
+        }
+
+        /*
+         * Persist the durable request synchronously before entering
+         * viewModelScope. The later UI may navigate away immediately after
+         * invoking this method.
+         */
+        val enqueueReceipt =
+            momentPlanSafeExitReconciliationScheduler
+                .request(
+                    decision.decisionId,
+                )
+
+        _state.update {
+            it.copy(
+                momentPlanSafeExitRequestStatus =
+                    MomentPlanSafeExitRequestStatus
+                        .Recording,
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val latestDecision =
+                    decisions.getById(
+                        decision.decisionId,
+                    )
+
+                if (
+                    latestDecision == null
+                ) {
+                    _state.update {
+                        it.copy(
+                            momentPlanSafeExitRequestStatus =
+                                MomentPlanSafeExitRequestStatus
+                                    .Failed,
+                        )
+                    }
+
+                    return@launch
+                }
+
+                val enqueueAccepted =
+                    enqueueReceipt
+                        ?.awaitAccepted()
+                        ?: false
+
+                val immediateResult =
+                    momentPlanSafeExitRecorder
+                        .recordExplicitWalkAway(
+                            latestDecision,
+                        )
+
+                val finalStatus =
+                    when (immediateResult) {
+                        is SafeExitRecordingResult.Recorded,
+                        is SafeExitRecordingResult.Duplicate -> MomentPlanSafeExitRequestStatus.Durable
+
+                        is SafeExitRecordingResult.Rejected,
+                        null ->
+                            MomentPlanSafeExitRequestStatus.Failed
+
+                        SafeExitRecordingResult.RetryableFailure ->
+                            if (
+                                enqueueAccepted
+                            ) {
+                                MomentPlanSafeExitRequestStatus.Durable
+                            } else {
+                                MomentPlanSafeExitRequestStatus.Failed
+                            }
+                    }
+
+                _state.update {
+                    it.copy(
+                        momentPlanSafeExitRequestStatus =
+                            finalStatus,
+                    )
+                }
+            } catch (
+                cancellation:
+                    CancellationException,
+            ) {
+                throw cancellation
+            } catch (
+                _: Exception,
+            ) {
+                _state.update {
+                    it.copy(
+                        momentPlanSafeExitRequestStatus =
+                            MomentPlanSafeExitRequestStatus
+                                .Failed,
+                    )
+                }
+            }
+        }
+    }
     fun dismissCurrentIntervention() {
         finishCurrentIntervention(completed = false)
     }

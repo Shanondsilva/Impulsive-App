@@ -21,6 +21,27 @@ class GameStoreManager(context: Context) {
     val dailyEarned = ds.dailyEarned
     val accessByGame = ds.accessByGame
 
+    /**
+     * Records a play keyed to a stable score session, so a result restored
+     * after process death cannot double-count points or rented plays.
+     */
+    suspend fun recordPlayOnce(
+        gameId: String,
+        sessionId: Long,
+        won: Boolean,
+    ): Boolean = ds.recordPlayOnce(
+        gameId = gameId,
+        sessionId = sessionId,
+        won = won,
+        pointsPerTwoWinStreak = GameStoreCatalog.TwoWinStreakControlPoints,
+    )
+
+    /** Read-only confirmation that a session's play receipt is durable. */
+    suspend fun isPlayRecorded(
+        gameId: String,
+        sessionId: Long,
+    ): Boolean = ds.isPlayRecorded(gameId = gameId, sessionId = sessionId)
+
     suspend fun recordPlay(gameId: String, won: Boolean) {
         val state = ds.accessFor(gameId)
         ds.recordGlobalWinStreak(

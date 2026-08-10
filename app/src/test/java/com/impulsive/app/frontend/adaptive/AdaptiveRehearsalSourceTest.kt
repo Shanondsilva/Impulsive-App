@@ -59,7 +59,7 @@ class AdaptiveRehearsalSourceTest {
 
     @Test
     fun appLockRemainsGlobalAndNotificationsContainNoPlanContent() {
-        assertTrue(mainActivity.contains("if (locked)"))
+        assertTrue(mainActivity.contains("locked -> {"))
         assertTrue(mainActivity.contains("AppLockGateScreen("))
         assertFalse(notifications.contains("actionText"))
         assertFalse(notifications.contains("futureCueText"))

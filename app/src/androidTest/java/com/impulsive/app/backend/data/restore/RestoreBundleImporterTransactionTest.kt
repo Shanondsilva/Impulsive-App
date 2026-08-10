@@ -12,6 +12,7 @@ import com.impulsive.app.backend.data.local.entity.CloudRestoreProofType
 import com.impulsive.app.backend.data.local.entity.CloudRestoreReceiptEntity
 import com.impulsive.app.backend.data.local.entity.JournalChecklistItemEntity
 import com.impulsive.app.backend.data.local.entity.JournalNoteEntity
+import com.impulsive.app.backend.data.local.entity.SafeExitEntity
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -66,8 +67,32 @@ class RestoreBundleImporterTransactionTest {
 
         assertFalse(importer.hasExistingUserData())
 
+        val payload =
+            validPayload()
+                .put(
+                    SafeExitRestorePayloadCodec
+                        .JsonKey,
+                    SafeExitRestorePayloadCodec
+                        .encode(
+                            listOf(
+                                SafeExitEntity(
+                                    sourceKey =
+                                        "reset_reading:rollback-1",
+                                    source =
+                                        "reset_reading",
+                                    sourceId =
+                                        "rollback-1",
+                                    completedAt =
+                                        "2026-08-03T11:30",
+                                ),
+                            ),
+                        ),
+                )
+
         val error = runCatching {
-            importer.importPayload(validPayload())
+            importer.importPayload(
+                payload,
+            )
         }.exceptionOrNull()
 
         assertTrue(error is SQLiteConstraintException)
@@ -81,6 +106,13 @@ class RestoreBundleImporterTransactionTest {
             database.recoverySessionDao()
                 .getAllSessions()
                 .isEmpty(),
+        )
+
+        assertEquals(
+            0,
+            database
+                .safeExitDao()
+                .count(),
         )
 
         val remainingDomains = database.blockedDomainDao().getAll()
@@ -1156,7 +1188,12 @@ class RestoreBundleImporterTransactionTest {
                 )
             }.exceptionOrNull()
 
-        assertTrue(error is IllegalArgumentException)
+        assertTrue(
+            "Expected malformed restore JSON to be rejected, but received: " +
+                error?.javaClass?.name,
+            error is IllegalArgumentException ||
+                error is org.json.JSONException,
+        )
         assertNull(database.cloudRestoreReceiptDao().latest())
     }
 

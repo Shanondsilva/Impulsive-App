@@ -5,9 +5,10 @@ import com.impulsive.app.backend.domain.model.score.ScoreGameType
 enum class RecoveryGameId(
     val scoreGameType: ScoreGameType,
 ) {
-    ReflexOverride(ScoreGameType.ReflexOverride),
+    Snake(ScoreGameType.Snake),
     BlockCascade(ScoreGameType.BlockCascade),
     SkylineReset(ScoreGameType.SkylineReset),
+    RhythmTiles(ScoreGameType.RhythmTiles),
 }
 
 data class RecoveryGameDefinition(
@@ -21,11 +22,11 @@ data class RecoveryGameDefinition(
 object RecoveryGameCatalog {
     val games: List<RecoveryGameDefinition> = listOf(
         RecoveryGameDefinition(
-            id = RecoveryGameId.ReflexOverride,
-            title = "Reflex Override",
-            description = "Break autopilot with a fast control challenge.",
+            id = RecoveryGameId.Snake,
+            title = "Snake",
+            description = "Guide the snake, collect fruit, and stay with one moving goal.",
             durationLabel = "90 sec",
-            chipLabel = "Fast control",
+            chipLabel = "Steady focus",
         ),
         RecoveryGameDefinition(
             id = RecoveryGameId.BlockCascade,
@@ -40,6 +41,13 @@ object RecoveryGameCatalog {
             description = "Place sliding blocks and build a steady tower.",
             durationLabel = "90 sec",
             chipLabel = "Calm stack",
+        ),
+        RecoveryGameDefinition(
+            id = RecoveryGameId.RhythmTiles,
+            title = "Rhythm Tiles",
+            description = "Redirect attention with a paced rhythm challenge.",
+            durationLabel = "90 sec",
+            chipLabel = "Rhythm focus",
         ),
     )
 

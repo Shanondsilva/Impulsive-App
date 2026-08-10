@@ -160,7 +160,6 @@ import com.impulsive.app.backend.domain.model.legal.ImpulsiveLegalDestination
 import com.impulsive.app.backend.domain.model.legal.impulsiveLegalUrl
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingAnswers
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
-import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.domain.model.premium.PremiumEntitlement
 import com.impulsive.app.backend.service.billing.BillingRestoreState
 import com.impulsive.app.backend.service.billing.SubscriptionCatalogState
@@ -178,6 +177,7 @@ import com.impulsive.app.backend.domain.model.adaptive.AdaptivePreferences
 import com.impulsive.app.backend.session.auth.AccountDeletionUiState
 import com.impulsive.app.backend.session.auth.AuthViewModel
 import com.impulsive.app.backend.session.adaptive.AdaptivePreferencesViewModel
+import com.impulsive.app.backend.session.adaptive.FamiliarStepHistoryViewModel
 import com.impulsive.app.backend.session.adaptive.PersonalSupportControlsViewModel
 import com.impulsive.app.backend.domain.engine.adaptive.AdaptiveHistoryRetentionPolicy
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
@@ -222,19 +222,15 @@ fun SettingsScreen(
     onOpenHome: () -> Unit = onBackHome,
     onOpenScore: () -> Unit = {},
     onOpenFocus: () -> Unit = {},
-    onOpenReflexOverrideTask: () -> Unit = {},
+    onOpenSnakeTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
     onOpenRhythmTilesTask: () -> Unit = {},
     onOpenResetReadTask: () -> Unit = {},
     onOpenHelp: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
-    onOpenMomentPlans: () -> Unit = {},
-    onOpenTips: () -> Unit = {},
     onOpenWhatWorksForMe: () -> Unit = {},
-    onOpenSuggestionPreferences: () -> Unit = {},
     onOpenPrivacyAndData: () -> Unit = {},
-    onOpenProtectionCoach: () -> Unit = {},
     onOpenProtectionSetupGuide: () -> Unit = {},
     onOpenUsageAccessPermission: () -> Unit = {},
     onOpenInterruptionPermission: () -> Unit = {},
@@ -285,9 +281,6 @@ fun SettingsScreen(
     val protectionSetupState by protectionSetupViewModel.state.collectAsStateWithLifecycle()
     val premiumViewModel: PremiumViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val premiumEntitlement by premiumViewModel.entitlement.collectAsStateWithLifecycle()
-    val websiteProtectionPlusUnlocked by remember(premiumViewModel) {
-        premiumViewModel.hasFeature(PremiumFeature.VpnWebsiteBlocker)
-    }.collectAsStateWithLifecycle()
     val haptics = rememberImpulsiveHaptics(appSettingsState.hapticsEnabled)
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var showBlockedAppsSheet by remember { mutableStateOf(false) }
@@ -306,7 +299,9 @@ fun SettingsScreen(
     val taskRewardState = taskRewardStoreState.toTaskRewardState(releasePlan)
     val startRecommendedMindTask = {
         when (taskRewardState.recommendedTaskType) {
-            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+            PsychologyTaskType.Snake -> onOpenSnakeTask()
+            // Legacy task data routes to the active game.
+            PsychologyTaskType.ReflexOverride -> onOpenSnakeTask()
             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
             PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
@@ -872,23 +867,10 @@ fun SettingsScreen(
                 haptics = haptics,
             )
             PersonalSupportSettingsGroup(
-                onOpenPlans = {
-                    appLockGuard.run(
-                        enabled = appLockEnabled,
-                        action = onOpenMomentPlans,
-                    )
-                },
                 onOpenWhatWorksForMe = {
                     appLockGuard.run(
                         enabled = appLockEnabled,
                         action = onOpenWhatWorksForMe,
-                    )
-                },
-                onOpenTips = onOpenTips,
-                onOpenSuggestionPreferences = {
-                    appLockGuard.run(
-                        enabled = appLockEnabled,
-                        action = onOpenSuggestionPreferences,
                     )
                 },
                 onOpenPrivacyAndData = {
@@ -901,16 +883,13 @@ fun SettingsScreen(
             )
             ProtectionFocusGroup(
                 protectionState = protectionSetupState,
-                websiteProtectionPlusUnlocked = websiteProtectionPlusUnlocked,
                 appLockEnabled = appLockEnabled,
                 guard = appLockGuard::run,
                 onOpenBlockedApps = { appLockGuard.run(enabled = true) { showBlockedAppsSheet = true } },
                 onOpenProtectionSetupGuide = onOpenProtectionSetupGuide,
-                onOpenProtectionCoach = onOpenProtectionCoach,
                 onOpenUsageAccessPermission = onOpenUsageAccessPermission,
                 onOpenInterruptionPermission = onOpenInterruptionPermission,
                 onOpenBackgroundActivityPermission = onOpenBackgroundActivityPermission,
-                onOpenWebsiteProtectionPlus = onOpenWebsiteProtectionPlus,
                 notificationsAvailable = notificationsAvailable,
                 onManageProtectionNotifications = onManageProtectionNotifications,
                 haptics = haptics,
@@ -1826,80 +1805,13 @@ private fun RecoverySetupGroup(
 
 @Composable
 private fun PersonalSupportSettingsGroup(
-    onOpenPlans: () -> Unit,
-    onOpenTips: () -> Unit,
     onOpenWhatWorksForMe: () -> Unit,
-    onOpenSuggestionPreferences: () -> Unit,
     onOpenPrivacyAndData: () -> Unit,
     haptics: ImpulsiveHaptics,
     viewModel: AdaptivePreferencesViewModel =
         androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val switchesEnabled = !state.loading && !state.saving
-    var pathShiftConsentVisible by remember { mutableStateOf(false) }
-    var pathShiftDisableVisible by remember { mutableStateOf(false) }
-
-    if (pathShiftConsentVisible) {
-        AlertDialog(
-            onDismissRequest = { pathShiftConsentVisible = false },
-            title = { Text("Turn on Future Path?") },
-            text = {
-                Text(
-                    "PathShift analyses your encrypted Moment history on this device.\n\n" +
-                        "It estimates a range based on recent patterns.\n\n" +
-                        "It does not use the protected app or website identity, URLs or domains, " +
-                        "journal content, your account email, camera, microphone or location.\n\n" +
-                        "You can turn it off, reset the history or delete all Moment " +
-                        "data at any time.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pathShiftConsentVisible = false
-                        viewModel.update { it.copy(pathShiftEnabled = true) }
-                    },
-                ) {
-                    Text("Turn On Future Path")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pathShiftConsentVisible = false }) {
-                    Text("Not Now")
-                }
-            },
-        )
-    }
-
-    if (pathShiftDisableVisible) {
-        AlertDialog(
-            onDismissRequest = { pathShiftDisableVisible = false },
-            title = { Text("Turn off Future Path?") },
-            text = {
-                Text(
-                    "This cancels the current PathShift and its seven-day comparison. " +
-                        "Your underlying Moment history, protection, personal " +
-                        "suggestions and LP remain unchanged.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pathShiftDisableVisible = false
-                        viewModel.update { it.copy(pathShiftEnabled = false) }
-                    },
-                ) {
-                    Text("Turn Off Future Path")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pathShiftDisableVisible = false }) {
-                    Text("Keep On")
-                }
-            },
-        )
-    }
 
     AccordionGroup(
         title = stringResource(R.string.personal_support_title),
@@ -1909,53 +1821,9 @@ private fun PersonalSupportSettingsGroup(
         glowSpec = SettingsGlowSpec.single(RecoverySetupGlow),
     ) {
         SettingsRow(
-            title = stringResource(R.string.personal_support_plans),
-            subtext = "Create, practise and manage prepared actions.",
-            onClick = onOpenPlans,
-            trailingIcon = Icons.Filled.ChevronRight,
-        )
-        SettingsDivider()
-        SettingsRow(
-            title = stringResource(R.string.tips_title),
-            subtext = stringResource(R.string.tips_settings_summary),
-            onClick = onOpenTips,
-            trailingIcon = Icons.Filled.ChevronRight,
-        )
-        SettingsDivider()
-        SettingsRow(
-            title = "Future Path",
-            subtext = "Use encrypted on-device history for cautious estimates.",
-            trailing = {
-                SettingsSwitch(
-                    checked = state.preferences.pathShiftEnabled,
-                    haptics = haptics,
-                    enabled = switchesEnabled,
-                    accessibilityLabel =
-                        "Future Path. Use encrypted on-device Moment history for " +
-                            "cautious estimates.",
-                    onCheckedChange = { checked ->
-                        if (checked) {
-                            pathShiftConsentVisible = true
-                        } else {
-                            pathShiftDisableVisible = true
-                        }
-                    },
-                )
-            },
-        )
-        SettingsDivider()
-        SettingsRow(
             title = "What Works for Me",
             subtext = "View cautious patterns from your private support history.",
             onClick = onOpenWhatWorksForMe,
-            trailingIcon = Icons.Filled.ChevronRight,
-        )
-        SettingsDivider()
-        SettingsRow(
-            title = "Suggestion preferences",
-            subtext = "Choose which private suggestions can appear.",
-            value = suggestionPreferencesSummary(state.preferences),
-            onClick = onOpenSuggestionPreferences,
             trailingIcon = Icons.Filled.ChevronRight,
         )
         SettingsDivider()
@@ -1966,6 +1834,7 @@ private fun PersonalSupportSettingsGroup(
             onClick = onOpenPrivacyAndData,
             trailingIcon = Icons.Filled.ChevronRight,
         )
+        SafeBrowseAdPrivacyChoicesRow()
         state.message?.let { message ->
             Text(
                 message,
@@ -2019,6 +1888,37 @@ private fun MultiSelectEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
+}
+
+/**
+ * Shown only when UMP reports a privacy-options entry point is required for the optional
+ * Safe Browse rewarded ad. Opens Google's official privacy-options form -- never a custom
+ * consent form, and never combined with the app's own browsing privacy settings.
+ */
+@Composable
+private fun SafeBrowseAdPrivacyChoicesRow() {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    // The single app-wide instance provided at the navigation root -- AppNavHost owns the
+    // launch-time info update; Settings never constructs its own manager or requests an
+    // update itself, and only ever shows Google's privacy-options form on an explicit tap.
+    val consentManager = com.impulsive.app.frontend.ads.LocalSafeBrowseConsentManager.current
+        ?: return
+    val consentState by consentManager.state.collectAsStateWithLifecycle()
+
+    val privacyOptionsRequired =
+        (consentState as? com.impulsive.app.frontend.ads.SafeBrowseConsentState.Resolved)
+            ?.privacyOptionsRequired == true
+
+    if (privacyOptionsRequired) {
+        SettingsDivider()
+        SettingsRow(
+            title = "Ad privacy choices",
+            subtext = "Review how optional rewarded ads use information.",
+            onClick = { activity?.let(consentManager::showPrivacyOptionsForm) },
+            trailingIcon = Icons.Filled.ChevronRight,
+        )
+    }
 }
 
 @Composable
@@ -2157,6 +2057,28 @@ fun PersonalSupportSuggestionPreferencesScreen(
     }
 }
 
+internal fun familiarStepHistorySummary(
+    qualifiedCount: Int,
+    loading: Boolean,
+    personalSuggestionsEnabled: Boolean,
+): String =
+    when {
+        loading ->
+            "Checking which support steps have worked consistently on this device."
+
+        !personalSuggestionsEnabled ->
+            "Personal suggestions are off. Existing local support history remains private on this device."
+
+        qualifiedCount <= 0 ->
+            "No familiar steps have qualified yet. Impulsive only learns from repeated helpful outcomes."
+
+        qualifiedCount == 1 ->
+            "1 familiar step currently qualifies from repeated helpful outcomes on this device."
+
+        else ->
+            "$qualifiedCount familiar steps currently qualify from repeated helpful outcomes on this device."
+    }
+
 @Composable
 fun PersonalSupportPrivacyAndDataScreen(
     onBack: () -> Unit,
@@ -2164,9 +2086,13 @@ fun PersonalSupportPrivacyAndDataScreen(
         androidx.lifecycle.viewmodel.compose.viewModel(),
     controlsViewModel: PersonalSupportControlsViewModel =
         androidx.lifecycle.viewmodel.compose.viewModel(),
+    familiarStepHistoryViewModel: FamiliarStepHistoryViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val controlsState by controlsViewModel.state.collectAsStateWithLifecycle()
+    val familiarStepHistoryState by
+        familiarStepHistoryViewModel.state.collectAsStateWithLifecycle()
     val appSettingsViewModel: AppSettingsViewModel =
         androidx.lifecycle.viewmodel.compose.viewModel()
     val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
@@ -2174,6 +2100,16 @@ fun PersonalSupportPrivacyAndDataScreen(
     val switchesEnabled = !state.loading && !state.saving
     var confirmation by remember { mutableStateOf<String?>(null) }
     var retentionPickerVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(familiarStepHistoryViewModel) {
+        familiarStepHistoryViewModel.refresh()
+    }
+
+    LaunchedEffect(controlsState.completionMessage) {
+        if (controlsState.completionMessage != null) {
+            familiarStepHistoryViewModel.refresh()
+        }
+    }
 
     if (retentionPickerVisible) {
         AlertDialog(
@@ -2274,6 +2210,18 @@ fun PersonalSupportPrivacyAndDataScreen(
         )
     }
 
+    val familiarHistorySummary =
+        familiarStepHistorySummary(
+            qualifiedCount = familiarStepHistoryState.history.items.size,
+            loading = familiarStepHistoryState.loading,
+            personalSuggestionsEnabled = familiarStepHistoryState.personalSuggestionsEnabled,
+        )
+
+    val personalSupportHistoryDescription =
+        familiarHistorySummary +
+            " Older personal support records are removed automatically. " +
+            "Moment Plans stay unless you delete them."
+
     PersonalSupportSubScreen(
         title = "Privacy and data",
         onBack = onBack,
@@ -2302,9 +2250,7 @@ fun PersonalSupportPrivacyAndDataScreen(
         SettingsDivider()
         SettingsRow(
             title = "Personal support history",
-            subtext =
-                "Older personal support records are removed automatically. " +
-                    "Moment Plans stay unless you delete them.",
+            subtext = personalSupportHistoryDescription,
             value = state.preferences.historyRetentionPolicy.consumerLabel,
             onClick = { retentionPickerVisible = true },
         )
@@ -2407,21 +2353,6 @@ private fun PersonalSupportSubScreen(
     }
 }
 
-private fun suggestionPreferencesSummary(preferences: AdaptivePreferences): String {
-    val enabledCount = listOf(
-        preferences.personalSuggestionsEnabled,
-        preferences.gameSuggestionsEnabled,
-        preferences.readingSuggestionsEnabled,
-        preferences.momentPlanSuggestionsEnabled,
-    ).count { it }
-
-    return when (enabledCount) {
-        0 -> "Off"
-        4 -> "All enabled"
-        else -> "$enabledCount of 4 enabled"
-    }
-}
-
 private fun privacyAndDataSummary(preferences: AdaptivePreferences): String =
     preferences.historyRetentionPolicy.consumerLabel +
         " · Screen privacy " +
@@ -2434,35 +2365,18 @@ private fun privacyAndDataSummary(preferences: AdaptivePreferences): String =
 @Composable
 private fun ProtectionFocusGroup(
     protectionState: ProtectionSetupState,
-    websiteProtectionPlusUnlocked: Boolean,
     appLockEnabled: Boolean,
     guard: (enabled: Boolean, action: () -> Unit) -> Unit,
     onOpenBlockedApps: () -> Unit,
     onOpenProtectionSetupGuide: () -> Unit,
-    onOpenProtectionCoach: () -> Unit,
     onOpenUsageAccessPermission: () -> Unit,
     onOpenInterruptionPermission: () -> Unit,
     onOpenBackgroundActivityPermission: () -> Unit,
-    onOpenWebsiteProtectionPlus: () -> Unit,
     notificationsAvailable: Boolean,
     onManageProtectionNotifications: () -> Unit,
     haptics: ImpulsiveHaptics,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val oneMinuteAccessDataSource = remember {
-        com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource(context)
-    }
-    val oneMinuteAccessState by oneMinuteAccessDataSource.state.collectAsStateWithLifecycle(
-        initialValue = com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState(),
-    )
-    var oneMinuteAccessPending by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(oneMinuteAccessPending) {
-        val target = oneMinuteAccessPending
-        if (target != null) {
-            oneMinuteAccessDataSource.setEnabled(target)
-            oneMinuteAccessPending = null
-        }
-    }
     val selectedCount = protectionState.selectedBlockedAppPackageNames.size
     val monitoredAppsValue = if (selectedCount == 0) "Not configured" else "$selectedCount selected"
     val monitoredAppsSubtext = if (selectedCount == 0) {
@@ -2513,13 +2427,6 @@ private fun ProtectionFocusGroup(
         )
         SettingsDivider()
         SettingsRow(
-            title = "Protection Coach",
-            value = "Review",
-            subtext = stringResource(R.string.protection_coach_description),
-            onClick = onOpenProtectionCoach,
-        )
-        SettingsDivider()
-        SettingsRow(
             title = "App detection",
             value = if (protectionState.usageAccessEnabled) "Enabled" else "Not enabled",
             subtext = "Allows Impulsive to notice when you open a protected app.",
@@ -2550,50 +2457,6 @@ private fun ProtectionFocusGroup(
                 null
             },
         )
-        SettingsDivider()
-        SettingsRow(
-            title = "45-second access",
-            subtext = if (oneMinuteAccessState.enabled) {
-                "Lets you continue for 45 seconds, then protection starts again."
-            } else {
-                "Off. Protected apps stay at the pause screen."
-            },
-            trailing = {
-                SettingsSwitch(
-                    checked = oneMinuteAccessState.enabled,
-                    haptics = haptics,
-                    onCheckedChange = { oneMinuteAccessPending = it },
-                )
-            },
-        )
-        SettingsDivider()
-        if (websiteProtectionPlusUnlocked) {
-            SettingsRow(
-                title = "Website Protection & DNS Blocking",
-                value = when {
-                    !protectionState.websiteProtectionEnabled -> "Off"
-                    protectionState.websiteProtectionAlwaysOn -> "Always on"
-                    else -> "Protected time"
-                },
-                valueColor = if (protectionState.websiteProtectionEnabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                subtext = "Open Website Protection settings, status, and explanation.",
-                trailingIcon = Icons.Filled.Security,
-                onClick = onOpenWebsiteProtectionPlus,
-            )
-        } else {
-            SettingsRow(
-                title = "Website Protection",
-                value = "Plus",
-                valueColor = ImpulsivePsychological,
-                subtext = "Blocks adult and risky websites using local DNS-based filtering.",
-                trailingIcon = Icons.Filled.Lock,
-                onClick = onOpenWebsiteProtectionPlus,
-            )
-        }
         SettingsDivider()
         SettingsRow(
             title = "Background protection",
@@ -3053,7 +2916,7 @@ private fun PlusGroup(
         Spacer(modifier = Modifier.height(10.dp))
         PlusFeatureRow(
             title = "Website Protection",
-            note = "Blocks adult and risky websites using local DNS-based filtering.",
+            note = "Blocks adult and risky websites using on-device filtering and encrypted DNS resolution.",
         )
         SettingsDivider()
         PlusFeatureRow(
@@ -4114,7 +3977,7 @@ private object SettingsGroupSummaries {
     const val Profile = "Profile details • Mind Mode"
     const val Appearance = "Theme • Haptics"
     const val PivotSetup = "Cues • Timing • Goals"
-    const val PersonalSupport = "Moment Plans • Suggestions"
+    const val PersonalSupport = "Insights • Privacy"
     const val ProtectionAndFocus = "Protected apps • Permissions • Focus"
     const val PrivacyAndAccount = "App lock • Accounts • Data"
     const val Support = "Help • Legal • Contact"

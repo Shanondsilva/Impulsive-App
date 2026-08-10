@@ -83,7 +83,11 @@ class ProgressDashboardFlipCardSourceTest {
             "private fun ScoreFlipHeader(",
             "private fun ScoreFlipActionButton(",
         )
-        assertTrue(header.contains("heightIn(min = 40.dp)"))
+        assertTrue(
+            header.contains(
+                "min = ScoreFlipHeaderMinHeight",
+            ),
+        )
         assertTrue(header.contains("maxLines = 2"))
         assertTrue(header.contains("TextOverflow.Clip"))
         assertFalse(header.contains("TextOverflow.Ellipsis"))
@@ -100,6 +104,74 @@ class ProgressDashboardFlipCardSourceTest {
         val iconRow = header.section("Row(", "Spacer(modifier = Modifier.height(6.dp))")
         assertFalse(iconRow.contains("Text("))
         assertTrue(header.indexOf("Text(") > header.indexOf("Spacer(modifier = Modifier.height(6.dp))"))
+    }
+
+    @Test
+    fun scoreAndResetReadingHeadersUseTheSameSharedIconDimensions() {
+        assertTrue(
+            screen.contains(
+                "private val ScoreFlipHeaderMinHeight = 40.dp",
+            ),
+        )
+        assertTrue(
+            screen.contains(
+                "private val ScoreFlipHeaderBadgeSize = 40.dp",
+            ),
+        )
+        assertTrue(
+            screen.contains(
+                "private val ScoreFlipHeaderIconSize = 22.dp",
+            ),
+        )
+
+        val scoreHeader =
+            screen.section(
+                "private fun ScoreFlipHeader(",
+                "private fun ScoreFlipActionButton(",
+            )
+
+        val resetReadingHeader =
+            screen.section(
+                "private fun ResetReadingFlipFaceSurface(",
+                "private fun ResetReadingCompactMetric(",
+            )
+
+        listOf(
+            scoreHeader,
+            resetReadingHeader,
+        ).forEach { header ->
+            assertTrue(
+                header.contains(
+                    "min = ScoreFlipHeaderMinHeight",
+                ),
+            )
+            assertTrue(
+                header.contains(
+                    "ScoreFlipHeaderBadgeSize",
+                ),
+            )
+            assertTrue(
+                header.contains(
+                    "ScoreFlipHeaderIconSize",
+                ),
+            )
+        }
+
+        assertFalse(
+            resetReadingHeader.contains(
+                "heightIn(min = 32.dp)",
+            ),
+        )
+        assertFalse(
+            resetReadingHeader.contains(
+                ".size(32.dp)",
+            ),
+        )
+        assertFalse(
+            resetReadingHeader.contains(
+                ".size(17.dp)",
+            ),
+        )
     }
 
     @Test

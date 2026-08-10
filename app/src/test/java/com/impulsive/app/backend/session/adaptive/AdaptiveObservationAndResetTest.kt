@@ -252,6 +252,25 @@ class AdaptiveObservationAndResetTest {
         assertEquals(1, scheduler.cancelCalls)
     }
 
+    @Test
+    fun bothAdaptiveResetScopesClearActiveSupportCycleState() = runBlocking {
+        var clearCalls = 0
+        val reset = AdaptiveResetCoordinator(
+            decisions = FakeDecisionRepository(),
+            allAdaptiveData = FakeAdaptiveDataRepository(),
+            scheduler = FakeScheduler(),
+            logger = AdaptiveSafeLogger { _, _ -> },
+            clearActiveSupportCycleState = {
+                clearCalls += 1
+                true
+            },
+        )
+
+        assertEquals(AdaptiveLifecycleResult.Applied, reset.resetPersonalLearning())
+        assertEquals(AdaptiveLifecycleResult.Applied, reset.clearAllAdaptiveData())
+        assertEquals(2, clearCalls)
+    }
+
     private fun finalizer(
         repository: FakeDecisionRepository,
         now: Long,

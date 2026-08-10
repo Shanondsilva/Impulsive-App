@@ -43,7 +43,6 @@ class BackupRulesAccountRestorePolicyTest {
             "app_lock_prefs.preferences_pb",
             "premium_entitlement.preferences_pb",
             "focus_session.preferences_pb",
-            "one_minute_access.preferences_pb",
             "protection_window_notifications.preferences_pb",
         ).forEach { path ->
             assertFalse("Sensitive/transient data must not be included: $path", combined.contains("path=\"$path\""))

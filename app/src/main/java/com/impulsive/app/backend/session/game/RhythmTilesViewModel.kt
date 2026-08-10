@@ -3,6 +3,7 @@ package com.impulsive.app.backend.session.game
 import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.local.preferences.RhythmTilesHistoryDataSource
 import com.impulsive.app.backend.data.repository.GameStoreManager
@@ -18,6 +19,8 @@ import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.domain.model.score.newScoreSessionId
+import com.impulsive.app.backend.session.progress.SafeExitRecordingCoordinator
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,9 +46,33 @@ data class RhythmTilesUiState(
     val history: GameHistory = GameHistory(),
 )
 
-class RhythmTilesViewModel(application: Application) : AndroidViewModel(application) {
+class RhythmTilesViewModel(
+    application: Application,
+    savedStateHandle: SavedStateHandle,
+) : AndroidViewModel(application) {
+    private val supportCycleRuntime = RecoveryGameSupportCycleRuntime(application)
+    private val resultStateStore = RecoveryGameResultStateStore(savedStateHandle)
+    private val resultActionCoordinator = RecoveryGameResultActionCoordinator(
+        runtime = supportCycleRuntime,
+        clearResultState = { resultStateStore.clear() },
+    )
     private val dataSource = RhythmTilesHistoryDataSource(application)
     private val scoreRepository = ScoreRepository(application)
+    private val pivotGameSessionCommitCoordinator =
+        PivotGameSessionCommitCoordinator(
+            scoreRepository =
+                scoreRepository,
+            immediateSafeExitRecorder =
+                PivotGameSafeExitRecorder(
+                    SafeExitRecordingCoordinator(
+                        application,
+                    ),
+                ),
+            reconciliationScheduler =
+                WorkManagerPivotGameSafeExitReconciliationScheduler(
+                    application,
+                ),
+        )
     private val gameStoreManager = GameStoreManager(application)
     private val _uiState = MutableStateFlow(RhythmTilesUiState())
     val uiState: StateFlow<RhythmTilesUiState> = _uiState
@@ -71,6 +98,177 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
     private var urgeBeforeRating: Int? = null
     private var urgeAfterRating: Int? = null
     private var lastRecordedSession: ScoreSessionRecord? = null
+    private var roundDurationMillis = RhythmTilesConfig.ROUND_SECONDS * 1_000L
+    private var lastSupportOutcome: SupportCycleGameTerminalOutcome? = null
+    private var lastSupportElapsedMillis: Long = 0L
+    private var activeLaunchContext: RecoveryGameLaunchContext = RecoveryGameLaunchContext.Standalone
+
+    suspend fun configureLaunchContext(launchContext: RecoveryGameLaunchContext): Boolean {
+        val binding = supportCycleRuntime.bindWithRecovery(
+            requested = launchContext,
+            standaloneDurationMillis = RhythmTilesConfig.ROUND_SECONDS * 1_000L,
+        ) ?: return false
+
+        roundDurationMillis = binding.durationMillis
+        activeLaunchContext = launchContext
+
+        val snapshot = resultStateStore.restore(
+            launchContext = launchContext,
+            expectedGameType = ScoreGameType.RhythmTiles,
+        )
+
+        val authoritativeResult = binding.resolvedStep
+
+        /*
+         * The repository says the support-cycle game step is already terminal.
+         * Restore the matching result presentation from SavedStateHandle.
+         */
+        if (authoritativeResult != null) {
+            val snapshotOutcome = snapshot?.supportOutcomeOrNull()
+
+            if (
+                snapshot == null ||
+                snapshotOutcome != authoritativeResult.outcome ||
+                !restoreResultSnapshot(snapshot)
+            ) {
+                /*
+                 * The authoritative step cannot remain stranded without a trusted
+                 * result presentation. End the existing cycle through its recorded
+                 * outcome, clear the invalid presentation state, and use the
+                 * existing screen-exit path.
+                 */
+                resultStateStore.clear()
+
+                supportCycleRuntime.resolveAndEnd(
+                    outcome = authoritativeResult.outcome,
+                    elapsedDurationMillis = authoritativeResult.elapsedDurationMillis,
+                )
+
+                return false
+            }
+
+            /*
+             * Repository state remains authoritative if the snapshot contains an
+             * older elapsed value.
+             */
+            lastSupportOutcome = authoritativeResult.outcome
+            lastSupportElapsedMillis = authoritativeResult.elapsedDurationMillis
+
+            return true
+        }
+
+        /*
+         * This covers process death after the result snapshot was written but
+         * before the asynchronous terminal-step persistence completed.
+         */
+        if (snapshot != null) {
+            val snapshotOutcome = snapshot.supportOutcomeOrNull()
+
+            if (snapshotOutcome == null || !restoreResultSnapshot(snapshot)) {
+                /*
+                 * The authoritative step is still InProgress. A corrupt
+                 * presentation snapshot must not terminalise it.
+                 */
+                resultStateStore.clear()
+
+                if (_uiState.value.view == GameView.Ready) {
+                    _uiState.update { it.copy(timeLeft = roundDurationSeconds()) }
+                }
+
+                return true
+            }
+
+            lastSupportOutcome = snapshotOutcome
+            lastSupportElapsedMillis = snapshot.supportElapsedDurationMillis.coerceAtLeast(0L)
+
+            val resolution = supportCycleRuntime.resolveForContinuation(
+                outcome = snapshotOutcome,
+                elapsedDurationMillis = lastSupportElapsedMillis,
+            )
+
+            /*
+             * A restored result must remain visible whenever the retry keeps
+             * it valid: continuation succeeded, the outcome was already
+             * persisted as terminal/NotFound, or the failure is explicitly
+             * retryable. Only a non-retryable failure (e.g. OutcomeConflict)
+             * discards the snapshot.
+             */
+            if (!resolution.keepsRestoredResultVisible) {
+                resultStateStore.clear()
+
+                return false
+            }
+
+            return true
+        }
+
+        if (_uiState.value.view == GameView.Ready) {
+            _uiState.update { it.copy(timeLeft = roundDurationSeconds()) }
+        }
+
+        return true
+    }
+
+    fun abandonSupportCycle() {
+        val elapsed = if (startMs > 0L) SystemClock.uptimeMillis() - startMs else 0L
+        viewModelScope.launch {
+            resultActionCoordinator.abandon(elapsedDurationMillis = elapsed)
+        }
+    }
+
+    fun continueWithAnotherGame(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        viewModelScope.launch {
+            val allowed = resultActionCoordinator.continueWithAnotherGame(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+            )
+
+            if (allowed) {
+                onReady()
+            }
+        }
+    }
+
+    fun replayWithRemainingBudget(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        viewModelScope.launch {
+            val duration = resultActionCoordinator.prepareReplay(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+                requestedDurationMillis = RhythmTilesConfig.ROUND_SECONDS * 1_000L,
+            ) ?: return@launch
+
+            roundDurationMillis = duration
+            lastSupportOutcome = null
+            lastSupportElapsedMillis = 0L
+            onReady()
+        }
+    }
+
+    fun finishSupportCycleAfterChoice(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: SupportCycleGameTerminalOutcome.Abandoned
+        val elapsed = if (lastSupportOutcome == null && startMs > 0L) {
+            SystemClock.uptimeMillis() - startMs
+        } else {
+            lastSupportElapsedMillis
+        }
+        viewModelScope.launch {
+            val allowed = resultActionCoordinator.finish(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+            )
+
+            if (allowed) {
+                onReady()
+            }
+        }
+    }
+
+    private fun roundDurationSeconds(): Int =
+        ((roundDurationMillis + 999L) / 1_000L).toInt().coerceAtLeast(1)
 
     init {
         viewModelScope.launch {
@@ -105,6 +303,7 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun startCountdown() {
+        resultStateStore.clear()
         _uiState.update {
             it.copy(
                 view = GameView.Countdown,
@@ -148,7 +347,7 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
             it.copy(
                 view = GameView.Playing,
                 countdown = 3,
-                timeLeft = RhythmTilesConfig.ROUND_SECONDS,
+                timeLeft = roundDurationSeconds(),
                 score = 0,
                 combo = 0,
                 lives = RhythmTilesConfig.MAX_MISSES,
@@ -165,14 +364,15 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
 
         val now = SystemClock.uptimeMillis()
         val elapsedSec = (now - startMs) / 1000.0
-        if (elapsedSec >= RhythmTilesConfig.ROUND_SECONDS) {
+        val roundSeconds = roundDurationMillis / 1_000.0
+        if (elapsedSec >= roundSeconds) {
             finishRound(earlyExit = false)
             return
         }
 
         speedMultiplier = currentRhythmTilesSpeedMultiplier(elapsedSec)
 
-        val timeLeft = max(0, (RhythmTilesConfig.ROUND_SECONDS - elapsedSec).toInt() + 1)
+        val timeLeft = max(0, (roundSeconds - elapsedSec).toInt() + 1)
 
         val song = _uiState.value.selectedSong
         if (now >= nextSpawnMs) {
@@ -330,7 +530,7 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
             bestCombo = max(old.bestCombo, maxCombo),
         )
         val durationSec = min(
-            RhythmTilesConfig.ROUND_SECONDS,
+            roundDurationSeconds(),
             ((SystemClock.uptimeMillis() - startMs) / 1000L).toInt(),
         )
         val result = RhythmTilesResult(
@@ -360,28 +560,69 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
         }
         val outcome = if (result.validCompletion) ScoreSessionOutcome.Completed else ScoreSessionOutcome.Abandoned
         recordScoreSession(outcome = outcome, scoreValue = score, result = result)
+        val elapsedMillis = (SystemClock.uptimeMillis() - startMs).coerceAtLeast(0L)
+        val supportOutcome = when {
+            roundDurationMillis < RhythmTilesConfig.ROUND_SECONDS * 1_000L &&
+                elapsedMillis >= roundDurationMillis -> SupportCycleGameTerminalOutcome.TimedOut
+            !result.validCompletion -> SupportCycleGameTerminalOutcome.Abandoned
+            else -> SupportCycleGameTerminalOutcome.Completed
+        }
+        lastSupportOutcome = supportOutcome
+        lastSupportElapsedMillis = elapsedMillis
+
+        /*
+         * Save the stable result presentation synchronously before the asynchronous
+         * support-cycle mutation. This closes the process-death race between result
+         * rendering and terminal-step persistence.
+         */
+        saveCurrentResultSnapshot()
+
+        viewModelScope.launch {
+            supportCycleRuntime.resolveForContinuation(supportOutcome, elapsedMillis)
+        }
     }
 
     fun walkAway() {
-        val old = _uiState.value.history
-        val base = _uiState.value.result?.score ?: score
-        val total = base + RhythmTilesConfig.WALK_AWAY_BONUS
-        recordCurrentResult(
-            outcome = ScoreSessionOutcome.WalkedAway,
-            scoreOverride = total,
-        )
-        val nextHistory = old.copy(
-            pb = max(old.pb, total),
+        val result = _uiState.value.result ?: return
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        val oldHistory = _uiState.value.history
+        val total = result.score + RhythmTilesConfig.WALK_AWAY_BONUS
+        val nextHistory = oldHistory.copy(
+            pb = max(oldHistory.pb, total),
             prev = total,
         )
-        viewModelScope.launch { dataSource.save(nextHistory) }
-        _uiState.update {
-            it.copy(
-                view = GameView.Walked,
-                walkScore = total,
-                history = nextHistory,
-                tiles = emptyList(),
+
+        viewModelScope.launch {
+            /*
+             * Finish using the authoritative result outcome. Failed,
+             * Abandoned, and TimedOut results must not be rewritten as
+             * Completed merely because the user chose Walk Away.
+             */
+            val allowed = resultActionCoordinator.finish(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
             )
+
+            if (!allowed) {
+                return@launch
+            }
+
+            recordCurrentResult(
+                outcome = ScoreSessionOutcome.WalkedAway,
+                scoreOverride = total,
+            )
+
+            _uiState.update {
+                it.copy(
+                    view = GameView.Walked,
+                    walkScore = total,
+                    history = nextHistory,
+                    tiles = emptyList(),
+                )
+            }
+
+            dataSource.save(nextHistory)
         }
     }
 
@@ -394,12 +635,16 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
         urgeBeforeRating = rating.coerceIn(0, 10)
     }
 
+    fun taskRewardCompletionToken(): String =
+        "${ScoreGameType.RhythmTiles.id}:$activeSessionId"
+
     fun setUrgeAfter(rating: Int) {
         val coerced = rating.coerceIn(0, 10)
         urgeAfterRating = coerced
         val recorded = lastRecordedSession ?: return
         val updated = recorded.copy(urgeAfter = coerced)
         lastRecordedSession = updated
+        saveCurrentResultSnapshot()
         viewModelScope.launch { scoreRepository.recordSession(updated) }
     }
 
@@ -426,18 +671,154 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
             urgeBefore = urgeBeforeRating,
             urgeAfter = urgeAfterRating,
             outcome = outcome,
-            validCompletion = when (outcome) {
-                ScoreSessionOutcome.Abandoned -> false
-                else -> result.validCompletion || outcome == ScoreSessionOutcome.WalkedAway
-            },
+            validCompletion =
+                result.validCompletion &&
+                outcome !=
+                ScoreSessionOutcome.Abandoned,
         )
         lastRecordedSession = record
         viewModelScope.launch {
-            scoreRepository.recordSession(record)
-            if (outcome != ScoreSessionOutcome.WalkedAway) {
-                gameStoreManager.recordPlay(gameId = "RHYTHM_TILES", won = !result.gameOver)
+            pivotGameSessionCommitCoordinator
+                .commit(
+                    record,
+                )
+
+            if (
+                outcome !=
+                ScoreSessionOutcome.WalkedAway
+            ) {
+                gameStoreManager
+                    .recordPlay(
+                        gameId =
+                            "RHYTHM_TILES",
+                        won =
+                            !result.gameOver,
+                    )
             }
         }
+    }
+
+    private fun saveCurrentResultSnapshot() {
+        val launch = activeLaunchContext as? RecoveryGameLaunchContext.SupportCycle ?: return
+        val outcome = lastSupportOutcome ?: return
+        val state = _uiState.value
+        val result = state.result ?: return
+
+        resultStateStore.save(
+            RecoveryGameResultSnapshot(
+                cycleId = launch.cycleId,
+                decisionId = launch.decisionId,
+                gameTypeId = ScoreGameType.RhythmTiles.id,
+                supportOutcomeName = outcome.name,
+                supportElapsedDurationMillis = lastSupportElapsedMillis.coerceAtLeast(0L),
+                activeSessionId = activeSessionId,
+                sessionStartedAtIso = sessionStartedAt.toString(),
+                urgeBeforeRating = urgeBeforeRating,
+                urgeAfterRating = urgeAfterRating,
+                lastRecordedSession = lastRecordedSession?.let { ScoreSessionSnapshot.from(it) },
+                payload = RecoveryGameResultPayload.RhythmTiles(
+                    selectedSongId = state.selectedSong.id,
+                    score = state.score,
+                    combo = state.combo,
+                    lives = state.lives,
+                    historyPersonalBest = state.history.pb,
+                    historyPrevious = state.history.prev,
+                    historyBestReactionMs = state.history.bestReactionMs,
+                    historyBestCombo = state.history.bestCombo,
+                    resultScore = result.score,
+                    resultPreviousBest = result.previousBest,
+                    resultPreviousScore = result.previousScore,
+                    resultMaxCombo = result.maxCombo,
+                    resultHits = result.hits,
+                    resultMisses = result.misses,
+                    resultLoopsCompleted = result.loopsCompleted,
+                    resultGameOver = result.gameOver,
+                    resultDurationSec = result.durationSec,
+                    resultValidCompletion = result.validCompletion,
+                ),
+            ),
+        )
+    }
+
+    private fun restoreResultSnapshot(snapshot: RecoveryGameResultSnapshot): Boolean {
+        val payload = snapshot.payload as? RecoveryGameResultPayload.RhythmTiles ?: return false
+        val restoredSong = RhythmTilesCatalog.byId(payload.selectedSongId) ?: return false
+        val restoredSessionStart = snapshot.sessionStartedAtOrNull() ?: return false
+        val restoredOutcome = snapshot.supportOutcomeOrNull() ?: return false
+        val restoredRecordedSession = snapshot.lastRecordedSession?.toRecordOrNull()
+
+        if (snapshot.lastRecordedSession != null && restoredRecordedSession == null) {
+            return false
+        }
+
+        if (
+            snapshot.activeSessionId <= 0L ||
+            snapshot.supportElapsedDurationMillis < 0L ||
+            payload.resultDurationSec < 0 ||
+            payload.lives !in 0..RhythmTilesConfig.MAX_MISSES
+        ) {
+            return false
+        }
+
+        activeSessionId = snapshot.activeSessionId
+        sessionStartedAt = restoredSessionStart
+        urgeBeforeRating = snapshot.urgeBeforeRating?.coerceIn(0, 10)
+        urgeAfterRating = snapshot.urgeAfterRating?.coerceIn(0, 10)
+        lastRecordedSession = restoredRecordedSession
+        lastSupportOutcome = restoredOutcome
+        lastSupportElapsedMillis = snapshot.supportElapsedDurationMillis
+
+        score = payload.score
+        combo = payload.combo
+        maxCombo = payload.resultMaxCombo
+        hits = payload.resultHits
+        misses = payload.resultMisses
+        loopsCompleted = payload.resultLoopsCompleted
+        gameOver = payload.resultGameOver
+        noMiss = payload.resultMisses == 0
+        tiles = emptyList()
+
+        /*
+         * A restored result must never restart the old game clock, spawning, or
+         * tile loop.
+         */
+        startMs = 0L
+        nextSpawnMs = 0L
+        noteIndex = 0
+        lastLane = -1
+
+        _uiState.value = RhythmTilesUiState(
+            view = GameView.Result,
+            countdown = 0,
+            timeLeft = 0,
+            score = payload.score,
+            combo = payload.combo,
+            lives = payload.lives.coerceIn(0, RhythmTilesConfig.MAX_MISSES),
+            tiles = emptyList(),
+            selectedSong = restoredSong,
+            result = RhythmTilesResult(
+                score = payload.resultScore,
+                previousBest = payload.resultPreviousBest,
+                previousScore = payload.resultPreviousScore,
+                maxCombo = payload.resultMaxCombo,
+                hits = payload.resultHits,
+                misses = payload.resultMisses,
+                loopsCompleted = payload.resultLoopsCompleted,
+                gameOver = payload.resultGameOver,
+                durationSec = payload.resultDurationSec,
+                validCompletion = payload.resultValidCompletion,
+            ),
+            walkScore = 0,
+            shake = false,
+            history = GameHistory(
+                pb = payload.historyPersonalBest,
+                prev = payload.historyPrevious,
+                bestReactionMs = payload.historyBestReactionMs,
+                bestCombo = payload.historyBestCombo,
+            ),
+        )
+
+        return true
     }
 
     fun playAgain() {
@@ -445,12 +826,13 @@ class RhythmTilesViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun reset() {
+        resultStateStore.clear()
         tiles = emptyList()
         _uiState.update {
             it.copy(
                 view = GameView.Ready,
                 countdown = 3,
-                timeLeft = RhythmTilesConfig.ROUND_SECONDS,
+                timeLeft = roundDurationSeconds(),
                 score = 0,
                 combo = 0,
                 lives = RhythmTilesConfig.MAX_MISSES,

@@ -207,16 +207,44 @@ class AdaptivePhase4InstrumentedTest {
     }
 
     @Test
-    fun currentSchemaSqlCipherDatabaseOpensThroughProductionFactory() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val production = AppDatabase.getInstance(context)
-        production.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
-            cursor.moveToFirst()
-            assertEquals(11, cursor.getInt(0))
+    fun currentSchemaSqlCipherDatabaseOpensThroughProductionFactory() =
+        runBlocking {
+            val context =
+                ApplicationProvider
+                    .getApplicationContext<Context>()
+            val production =
+                AppDatabase.getInstance(
+                    context,
+                )
+
+            production
+                .openHelper
+                .readableDatabase
+                .query(
+                    "PRAGMA user_version",
+                )
+                .use { cursor ->
+                    assertTrue(
+                        cursor.moveToFirst(),
+                    )
+                    assertEquals(
+                        14,
+                        cursor.getInt(0),
+                    )
+                }
+
+            production
+                .adaptivePreferenceDao()
+                .insertDefaults(
+                    1L,
+                )
+
+            assertNotNull(
+                production
+                    .adaptivePreferenceDao()
+                    .get(),
+            )
         }
-        production.adaptivePreferenceDao().insertDefaults(1L)
-        assertNotNull(production.adaptivePreferenceDao().get())
-    }
 
     private fun coordinator() = AdaptiveMomentCoordinator(
         decisions = decisions,

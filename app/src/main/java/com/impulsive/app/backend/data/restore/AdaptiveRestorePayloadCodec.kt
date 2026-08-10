@@ -206,12 +206,6 @@ internal object AdaptiveRestorePayloadCodec {
         require(pathShiftCycles.count { it.status == PathShiftCycleStatus.Active.name } <= 1) {
             "Multiple active PathShift cycles"
         }
-        require(
-            pathShiftCycles.none { it.status == PathShiftCycleStatus.Active.name } ||
-                preferences.pathShiftEnabled,
-        ) {
-            "Active PathShift cycle requires Future Path to be enabled"
-        }
 
         return ValidatedAdaptiveRestorePayload(
             plans = plans,
@@ -277,7 +271,7 @@ internal object AdaptiveRestorePayloadCodec {
         .put("randomisedExplorationEnabled", value.randomisedExplorationEnabled)
         .put("privateScreenProtectionEnabled", value.privateScreenProtectionEnabled)
         .put("historyRetentionPolicy", value.historyRetentionPolicy)
-        .put("pathShiftEnabled", value.pathShiftEnabled)
+        .put("pathShiftEnabled", true)
         .put("updatedAtMillis", value.updatedAtMillis)
 
     private fun encodePathShiftCycle(value: PathShiftCycleEntity): JSONObject = JSONObject()
@@ -454,6 +448,15 @@ internal object AdaptiveRestorePayloadCodec {
     ): AdaptivePreferenceEntity {
         val updatedAtMillis = requiredLong(json, "updatedAtMillis")
         require(updatedAtMillis >= 0L) { "Invalid adaptive preference timestamp" }
+        if (
+            formatVersion >=
+            PathShiftFormatVersion
+        ) {
+            requiredBoolean(
+                json,
+                "pathShiftEnabled",
+            )
+        }
         return AdaptivePreferenceEntity(
             personalSuggestionsEnabled = requiredBoolean(json, "personalSuggestionsEnabled"),
             gameSuggestionsEnabled = requiredBoolean(json, "gameSuggestionsEnabled"),
@@ -476,11 +479,8 @@ internal object AdaptiveRestorePayloadCodec {
                     AdaptiveHistoryRetentionPolicy.SixMonths.name
                 },
             updatedAtMillis = updatedAtMillis,
-            pathShiftEnabled = if (formatVersion >= PathShiftFormatVersion) {
-                requiredBoolean(json, "pathShiftEnabled")
-            } else {
-                false
-            },
+            pathShiftEnabled =
+                true,
         )
     }
 

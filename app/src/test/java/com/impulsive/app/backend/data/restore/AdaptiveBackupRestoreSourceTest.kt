@@ -50,6 +50,38 @@ class AdaptiveBackupRestoreSourceTest {
         assertTrue(source.contains("\"planContentRevisionId\""))
         assertTrue(source.contains("\"evidenceQualityTier\""))
         assertTrue(source.contains("\"historyRetentionPolicy\""))
+        assertTrue(
+            source.contains(
+                "== Safe Exits (",
+            ),
+        )
+        assertTrue(
+            source.contains(
+                "\"safeExits\"",
+            ),
+        )
+        assertTrue(
+            source.contains(
+                ".safeExitDao()",
+            ),
+        )
+        assertTrue(
+            source.contains(
+                ".getAllForBackup()",
+            ),
+        )
+
+        val safeExitSource = source(
+            "app/src/main/java/com/impulsive/app/backend/data/" +
+                "SafeExitUserExport.kt",
+        )
+
+        assertFalse(safeExitSource.contains("controlPoints"))
+        assertFalse(safeExitSource.contains("action"))
+        assertFalse(safeExitSource.contains("validCompletion"))
+        assertFalse(safeExitSource.contains("packageName"))
+        assertFalse(safeExitSource.contains("url"))
+        assertFalse(safeExitSource.contains("trigger"))
         assertFalse(source.contains(".put(\"protectionIncidentToken\""))
         assertFalse(source.contains(".put(\"sourceKind\""))
         assertFalse(source.contains(".put(\"selectionProbability\""))
@@ -92,7 +124,15 @@ class AdaptiveBackupRestoreSourceTest {
     }
 
     private fun source(path: String): String {
-        val file = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+        val file = generateSequence(
+                File(
+                    requireNotNull(
+                        System.getProperty("user.dir"),
+                    ),
+                ),
+            ) { directory ->
+                directory.parentFile
+            }
             .map { File(it, path) }
             .firstOrNull(File::isFile)
         return requireNotNull(file) { "Could not find $path" }.readText()

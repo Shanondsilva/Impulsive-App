@@ -37,7 +37,10 @@ class ProtectionCoachNavigationSourceTest {
     }
 
     @Test
-    fun settingsKeepsCoachWhileHomeHasNoCoachEntryPoint() {
+    fun settingsRemovesCoachWhileRouteAndHomeContractRemain() {
+        val navHost = File(
+            "../app/src/main/java/com/impulsive/app/frontend/navigation/AppNavHost.kt",
+        ).readText()
         val settings = File(
             "../app/src/main/java/com/impulsive/app/frontend/screens/settings/SettingsScreen.kt",
         ).readText()
@@ -45,8 +48,21 @@ class ProtectionCoachNavigationSourceTest {
             "../app/src/main/java/com/impulsive/app/frontend/screens/dashboard/HomeScreen.kt",
         ).readText()
 
-        assertTrue(settings.contains("Protection Coach"))
-        assertTrue(settings.contains("R.string.protection_coach_description"))
+        val protectionFocusGroup = settings.substring(
+            settings.indexOf("private fun ProtectionFocusGroup("),
+            settings.indexOf("private fun PrivacyAccountGroup("),
+        )
+
+        assertFalse(protectionFocusGroup.contains("Protection Coach"))
+        assertFalse(protectionFocusGroup.contains("R.string.protection_coach_description"))
+        assertTrue(navHost.contains("const val ProtectionCoach = \"protection_coach\""))
+        assertTrue(navHost.contains("composable(AppRoutes.ProtectionCoach)"))
+        assertTrue(
+            navHost.substring(
+                navHost.indexOf("composable(AppRoutes.SuggestedSetup)"),
+                navHost.indexOf("composable(AppRoutes.ProtectionCoach)"),
+            ).contains("AppRoutes.ProtectionCoach"),
+        )
         assertFalse(home.contains("YOUR SUGGESTED SETUP"))
         assertFalse(home.contains("Review setup >"))
     }

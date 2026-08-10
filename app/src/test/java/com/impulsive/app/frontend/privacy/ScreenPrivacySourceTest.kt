@@ -56,9 +56,9 @@ class ScreenPrivacySourceTest {
 
     @Test
     fun appLockStillDecidesWhetherNavigationContentExists() {
-        assertTrue(mainActivity.contains("if (locked)"))
+        assertTrue(mainActivity.contains("locked -> {"))
         assertTrue(mainActivity.contains("AppLockGateScreen("))
-        assertTrue(mainActivity.contains("} else {"))
+        assertTrue(mainActivity.contains("else -> {"))
         assertTrue(mainActivity.contains("AppNavHost("))
     }
 

@@ -10,120 +10,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-private fun assertTipsRuntime() {
-    val context = InstrumentationRegistry.getInstrumentation().targetContext
-    assertTrue(context.packageName.startsWith("com.impulsive.app"))
-    assertEquals("Tips", context.getString(R.string.tips_title))
-    assertEquals("stable_tip", ImpulsiveTipId("stable_tip").value)
-    assertTrue(TipSelectionPolicy().audienceTagsFor(setOf("social_media")).isNotEmpty())
-}
-
+/**
+ * Proves only that the tips resources are packaged and that the tip identity
+ * and selection policy load on device.
+ *
+ * The previous scenario names — reduced motion, TalkBack, large font, dark and
+ * light mode, process recreation, cross-feature non-interference — all ran this
+ * same shallow check, so they claimed evidence that did not exist and have been
+ * removed rather than renamed.
+ */
 @RunWith(AndroidJUnit4::class)
-class HomeApprovedLayoutInstrumentedTest {
-    @Test fun approvedHomeRuntimeResourcesAreAvailable() = assertTipsRuntime()
-}
+class TipsRuntimeInstrumentedTest {
 
-@RunWith(AndroidJUnit4::class)
-class TipsCardRotationInstrumentedTest {
-    @Test fun deterministicTipsRuntimeIsAvailableForRotation() = assertTipsRuntime()
-}
+    @Test
+    fun tipsResourcesArePackaged() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
 
-@RunWith(AndroidJUnit4::class)
-class TipsReducedMotionInstrumentedTest {
-    @Test fun tipsRuntimeIsAvailableForReducedMotion() = assertTipsRuntime()
-}
+        assertTrue(
+            context.packageName == "com.impulsive.app" ||
+                context.packageName == "com.impulsive.app.debug",
+        )
 
-@RunWith(AndroidJUnit4::class)
-class TipsListInstrumentedTest {
-    @Test fun tipsListResourcesAreAvailable() = assertTipsRuntime()
-}
+        assertEquals("Tips", context.getString(R.string.tips_title))
+    }
 
-@RunWith(AndroidJUnit4::class)
-class TipDetailInstrumentedTest {
-    @Test fun tipDetailResourcesAreAvailable() = assertTipsRuntime()
-}
+    @Test
+    fun stableTipIdentityAndSelectionPolicyLoadOnDevice() {
+        assertEquals("stable_tip", ImpulsiveTipId("stable_tip").value)
 
-@RunWith(AndroidJUnit4::class)
-class TipsOnboardingSelectionInstrumentedTest {
-    @Test fun onboardingSelectionPolicyIsAvailable() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class TipsDismissalInstrumentedTest {
-    @Test fun tipsRuntimeIsAvailableForDismissal() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class WebsiteProtectionSingleCardInstrumentedTest {
-    @Test fun websiteProtectionHomeCopyIsPackaged() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachSettingsOnlyInstrumentedTest {
-    @Test fun coachTimingCopyIsPackaged() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class FuturePathHomeRemovalInstrumentedTest {
-    @Test fun approvedHomeRuntimeLoadsWithoutPathCard() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ConsistentBackArrowInstrumentedTest {
-    @Test fun backContentDescriptionIsPackaged() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class TipsFontScaleInstrumentedTest {
-    @Test fun tipsRuntimeIsAvailableAtLargeFontScale() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class TipsTalkBackSemanticsInstrumentedTest {
-    @Test fun tipsRuntimeIsAvailableForTalkBack() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class TipsDarkModeInstrumentedTest {
-    @Test fun tipsRuntimeIsAvailableInDarkMode() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class TipsLightModeInstrumentedTest {
-    @Test fun tipsRuntimeIsAvailableInLightMode() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class TipsProcessRecreationInstrumentedTest {
-    @Test fun stableTipIdSupportsProcessRecreation() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class WebsiteProtectionTipsRegressionInstrumentedTest {
-    @Test fun tipsRuntimeDoesNotReplaceWebsiteProtection() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class VpnTipsRegressionInstrumentedTest {
-    @Test fun tipsRuntimeCoexistsWithVpn() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class MomentPlanTipsRegressionInstrumentedTest {
-    @Test fun tipsRuntimeCoexistsWithMomentPlans() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class PathShiftTipsRegressionInstrumentedTest {
-    @Test fun tipsRuntimeCoexistsWithPathShift() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class AdaptiveEngineTipsRegressionInstrumentedTest {
-    @Test fun tipsRuntimeCoexistsWithAdaptiveEngine() = assertTipsRuntime()
-}
-
-@RunWith(AndroidJUnit4::class)
-class TipsLpNonInterferenceInstrumentedTest {
-    @Test fun tipsRuntimeCoexistsWithLp() = assertTipsRuntime()
+        assertTrue(
+            TipSelectionPolicy()
+                .audienceTagsFor(setOf("social_media"))
+                .isNotEmpty(),
+        )
+    }
 }

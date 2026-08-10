@@ -3,10 +3,12 @@ package com.impulsive.app.backend.data.local.preferences
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
+import com.impulsive.app.backend.domain.model.protection.WebsiteProtectionDisclosurePolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -32,6 +34,10 @@ class ProtectionSetupPreferencesDataSource(
                 preferences[ProtectionMonitorTransitionCompletedKey] ?: false,
             websiteProtectionEnabled = preferences[WebsiteProtectionEnabledKey] ?: false,
             websiteProtectionAlwaysOn = preferences[WebsiteProtectionAlwaysOnKey] ?: false,
+            websiteProtectionDisclosureConsentVersion =
+                preferences[
+                    WebsiteProtectionDisclosureConsentVersionKey
+                ] ?: 0,
             interruptionPermissionEnabled = preferences[InterruptionPermissionEnabledKey] ?: false,
             backgroundActivityEnabled = preferences[BackgroundActivityEnabledKey] ?: false,
             notificationPermissionEnabled = preferences[NotificationPermissionEnabledKey] ?: false,
@@ -88,10 +94,63 @@ class ProtectionSetupPreferencesDataSource(
         }
     }
 
-    suspend fun setWebsiteProtectionEnabled(enabled: Boolean) {
+    suspend fun setWebsiteProtectionEnabled(
+        enabled:
+            Boolean,
+    ): Boolean {
+        var applied =
+            false
+
         dataStore.edit { preferences ->
-            preferences[WebsiteProtectionEnabledKey] = enabled
-            if (enabled) preferences.removeSkippedItem(ProtectionSetupItem.WebsiteProtection)
+            if (enabled) {
+                val acceptedVersion =
+                    preferences[
+                        WebsiteProtectionDisclosureConsentVersionKey
+                    ] ?: 0
+
+                if (
+                    !WebsiteProtectionDisclosurePolicy
+                        .isCurrent(
+                            acceptedVersion,
+                        )
+                ) {
+                    return@edit
+                }
+            }
+
+            preferences[
+                WebsiteProtectionEnabledKey
+            ] =
+                enabled
+
+            if (enabled) {
+                preferences
+                    .removeSkippedItem(
+                        ProtectionSetupItem
+                            .WebsiteProtection,
+                    )
+            }
+
+            applied =
+                true
+        }
+
+        return applied
+    }
+
+    suspend fun setWebsiteProtectionDisclosureConsentVersion(
+        version:
+            Int,
+    ) {
+        require(
+            version >= 0,
+        )
+
+        dataStore.edit { preferences ->
+            preferences[
+                WebsiteProtectionDisclosureConsentVersionKey
+            ] =
+                version
         }
     }
 
@@ -188,6 +247,10 @@ class ProtectionSetupPreferencesDataSource(
             booleanPreferencesKey("protection_monitor_transition_completed")
         val WebsiteProtectionEnabledKey = booleanPreferencesKey("website_protection_enabled")
         val WebsiteProtectionAlwaysOnKey = booleanPreferencesKey("website_protection_always_on")
+        val WebsiteProtectionDisclosureConsentVersionKey =
+            intPreferencesKey(
+                "website_protection_disclosure_consent_version",
+            )
         val InterruptionPermissionEnabledKey = booleanPreferencesKey("interruption_permission_enabled")
         val BackgroundActivityEnabledKey = booleanPreferencesKey("background_activity_enabled")
         val NotificationPermissionEnabledKey = booleanPreferencesKey("notification_permission_enabled")

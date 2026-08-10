@@ -1,7 +1,6 @@
 package com.impulsive.app.protectioncoach
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.impulsive.app.backend.domain.model.protection.AppProtectionMonitoringPolicy
 import com.impulsive.app.backend.domain.model.protection.AppProtectionStatus
 import com.impulsive.app.backend.domain.model.protection.AppProtectionStatusRequest
@@ -18,7 +17,6 @@ import com.impulsive.app.backend.domain.protectioncoach.ProtectionCoachValidator
 import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -82,38 +80,8 @@ class ProtectionCoachUsageAccessFailureInstrumentedTest {
 }
 
 @RunWith(AndroidJUnit4::class)
-class ProtectionCoachResetDeletionInstrumentedTest {
-    @Test fun resetKeepsConfigurationSeparateFromCoachHistory() = assertAppIdentity()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachSettingsNavigationInstrumentedTest {
-    @Test fun settingsRoutesUseOpaqueCoachDestination() = assertAppIdentity()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachFontScaleInstrumentedTest {
-    @Test fun targetContextAvailableForLargeFontPass() = assertAppIdentity()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachTalkBackSemanticsInstrumentedTest {
-    @Test fun targetContextAvailableForTalkBackPass() = assertAppIdentity()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachScreenPrivacyInstrumentedTest {
-    @Test fun targetContextAvailableForPrivacyPass() = assertAppIdentity()
-}
-
-@RunWith(AndroidJUnit4::class)
 class ProtectionCoachWebsiteProtectionRegressionInstrumentedTest {
     @Test fun websiteProtectionRemainsSeparateFromAppMonitoring() = assertLegacyTransitionRequired()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachVpnRegressionInstrumentedTest {
-    @Test fun vpnProtectionPackageStillLoads() = assertAppIdentity()
 }
 
 @RunWith(AndroidJUnit4::class)
@@ -144,21 +112,6 @@ class ProtectionCoachAdaptiveAssignmentRegressionInstrumentedTest {
         )
         assertEquals(null, result.selected)
     }
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachLpNonInterferenceInstrumentedTest {
-    @Test fun coachSmokeDoesNotTouchLpSystems() = assertAppIdentity()
-}
-
-@RunWith(AndroidJUnit4::class)
-class ProtectionCoachSubscriptionNonBlockingInstrumentedTest {
-    @Test fun coachSmokeDoesNotRequirePaywallForCompletion() = assertAppIdentity()
-}
-
-private fun assertAppIdentity() {
-    val packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
-    assertTrue(packageName == "com.impulsive.app" || packageName == "com.impulsive.app.debug")
 }
 
 private fun assertMonitorActiveRules() {

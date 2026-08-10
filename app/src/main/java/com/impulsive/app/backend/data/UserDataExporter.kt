@@ -19,6 +19,7 @@ import com.impulsive.app.backend.data.local.preferences.ScoreDataSource
 import com.impulsive.app.backend.data.local.preferences.TaskRewardDataSource
 import com.impulsive.app.backend.data.local.preferences.UrgeEventDataSource
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
+import com.impulsive.app.backend.domain.model.score.SafeExitRecord
 import com.impulsive.app.backend.domain.model.score.UrgeEventRecord
 import com.impulsive.app.backend.domain.model.tasks.ResetReadSessionRecord
 import com.impulsive.app.backend.domain.engine.adaptive.EvidenceQualityTier
@@ -56,6 +57,17 @@ class UserDataExporter(private val context: Context) {
         val level = runCatching { LevelPreferencesDataSource(context).currentLevel.first() }.getOrDefault(1)
         val rewards = runCatching { TaskRewardDataSource(context).storeState.first() }.getOrNull()
         val scoreSessions = runCatching { ScoreDataSource(context).sessions.first() }.getOrDefault(emptyList())
+        val safeExitRecords =
+            runCatching {
+                SafeExitUserExport
+                    .canonicalRecords(
+                        db
+                            .safeExitDao()
+                            .getAllForBackup(),
+                    )
+            }.getOrDefault(
+                emptyList(),
+            )
         val resetReadSessions = runCatching { ResetReadProgressDataSource(context).sessions.first() }.getOrDefault(emptyList())
         val urgeEvents = runCatching { UrgeEventDataSource(context).events.first() }.getOrDefault(emptyList())
         val settings = AppSettingsPreferencesDataSource(context)
@@ -114,6 +126,25 @@ class UserDataExporter(private val context: Context) {
             scoreSessions.forEach { appendScoreSession(it) }
             appendLine()
 
+            appendLine(
+                "== Safe Exits (${safeExitRecords.size}) ==",
+            )
+
+            if (
+                safeExitRecords.isEmpty()
+            ) {
+                appendLine(
+                    "None yet.",
+                )
+            }
+
+            safeExitRecords.forEach {
+                appendSafeExit(
+                    it,
+                )
+            }
+
+            appendLine()
             appendLine("== Difficult moment log (${urgeEvents.size}) ==")
             if (urgeEvents.isEmpty()) appendLine("None yet.")
             urgeEvents.forEach { appendUrgeEvent(it) }
@@ -196,6 +227,17 @@ class UserDataExporter(private val context: Context) {
         val level = runCatching { LevelPreferencesDataSource(context).currentLevel.first() }.getOrDefault(1)
         val rewards = runCatching { TaskRewardDataSource(context).storeState.first() }.getOrNull()
         val scoreSessions = runCatching { ScoreDataSource(context).sessions.first() }.getOrDefault(emptyList())
+        val safeExitRecords =
+            runCatching {
+                SafeExitUserExport
+                    .canonicalRecords(
+                        db
+                            .safeExitDao()
+                            .getAllForBackup(),
+                    )
+            }.getOrDefault(
+                emptyList(),
+            )
         val resetReadSessions = runCatching { ResetReadProgressDataSource(context).sessions.first() }.getOrDefault(emptyList())
         val urgeEvents = runCatching { UrgeEventDataSource(context).events.first() }.getOrDefault(emptyList())
         val settings = AppSettingsPreferencesDataSource(context)
@@ -250,6 +292,13 @@ class UserDataExporter(private val context: Context) {
             )
             .put("recoverySessions", sessions.toRecoverySessionsJson())
             .put("scoreSessions", scoreSessions.toScoreSessionsJson())
+            .put(
+                "safeExits",
+                SafeExitUserExport
+                    .toJson(
+                        safeExitRecords,
+                    ),
+            )
             .put("urgeEvents", urgeEvents.toUrgeEventsJson())
             .put("notes", notes.toNotesJson(checklistItemsByNoteId))
             .put(
@@ -412,6 +461,15 @@ class UserDataExporter(private val context: Context) {
             )
     }
 
+    private fun StringBuilder.appendSafeExit(
+        record: SafeExitRecord,
+    ) {
+        appendLine(
+            "- ${localDateTime(record.completedAt)} | " +
+                "${SafeExitUserExport.displayName(record.source)} | " +
+                "record ${record.sourceKey}",
+        )
+    }
     private fun StringBuilder.appendResetReadingSummary(sessions: List<ResetReadSessionRecord>) {
         val completedSessions = sessions.filter { it.validCompletion }
         val abandonedCount = sessions.count { !it.validCompletion }

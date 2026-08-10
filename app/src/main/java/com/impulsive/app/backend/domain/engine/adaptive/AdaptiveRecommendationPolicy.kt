@@ -40,13 +40,19 @@ class AdaptiveRecommendationPolicy(
     private val randomisationSource: RandomisationSource,
 ) {
     fun recommend(request: AdaptiveRecommendationRequest): AdaptiveRecommendation {
+        /*
+         * A first attempt used to be answered with a Short Pause. Short Pause is
+         * retired as an active intervention, so the minimum-friction response is
+         * now the game. Historical Short Pause records stay readable; nothing new
+         * is ever recommended.
+         */
         if (request.momentIntensity == MomentIntensity.FirstAttempt) {
             return AdaptiveRecommendation(
                 assignment = AdaptiveAssignment(
                     momentIntensity = MomentIntensity.FirstAttempt,
                     assignmentMode = AssignmentMode.MinimumFriction,
-                    eligibleInterventions = setOf(InterventionFamily.ShortPause),
-                    assignedSuggestion = InterventionFamily.ShortPause,
+                    eligibleInterventions = setOf(InterventionFamily.PivotGame),
+                    assignedSuggestion = InterventionFamily.PivotGame,
                     selectionProbability = null,
                     reasonCode = AdaptiveReasonCode.MinimumEffectiveFriction,
                 ),

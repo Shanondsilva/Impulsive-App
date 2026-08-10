@@ -64,6 +64,16 @@ data class ResetReadArticleExposureRecord(
     val shownAt: LocalDateTime,
 )
 
+enum class ResetReadAnimation {
+    UrgeWaveRiseFall,
+    NinetySecondPeakSettle,
+    DopaminePromisePath,
+    SlowerBreathing,
+    WaitingChoiceClock,
+    HabitLoop,
+    WillpowerBattery,
+}
+
 sealed interface ArticleBlock {
     data class Heading(val text: String) : ArticleBlock
     data class Paragraph(val text: String) : ArticleBlock
@@ -74,7 +84,7 @@ sealed interface ArticleBlock {
         val caption: String? = null,
     ) : ArticleBlock
     data class Lottie(
-        val rawResName: String,
+        val animation: ResetReadAnimation,
         val title: String,
         val caption: String? = null,
     ) : ArticleBlock
@@ -114,7 +124,7 @@ val StarterResetReadArticles = listOf(
         blocks = listOf(
             ArticleBlock.Paragraph("An urge is not an order. It is a wave, and waves always break."),
             ArticleBlock.Lottie(
-                rawResName = "surf_urge_wave_rise_fall",
+                animation = ResetReadAnimation.UrgeWaveRiseFall,
                 title = "Watch the urge rise and fall",
                 caption = "The wave can move without you obeying it.",
             ),
@@ -146,7 +156,7 @@ val StarterResetReadArticles = listOf(
         blocks = listOf(
             ArticleBlock.Paragraph("Your strongest feelings have a surprisingly short shelf life."),
             ArticleBlock.Lottie(
-                rawResName = "ninety_second_rule_peak_settle",
+                animation = ResetReadAnimation.NinetySecondPeakSettle,
                 title = "Let the first spike settle",
                 caption = "The first emotional peak can change if you give it time.",
             ),
@@ -243,7 +253,7 @@ val StarterResetReadArticles = listOf(
         blocks = listOf(
             ArticleBlock.Paragraph("The buzz you feel before the reward is louder than the reward itself. That is the whole trick."),
             ArticleBlock.Lottie(
-                rawResName = "dopamine_promise_path",
+                animation = ResetReadAnimation.DopaminePromisePath,
                 title = "Notice the promise path",
                 caption = "The pull often comes from anticipation, not real reward.",
             ),
@@ -308,7 +318,7 @@ val StarterResetReadArticles = listOf(
         blocks = listOf(
             ArticleBlock.Paragraph("There is one button you can press to talk to your own nervous system, and it is in your lungs."),
             ArticleBlock.Lottie(
-                rawResName = "breathe_slower_inhale_exhale",
+                animation = ResetReadAnimation.SlowerBreathing,
                 title = "Slow the body first",
                 caption = "A steady breathing rhythm helps the next choice become possible.",
             ),
@@ -341,7 +351,7 @@ val StarterResetReadArticles = listOf(
         blocks = listOf(
             ArticleBlock.Paragraph("A room, one treat, and a deal: wait, and you get two. The simple story missed the most useful lesson."),
             ArticleBlock.Lottie(
-                rawResName = "marshmallow_waiting_choice_clock",
+                animation = ResetReadAnimation.WaitingChoiceClock,
                 title = "Wait without staring at the cue",
                 caption = "Delaying works better when attention has somewhere safer to go.",
             ),
@@ -374,7 +384,7 @@ val StarterResetReadArticles = listOf(
         blocks = listOf(
             ArticleBlock.Paragraph("Somewhere in your brain a tiny loop is running on autopilot, and it does not care whether the habit helps you."),
             ArticleBlock.Lottie(
-                rawResName = "habit_loop_cue_routine_reward",
+                animation = ResetReadAnimation.HabitLoop,
                 title = "Change the middle of the loop",
                 caption = "Same cue, safer routine, better outcome.",
             ),
@@ -407,7 +417,7 @@ val StarterResetReadArticles = listOf(
         blocks = listOf(
             ArticleBlock.Paragraph("By the end of a long day of choices, even sharp people can make sloppy ones. There is a reason."),
             ArticleBlock.Lottie(
-                rawResName = "willpower_battery_recharge",
+                animation = ResetReadAnimation.WillpowerBattery,
                 title = "Protect the low-battery moment",
                 caption = "The right system helps when willpower is tired.",
             ),

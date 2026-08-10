@@ -9,9 +9,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BlockRequestNavigationHandoffTest {
-    private val source = File(
-        "src/main/java/com/impulsive/app/frontend/navigation/AppNavHost.kt",
-    ).readText()
+    private val source =
+        File(
+            "src/main/java/com/impulsive/app/frontend/navigation/AppNavHost.kt",
+        ).readNormalizedText()
 
     @Test
     fun allBlockTargetsMapToTheirDestinationRoutePatterns() {
@@ -189,7 +190,8 @@ class BlockRequestNavigationHandoffTest {
         assertTrue(readyEffect.contains("withFrameNanos"))
         assertTrue(readyEffect.contains("lastReadyRequest"))
         assertTrue(readyEffect.contains("latestOnBlockRequestConsumed()"))
-        assertTrue(source.split("BlockRequestDestinationReadyEffect(").size - 1 == 6)
+        // Seven: the six original destinations plus the protected Moment route.
+        assertTrue(source.split("BlockRequestDestinationReadyEffect(").size - 1 == 7)
     }
 
     @Test
@@ -228,3 +230,14 @@ class BlockRequestNavigationHandoffTest {
         launchTarget = target,
     )
 }
+
+private fun File.readNormalizedText(): String =
+    readText()
+        .replace(
+            "\r\n",
+            "\n",
+        )
+        .replace(
+            '\r',
+            '\n',
+        )

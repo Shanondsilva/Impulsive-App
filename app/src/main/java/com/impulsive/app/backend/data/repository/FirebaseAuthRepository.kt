@@ -34,6 +34,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.impulsive.app.R
+import com.impulsive.app.backend.data.local.preferences.AdaptiveSupportCyclePreferencesDataSource
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.auth.AuthUser
 import com.impulsive.app.backend.service.firebase.AppCheckGatedCallResult
@@ -448,6 +449,14 @@ class FirebaseAuthRepository(
     }
 
     override suspend fun signOut() {
+        AdaptiveSupportCyclePreferencesDataSource
+            .getInstance(appContext)
+            .clearAll()
+
+        runCatching {
+            SafeBrowsePassRepository(appContext).clear()
+        }
+
         firebaseAuth.signOut()
         LoginManager.getInstance().logOut()
     }

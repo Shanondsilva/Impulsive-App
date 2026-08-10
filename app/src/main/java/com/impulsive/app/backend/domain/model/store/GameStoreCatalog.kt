@@ -22,7 +22,7 @@ object GameStoreCatalog {
     const val TwoWinStreakControlPoints = 50
 
     val games: List<StoreGame> = listOf(
-        StoreGame("REFLEX_OVERRIDE", "Reflex Override", buyPrice = 800, rentPrice = 300, defaultOwned = true),
+        StoreGame("SNAKE", "Snake", buyPrice = 800, rentPrice = 300, defaultOwned = true),
         StoreGame("BLOCK_CASCADE", "Block Cascade", buyPrice = 1200, rentPrice = 500, defaultOwned = true),
         StoreGame("DOPAMINE_RUNNER", "Dopamine Redirect Runner", buyPrice = 1500, rentPrice = 500, defaultOwned = true),
         StoreGame("LOCKED_SLOT_1", "Coming soon", buyPrice = 1000, rentPrice = 400, defaultOwned = false),

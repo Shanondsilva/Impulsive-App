@@ -183,21 +183,83 @@ class AppMonitorServiceFallbackNotificationSourceTest {
     }
 
     @Test
-    fun websitePollUsesFrictionTriggerBoundedScheduleAndImmutableStart() {
-        val websiteSurface = serviceSource.substring(
-            serviceSource.indexOf("private fun launchWebsiteProtectionIncidentSurface"),
-            serviceSource.indexOf("private fun handleFocusInterruption"),
-        )
+    fun websitePollUsesImmediateIncidentTriggerBoundedScheduleAndImmutableStart() {
+        val websiteSurface =
+            serviceSource.substring(
+                serviceSource.indexOf(
+                    "private fun launchWebsiteProtectionIncidentSurface",
+                ),
+                serviceSource.indexOf(
+                    "private fun handleFocusInterruption",
+                ),
+            )
 
-        assertTrue(serviceSource.contains("canStartWebsiteInterruption(currentWebsiteIncident.phase)"))
-        assertTrue(serviceSource.contains("currentWebsiteIncident != null"))
-        assertTrue(websiteSurface.contains("incident.incidentStartedAtEpochMillis"))
-        assertTrue(websiteSurface.contains("beginFallbackNotificationIncident"))
-        assertTrue(websiteSurface.contains("scheduleFallbackNotificationStages"))
-        assertTrue(websiteSurface.contains("InterruptionNotificationIncidentId"))
-        assertTrue(websiteSurface.contains("isWebsiteIncident = true"))
-        assertFalse(serviceSource.contains("launchWebsiteProtectionCooldownOverlay"))
-        assertFalse(serviceSource.contains("Impulsive caught the pattern"))
+        assertTrue(
+            serviceSource.contains(
+                "currentWebsiteIncident != null",
+            ),
+        )
+        assertFalse(
+            serviceSource.contains(
+                "canStartWebsiteInterruption(",
+            ),
+        )
+        assertTrue(
+            websiteSurface.contains(
+                "incident.incidentStartedAtEpochMillis",
+            ),
+        )
+        assertTrue(
+            websiteSurface.contains(
+                "beginFallbackNotificationIncident",
+            ),
+        )
+        assertTrue(
+            websiteSurface.contains(
+                "scheduleFallbackNotificationStages",
+            ),
+        )
+        assertTrue(
+            websiteSurface.contains(
+                "InterruptionNotificationIncidentId",
+            ),
+        )
+        assertTrue(
+            websiteSurface.contains(
+                "isWebsiteIncident = true",
+            ),
+        )
+        assertFalse(websiteSurface.contains("resetAtEpochMillis"))
+        assertFalse(
+            websiteSurface.contains(
+                "incident.cooldownUntilEpochMillis",
+            ),
+        )
+        assertFalse(
+            serviceSource.contains(
+                "launchWebsiteProtectionCooldownOverlay",
+            ),
+        )
+        assertFalse(
+            serviceSource.contains(
+                "Impulsive caught the pattern",
+            ),
+        )
+    }
+
+    @Test
+    fun visibleWebsiteOverlayIsNotDismissedByForegroundOrRecentsChanges() {
+        assertFalse(
+            serviceSource.contains(
+                "dismissOwned(ProtectionInterruptionOverlay.Owner.Vpn)",
+            ),
+        )
+        assertFalse(
+            serviceSource.contains(
+                "dismissOwned(\n" +
+                    "                ProtectionInterruptionOverlay.Owner.Vpn",
+            ),
+        )
     }
 
     @Test
@@ -283,9 +345,12 @@ class AppMonitorServiceFallbackNotificationSourceTest {
         assertTrue(endIncident.contains("fallbackReminderCoordinator.cancel"))
         assertTrue(endIncident.contains("notificationHelper.cancelBlockedAttemptNotification()"))
         assertTrue(serviceSource.contains("foregroundPackage != activeFallbackIncidentPackageName"))
-        assertTrue(serviceSource.contains("!usageAccessChecker.hasUsageAccess()"))
+        // APP-015 reads Usage Access once per iteration, so the incident-end
+        // branch now tests that snapshot rather than calling the checker inline.
+        assertTrue(serviceSource.contains("val usageAccessGranted = usageAccessChecker.hasUsageAccess()"))
+        assertTrue(serviceSource.contains("if (!usageAccessGranted) {"))
         assertTrue(serviceSource.contains("windowSnapshot.isProtectionPaused"))
-        assertTrue(serviceSource.contains("isAllowActiveImmediately"))
+        assertFalse(serviceSource.contains("isAllowActiveImmediately"))
         assertTrue(serviceSource.contains("override fun onDestroy()"))
         assertTrue(mainActivitySource.contains("InterruptionNotificationLimiter.endAppEncounter"))
         assertTrue(mainActivitySource.contains("ActionEndFallbackNotificationIncident"))

@@ -122,7 +122,7 @@ data class AdaptivePreferences(
     val historyRetentionPolicy:
         com.impulsive.app.backend.domain.engine.adaptive.AdaptiveHistoryRetentionPolicy =
         com.impulsive.app.backend.domain.engine.adaptive.AdaptiveHistoryRetentionPolicy.SixMonths,
-    val pathShiftEnabled: Boolean = false,
+    val pathShiftEnabled: Boolean = true,
 )
 
 data class AdaptiveOutcomeRecord(

@@ -17,8 +17,6 @@ import com.impulsive.app.backend.data.local.device.ForegroundAppReader
 import com.impulsive.app.backend.data.local.device.PrivateDnsChecker
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
-import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource
-import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationDataSource
 import com.impulsive.app.backend.data.local.preferences.ProtectionWindowNotificationState
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentDataSource
@@ -26,6 +24,14 @@ import com.impulsive.app.backend.session.adaptive.AdaptiveIncidentSignal
 import com.impulsive.app.backend.session.adaptive.AdaptivePhase4Dependencies
 import com.impulsive.app.backend.session.adaptive.AdaptiveProtectionBridge
 import com.impulsive.app.backend.session.adaptive.AdaptiveProtectionSource
+import com.impulsive.app.backend.session.adaptive.WebsiteAdaptiveIncidentAdmissionResolution
+import com.impulsive.app.backend.session.adaptive.WebsiteAdaptiveIncidentAdmissionResolver
+import com.impulsive.app.backend.session.adaptive.AdaptiveIncidentHandoff
+import com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleCommandResult
+import com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleDependencies
+import com.impulsive.app.backend.session.protection.BlockedSiteInterruptionState
+import com.impulsive.app.backend.session.protection.BlockedSitePrimaryAction
+import com.impulsive.app.backend.session.protection.BlockedSiteQuietFallback
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentRecord
 import com.impulsive.app.backend.data.repository.OnboardingRepository
 import com.impulsive.app.backend.data.repository.PremiumRepository
@@ -111,7 +117,6 @@ class AppMonitorService : Service() {
     }
     private val appSettingsDataSource by lazy { AppSettingsPreferencesDataSource(applicationContext) }
     private val windowNotificationDataSource by lazy { ProtectionWindowNotificationDataSource(applicationContext) }
-    private val oneMinuteAccessDataSource by lazy { OneMinuteAccessDataSource(applicationContext) }
     private val websiteProtectionIncidentDataSource by lazy { WebsiteProtectionIncidentDataSource(applicationContext) }
     private val adaptiveProtectionBridge by lazy {
         AdaptiveProtectionBridge(
@@ -119,6 +124,17 @@ class AppMonitorService : Service() {
             AdaptivePhase4Dependencies.decisions(applicationContext),
             AdaptivePhase4Dependencies.momentPlans(applicationContext),
         )
+    }
+    private val adaptiveSupportCycleCoordinator by lazy {
+        AdaptiveSupportCycleDependencies.coordinator(applicationContext)
+    }
+    private val adaptiveDecisionRepository by lazy {
+        AdaptivePhase4Dependencies.decisions(applicationContext)
+    }
+    private val websiteAdaptiveIncidentAdmissionResolver by lazy {
+        WebsiteAdaptiveIncidentAdmissionResolver { incidentToken ->
+            adaptiveDecisionRepository.getByIncidentToken(incidentToken)?.decisionId
+        }
     }
     private val fallbackReminderCoordinator by lazy {
         InterruptionNotificationReminderCoordinator(
@@ -158,13 +174,7 @@ class AppMonitorService : Service() {
         windowNotificationDataSource.state
             .stateIn(serviceScope, SharingStarted.Eagerly, ProtectionWindowNotificationState())
     }
-    private val oneMinuteAccessState by lazy {
-        oneMinuteAccessDataSource.state
-            .stateIn(serviceScope, SharingStarted.Eagerly, OneMinuteAccessState())
-    }
-
     private var monitorJob: Job? = null
-    private var oneMinuteCountdownJob: Job? = null
     private var foregroundNotificationJob: Job? = null
     private var focusCompletionJob: Job? = null
     private var temporaryNotificationJob: Job? = null
@@ -183,8 +193,12 @@ class AppMonitorService : Service() {
     private var hasPromotedToForeground: Boolean = false
     private var focusCompletionJobKey: String? = null
     private var focusMonitoringNotificationActive: Boolean = false
-    private var oneMinuteCountdownPackage: String? = null
-    private var usageAccessAlertPosted: Boolean = false
+    /*
+     * APP-015: null means "not yet reconciled by this service instance", which
+     * lets a fresh service cancel a stale warning left behind by a previous one.
+     * Deliberately process-local: the notification ID is already stable.
+     */
+    private var lastUsageAccessWarningRequired: Boolean? = null
     private var vpnConsentAlertPosted: Boolean = false
     private var privateDnsBypassAlertPosted: Boolean = false
     private var lastPrivateDnsCheckAtMillis: Long = 0L
@@ -195,6 +209,14 @@ class AppMonitorService : Service() {
     private var activeFallbackIncidentIsWebsite: Boolean = false
     private var activeFallbackIncidentIsFocus: Boolean = false
     private var activeFallbackAdaptiveDecisionId: String? = null
+    /*
+     * Process-local fast hint only.
+     *
+     * WebsiteAdaptiveIncidentAdmissionResolver always checks persisted adaptive
+     * decisions before admitting an incident, so service recreation cannot erase
+     * the authoritative deduplication state.
+     */
+    private var lastWebsiteAdaptiveIncidentToken: String? = null
     // In-memory guards so window outcome recording does not write to DataStore
     // on every poll tick. lastUsedWindowKey prevents repeated used-writes while
     // the user stays inside a protected app during one release window.
@@ -302,7 +324,6 @@ class AppMonitorService : Service() {
         ProtectionServiceOperationalStateStore.markStopped()
         ProtectionInterruptionOverlay.dismissOwned(ProtectionInterruptionOverlay.Owner.AppMonitor)
         endFallbackNotificationIncident()
-        notificationHelper.cancelOneMinuteAccessCountdown()
         unregisterReceiver(screenReceiver)
         serviceScope.cancel()
         super.onDestroy()
@@ -314,10 +335,14 @@ class AppMonitorService : Service() {
         // a swiped notification keep coming back. Skip once dismissed, except
         // for the mandatory first promotion of a fresh service start.
         if (monitoringNotificationDismissed && hasPromotedToForeground) return
+        // Android requires prompt promotion, so this cannot wait for DataStore.
+        // The mode resolves to Checking until setup loads -- never a false
+        // "protection is on".
         val notification = notificationHelper.createMonitoringNotification(
             session = focusSession.value,
             now = LocalDateTime.now(),
             hideSensitive = hideSensitiveNotifications.value,
+            monitoringMode = currentMonitoringNotificationMode(),
         )
         startForegroundWithMonitoringNotification(notification)
     }
@@ -340,6 +365,7 @@ class AppMonitorService : Service() {
             session = null,
             now = LocalDateTime.now(),
             hideSensitive = hideSensitiveNotifications.value,
+            monitoringMode = currentMonitoringNotificationMode(),
         )
 
         startForegroundWithMonitoringNotification(notification)
@@ -527,32 +553,37 @@ class AppMonitorService : Service() {
 
         syncWebsiteProtectionTunnel(windowSnapshot)
 
-        if (!hasActiveProtectionReason()) {
+        // One snapshot per iteration: the permission must not appear to change
+        // midway through a single evaluation.
+        val usageAccessGranted = usageAccessChecker.hasUsageAccess()
+
+        // Usage access can be revoked behind our back by permission auto-reset
+        // or OEM cleaners. Without this alert the monitor keeps polling but
+        // protection silently does nothing, which the user has no way to see.
+        reconcileUsageAccessWarning(usageAccessGranted)
+
+        if (!hasActiveProtectionReason(usageAccessGranted)) {
             Log.i(Tag, "Stopping AppMonitorService because no protection reason is active")
             endFallbackNotificationIncident()
             stopSelfSafely()
             return
         }
 
-        if (!usageAccessChecker.hasUsageAccess()) {
+        if (!usageAccessGranted) {
             endFallbackNotificationIncident()
             ProtectionLog.warnThrottled(
                 key = "usage_access_missing",
                 message = "Protection monitor skipped: Usage Access is not granted",
             )
-            // Usage access can be revoked behind our back by permission auto-reset
-            // or OEM cleaners. Without this alert the monitor keeps polling but
-            // protection silently does nothing, which the user has no way to see.
-            // Latched so the notification posts once per outage, not per tick.
-            if (!usageAccessAlertPosted) {
-                usageAccessAlertPosted = true
-                notificationHelper.showUsageAccessLostNotification()
+            /*
+             * The service is still alive for Website Protection or Focus. Focus
+             * owns its own notification, so only reconcile the generic one --
+             * otherwise it would keep claiming app protection works.
+             */
+            if (!focusMonitoringNotificationActive) {
+                replaceForegroundWithGenericMonitoringNotification()
             }
             return
-        }
-        if (usageAccessAlertPosted) {
-            usageAccessAlertPosted = false
-            notificationHelper.cancelUsageAccessLostNotification()
         }
 
         val currentSetup = setupState.value
@@ -584,14 +615,14 @@ class AppMonitorService : Service() {
         if (foregroundPackage == applicationContext.packageName) return
 
         if (
-            currentSetup.websiteProtectionEnabled &&
+            currentSetup.websiteProtectionRuntimeEnabled &&
             foregroundPackage in currentSetup.websiteProtectedAppPackageNames
         ) {
             RecentForegroundWebsiteBrowserRegistry.observe(
                 packageName = foregroundPackage,
                 observedAtEpochMillis = websiteIncidentNow,
             )
-        } else if (!currentSetup.websiteProtectionEnabled) {
+        } else if (!currentSetup.websiteProtectionRuntimeEnabled) {
             RecentForegroundWebsiteBrowserRegistry.clear()
         }
 
@@ -599,7 +630,7 @@ class AppMonitorService : Service() {
             ?.takeIf { incidentId -> incidentId.isWebsiteIncident }
             ?.let { incidentId ->
                 val cancellationReason = when {
-                    !currentSetup.websiteProtectionEnabled ->
+                    !currentSetup.websiteProtectionRuntimeEnabled ->
                         "Website Protection disabled"
                     incidentId.packageName !in currentSetup.websiteProtectedAppPackageNames ->
                         "browser no longer managed by Website Protection"
@@ -619,10 +650,9 @@ class AppMonitorService : Service() {
             }
 
         if (
-            currentSetup.websiteProtectionEnabled &&
+            currentSetup.websiteProtectionRuntimeEnabled &&
             (!windowSnapshot.isProtectionPaused || currentSetup.websiteProtectionAlwaysOn) &&
-            currentWebsiteIncident != null &&
-            canStartWebsiteInterruption(currentWebsiteIncident.phase)
+            currentWebsiteIncident != null
         ) {
             launchWebsiteProtectionIncidentSurface(
                 currentWebsiteIncident,
@@ -660,7 +690,7 @@ class AppMonitorService : Service() {
         if (
             shouldBypassGenericAppInterceptionForWebsiteProtection(
                 foregroundPackage = foregroundPackage,
-                websiteProtectionEnabled = currentSetup.websiteProtectionEnabled,
+                websiteProtectionEnabled = currentSetup.websiteProtectionRuntimeEnabled,
                 websiteProtectedPackages =
                     currentSetup.websiteProtectedAppPackageNames,
             )
@@ -716,27 +746,6 @@ class AppMonitorService : Service() {
             }
             return
         }
-        val activeAllow = oneMinuteAccessState.value
-        val nowEpochMillis = System.currentTimeMillis()
-        if (
-            oneMinuteAccessDataSource.isAllowActiveImmediately(
-                key = foregroundPackage,
-                nowEpochMillis = nowEpochMillis,
-                persistedState = activeAllow,
-            )
-        ) {
-            endFallbackNotificationIncident()
-            ensureOneMinuteCountdown(
-                packageName = foregroundPackage,
-                sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage),
-                untilEpochMillis = oneMinuteAccessDataSource.activeAllowUntilEpochMillisImmediately(
-                    key = foregroundPackage,
-                    nowEpochMillis = nowEpochMillis,
-                    persistedState = activeAllow,
-                ),
-            )
-            return
-        }
         val sourceLabel = foregroundAppReader.getApplicationLabel(foregroundPackage)
         handleBlockedAppOpen(
             sourcePackageName = foregroundPackage,
@@ -761,7 +770,12 @@ class AppMonitorService : Service() {
     }
 
     private fun reconcileMonitoringAfterFocusEnded() {
-        if (hasActiveNonFocusProtectionReason()) {
+        val usageAccessGranted = usageAccessChecker.hasUsageAccess()
+        // Usage Access may have been revoked during the session; the warning
+        // must be truthful before the notification is reconciled.
+        reconcileUsageAccessWarning(usageAccessGranted)
+
+        if (hasActiveNonFocusProtectionReason(usageAccessGranted)) {
             replaceForegroundWithGenericMonitoringNotification()
         } else {
             Log.i(Tag, "Stopping AppMonitorService because Focus completed with no remaining protection reason")
@@ -798,14 +812,70 @@ class AppMonitorService : Service() {
             }
 
         serviceScope.launch {
-            val handoff = adaptiveProtectionBridge.recognise(
-                AdaptiveIncidentSignal(
-                    source = AdaptiveProtectionSource.VpnWebsite,
-                    incidentStartedAtMillis = incidentStartedAtMillis,
-                    ephemeralSourceIdentity = incident.packageName,
-                ),
+            val activeCycle =
+                (adaptiveSupportCycleCoordinator.recover() as?
+                    AdaptiveSupportCycleCommandResult.Active)
+                    ?.state
+                    ?.cycle
+            val websiteAdmission = websiteAdaptiveIncidentAdmissionResolver.resolve(
+                record = incident.copy(incidentStartedAtEpochMillis = incidentStartedAtMillis),
+                nowEpochMillis = nowMillis,
+                lastAdmittedIncidentToken = lastWebsiteAdaptiveIncidentToken,
+                activeCycleIncidentToken = activeCycle?.protectionIncidentToken,
             )
-            activeFallbackAdaptiveDecisionId = handoff.decisionId
+
+            val handoff = when (websiteAdmission) {
+                is WebsiteAdaptiveIncidentAdmissionResolution.Admit -> {
+                    val recognised = adaptiveProtectionBridge.recogniseSafe(
+                        websiteAdmission.incident,
+                    )
+
+                    /*
+                     * The in-memory hint is updated only after the adaptive bridge
+                     * returns a persisted decision. A failed persistence attempt must
+                     * remain retryable.
+                     */
+                    if (recognised.decisionId != null && !recognised.fallbackRequired) {
+                        lastWebsiteAdaptiveIncidentToken =
+                            websiteAdmission.incident.incidentToken
+                    }
+
+                    recognised
+                }
+
+                is WebsiteAdaptiveIncidentAdmissionResolution.Duplicate -> {
+                    lastWebsiteAdaptiveIncidentToken = websiteAdmission.incidentToken
+
+                    AdaptiveIncidentHandoff(
+                        decisionId = websiteAdmission.decisionId,
+                        duplicate = true,
+                        fallbackRequired = false,
+                    )
+                }
+
+                is WebsiteAdaptiveIncidentAdmissionResolution.ActiveCycle ->
+                    AdaptiveIncidentHandoff(
+                        decisionId = activeCycle?.decisionId,
+                        duplicate = true,
+                        fallbackRequired = activeCycle == null,
+                    )
+
+                is WebsiteAdaptiveIncidentAdmissionResolution.Rejected,
+                WebsiteAdaptiveIncidentAdmissionResolution.PersistenceUnavailable,
+                ->
+                    AdaptiveIncidentHandoff(
+                        decisionId = null,
+                        duplicate = false,
+                        fallbackRequired = true,
+                    )
+            }
+            val interruptionState = handoff.decisionId?.let(::BlockedSiteInterruptionState)
+            val adaptiveDecisionId = interruptionState
+                ?.takeIf {
+                    it.primaryAction == BlockedSitePrimaryAction.OpenCoordinatorRecommendation
+                }
+                ?.decisionId
+            activeFallbackAdaptiveDecisionId = adaptiveDecisionId
             ProtectionInterruptionOverlay.show(
                 context = applicationContext,
                 owner = ProtectionInterruptionOverlay.Owner.Vpn,
@@ -813,9 +883,8 @@ class AppMonitorService : Service() {
                 sourceLabel = incident.sourceLabel,
                 message = message,
                 isFocusSession = false,
-                resetAtEpochMillis = incident.cooldownUntilEpochMillis,
                 incidentStartedAtMillis = incidentStartedAtMillis,
-                adaptiveDecisionId = handoff.decisionId,
+                adaptiveDecisionId = adaptiveDecisionId,
                 onShown = {
                     endFallbackNotificationIncident(incident.packageName)
                 },
@@ -827,16 +896,22 @@ class AppMonitorService : Service() {
                         return@show
                     }
 
-                    scheduleFallbackNotificationStages(
-                        incidentId = InterruptionNotificationIncidentId(
-                            packageName = incident.packageName,
-                            startedAtMillis = incidentStartedAtMillis,
-                            isWebsiteIncident = true,
-                            isFocusSession = false,
-                        ),
-                        sourceLabel = incident.sourceLabel,
-                        adaptiveDecisionId = handoff.decisionId,
-                    )
+                    if (
+                        interruptionState == null ||
+                        interruptionState.quietFallback ==
+                        BlockedSiteQuietFallback.DismissInterruption
+                    ) {
+                        scheduleFallbackNotificationStages(
+                            incidentId = InterruptionNotificationIncidentId(
+                                packageName = incident.packageName,
+                                startedAtMillis = incidentStartedAtMillis,
+                                isWebsiteIncident = true,
+                                isFocusSession = false,
+                            ),
+                            sourceLabel = incident.sourceLabel,
+                            adaptiveDecisionId = adaptiveDecisionId,
+                        )
+                    }
                 },
             )
         }
@@ -892,13 +967,14 @@ class AppMonitorService : Service() {
     private fun syncWebsiteProtectionTunnel(windowSnapshot: ProtectionWindowSnapshot) {
         val setup = setupState.value
 
-        val desiredByUser = setup.websiteProtectionEnabled
+        val runtimeEnabled =
+            setup.websiteProtectionRuntimeEnabled
         val plusUnlocked = websiteProtectionPlusUnlocked.value
         val pauseForReleaseWindow =
             windowSnapshot.isProtectionPaused && !setup.websiteProtectionAlwaysOn
 
         val shouldRunVpn =
-            desiredByUser &&
+            runtimeEnabled &&
                 plusUnlocked &&
                 !pauseForReleaseWindow
 
@@ -1099,16 +1175,6 @@ class AppMonitorService : Service() {
                 interruptionMessageSelector::select,
             )
 
-        val normalResetAtEpochMillis =
-            oneMinuteAccessState.value
-                .cooldownUntilEpochMillis(
-                    sourcePackageName,
-                    OneMinuteAccessDataSource.OneMinuteAccessCooldownMillis,
-                )
-                ?.takeIf { resetAt ->
-                    resetAt > System.currentTimeMillis()
-                }
-
         serviceScope.launch {
             val adaptiveDecisionId = if (isFocusSession) {
                 null
@@ -1130,7 +1196,6 @@ class AppMonitorService : Service() {
                 sourceLabel = sourceLabel,
                 message = message,
                 isFocusSession = isFocusSession,
-                resetAtEpochMillis = normalResetAtEpochMillis,
                 incidentStartedAtMillis = incidentStartedAtMillis,
                 adaptiveDecisionId = adaptiveDecisionId,
                 onShown = {
@@ -1219,7 +1284,7 @@ class AppMonitorService : Service() {
         if (incidentId.isWebsiteIncident) {
             return isWebsiteFallbackIncidentEligible(
                 incidentMatches = currentFallbackIncidentId() == incidentId,
-                websiteProtectionEnabled = currentSetup.websiteProtectionEnabled,
+                websiteProtectionEnabled = currentSetup.websiteProtectionRuntimeEnabled,
                 sameBrowserForeground = foregroundPackage == incidentId.packageName,
                 browserIsWebsiteProtected =
                     incidentId.packageName in currentSetup.websiteProtectedAppPackageNames,
@@ -1234,19 +1299,9 @@ class AppMonitorService : Service() {
         if (
             shouldBypassGenericAppInterceptionForWebsiteProtection(
                 foregroundPackage = foregroundPackage,
-                websiteProtectionEnabled = currentSetup.websiteProtectionEnabled,
+                websiteProtectionEnabled = currentSetup.websiteProtectionRuntimeEnabled,
                 websiteProtectedPackages =
                     currentSetup.websiteProtectedAppPackageNames,
-            )
-        ) {
-            return false
-        }
-
-        if (
-            oneMinuteAccessDataSource.isAllowActiveImmediately(
-                key = foregroundPackage,
-                nowEpochMillis = nowMillis,
-                persistedState = oneMinuteAccessState.value,
             )
         ) {
             return false
@@ -1373,30 +1428,101 @@ class AppMonitorService : Service() {
         ProtectionMonitorHealthRegistry.markStopped()
         ProtectionServiceOperationalStateStore.markStopped()
         cancelFocusCompletionTimer()
-        cancelOneMinuteAccessCountdown()
         endFallbackNotificationIncident()
         removeProtectionNotificationOnly()
         stopSelf()
     }
 
-    private fun hasActiveProtectionReason(): Boolean {
+    /**
+     * Whether the user has configured protected apps. This says nothing about
+     * whether monitoring can currently run -- see [hasOperationalAppProtection].
+     */
+    private fun hasConfiguredAppProtection(): Boolean {
         val setup = setupState.value
+        return setup.isLoaded &&
+            setup.configurationDrivenAppProtectionConsented &&
+            setup.selectedBlockedAppPackageNames.isNotEmpty()
+    }
+
+    /**
+     * Whether protected-app monitoring can actually intercept right now.
+     *
+     * Defers to the one shared policy rather than restating the condition, so
+     * legacy transition compatibility keeps a single owner.
+     */
+    private fun hasOperationalAppProtection(usageAccessGranted: Boolean): Boolean {
+        val setup = setupState.value
+        if (!setup.isLoaded) return false
+
+        return shouldMonitorProtectedApps(
+            appProtectionEnabled = setup.appProtectionMonitorEnabled,
+            selectedPackages = setup.selectedBlockedAppPackageNames,
+            usageAccessGranted = usageAccessGranted,
+            transitionCompleted = setup.protectionMonitorTransitionCompleted,
+        )
+    }
+
+    /*
+     * APP-015: these previously treated configuration as proof that protection
+     * worked, so revoking Usage Access left the service running and claiming to
+     * protect apps it could no longer see. Configuration is not permission.
+     */
+    private fun hasActiveProtectionReason(
+        usageAccessGranted: Boolean = usageAccessChecker.hasUsageAccess(),
+    ): Boolean {
+        val setup = setupState.value
+        // Fail-safe: stay alive until setup is known, as before.
         if (!setup.isLoaded) return true
         val sessionPhase = focusSession.value?.phase
         val focusActive = sessionPhase == FocusSessionPhase.Running ||
             sessionPhase == FocusSessionPhase.Paused
-        return (setup.configurationDrivenAppProtectionConsented &&
-            setup.selectedBlockedAppPackageNames.isNotEmpty()) ||
-            setup.websiteProtectionEnabled ||
+        return hasOperationalAppProtection(usageAccessGranted) ||
+            setup.websiteProtectionRuntimeEnabled ||
             focusActive
     }
 
-    private fun hasActiveNonFocusProtectionReason(): Boolean {
+    private fun hasActiveNonFocusProtectionReason(
+        usageAccessGranted: Boolean = usageAccessChecker.hasUsageAccess(),
+    ): Boolean {
         val setup = setupState.value
         if (!setup.isLoaded) return true
-        return (setup.configurationDrivenAppProtectionConsented &&
-            setup.selectedBlockedAppPackageNames.isNotEmpty()) ||
-            setup.websiteProtectionEnabled
+        return hasOperationalAppProtection(usageAccessGranted) ||
+            setup.websiteProtectionRuntimeEnabled
+    }
+
+    /**
+     * Resolves what the non-Focus foreground notification may claim, from the
+     * live permission grant rather than persisted setup state.
+     */
+    private fun currentMonitoringNotificationMode(
+        usageAccessGranted: Boolean = usageAccessChecker.hasUsageAccess(),
+    ): ProtectionMonitoringNotificationMode {
+        val setup = setupState.value
+        return resolveProtectionMonitoringNotificationMode(
+            setupLoaded = setup.isLoaded,
+            appProtectionOperational = hasOperationalAppProtection(usageAccessGranted),
+            websiteProtectionOperational = setup.websiteProtectionRuntimeEnabled,
+        )
+    }
+
+    /**
+     * Posts or cancels the Usage Access warning only when the requirement
+     * changes, so polling does not repeat it and restoration clears it.
+     */
+    private fun reconcileUsageAccessWarning(usageAccessGranted: Boolean) {
+        val warningRequired = hasConfiguredAppProtection() && !usageAccessGranted
+
+        if (lastUsageAccessWarningRequired == warningRequired) {
+            return
+        }
+
+        lastUsageAccessWarningRequired = warningRequired
+
+        if (warningRequired) {
+            notificationHelper.showUsageAccessLostNotification()
+        } else {
+            notificationHelper.cancelUsageAccessLostNotification()
+        }
     }
 
     private fun removeProtectionNotificationOnly() {
@@ -1414,85 +1540,6 @@ class AppMonitorService : Service() {
             stopForeground(true)
         }
         hasPromotedToForeground = false
-    }
-
-    private fun ensureOneMinuteCountdown(
-        packageName: String,
-        sourceLabel: String,
-        untilEpochMillis: Long,
-    ) {
-        if (oneMinuteCountdownJob?.isActive == true && oneMinuteCountdownPackage == packageName) return
-
-        cancelOneMinuteAccessCountdown()
-        oneMinuteCountdownPackage = packageName
-
-        oneMinuteCountdownJob = serviceScope.launch {
-            try {
-                while (isActive) {
-                    val remainingSeconds = ((untilEpochMillis - System.currentTimeMillis()) / 1000L)
-                        .coerceAtLeast(0L)
-                        .toInt()
-
-                    if (remainingSeconds <= 0) break
-
-                    notificationHelper.showOneMinuteAccessCountdown(
-                        sourceLabel = sourceLabel,
-                        remainingSeconds = remainingSeconds,
-                        hideSensitive = hideSensitiveNotifications.value,
-                    )
-
-                    delay(1000L)
-                }
-
-                if (isActive) {
-                    reblockAfterOneMinuteAccessExpiry(
-                        packageName = packageName,
-                        sourceLabel = sourceLabel,
-                    )
-                }
-            } finally {
-                oneMinuteCountdownPackage = null
-                oneMinuteCountdownJob = null
-                notificationHelper.cancelOneMinuteAccessCountdown()
-            }
-        }
-    }
-
-    private suspend fun reblockAfterOneMinuteAccessExpiry(
-        packageName: String,
-        sourceLabel: String,
-    ) {
-        oneMinuteAccessDataSource.clearActiveAllow()
-
-        val foregroundPackage = foregroundAppReader.getCurrentForegroundPackage()
-        if (foregroundPackage != packageName) return
-        if (foregroundPackage == applicationContext.packageName) return
-        if (foregroundPackage !in setupState.value.selectedBlockedAppPackageNames) return
-
-        val windowSnapshot = currentProtectionWindowSnapshot()
-        if (windowSnapshot.isProtectionPaused) {
-            val pausedStart = windowSnapshot.pausedWindowStart
-            if (pausedStart != null && pausedStart.toString() != lastUsedWindowKey) {
-                lastUsedWindowKey = pausedStart.toString()
-                windowOutcomeRepository.markWindowUsed(pausedStart)
-            }
-            return
-        }
-
-        lastHandledPackageName = null
-        lastHandledAtMillis = 0L
-
-        launchBlockSurface(
-            sourcePackageName = packageName,
-            sourceLabel = sourceLabel,
-        )
-    }
-
-    private fun cancelOneMinuteAccessCountdown() {
-        oneMinuteCountdownJob?.cancel()
-        oneMinuteCountdownJob = null
-        oneMinuteCountdownPackage = null
-        notificationHelper.cancelOneMinuteAccessCountdown()
     }
 
     companion object {

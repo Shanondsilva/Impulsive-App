@@ -2,6 +2,7 @@ package com.impulsive.app.backend.data.restore
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.impulsive.app.backend.data.local.preferences.AdaptiveSupportCyclePreferencesDataSource
 import com.impulsive.app.backend.data.account.isValidGoogleSubjectHash
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.local.entity.BlockedDomainEntity
@@ -82,7 +83,8 @@ class RestoreBundleImporter(
 
     private companion object {
         const val MaxAutoBundleBytes = 32 * 1024 * 1024
-        private const val MaxPayloadBytes = 8 * 1024 * 1024
+        private const val MaxPayloadBytes =
+            RestorePayloadSizePolicy.MaximumPayloadBytes
         private const val MaxOwnerUidChars = 128
         private const val MaxNotes = 10_000
         private const val MaxChecklistItems = 50_000
@@ -114,6 +116,7 @@ class RestoreBundleImporter(
         val checklistItems: List<ValidatedChecklistItem>,
         val recoverySessions: List<RecoverySessionEntity>,
         val blockedDomains: List<BlockedDomainEntity>,
+        val safeExit: ValidatedSafeExitRestorePayload?,
         val adaptive: ValidatedAdaptiveRestorePayload?,
     )
 
@@ -374,7 +377,8 @@ class RestoreBundleImporter(
             database.momentPlanDao().count() > 0 ||
             database.adaptiveDecisionDao().count() > 0 ||
             database.momentPlanRehearsalDao().getAllForBackup().isNotEmpty()
-            || database.pathShiftCycleDao().getAllForBackup().isNotEmpty()
+            || database.pathShiftCycleDao().getAllForBackup().isNotEmpty() ||
+            database.safeExitDao().count() > 0
 
     private fun validateJournalNotes(
         notes: JSONArray,
@@ -733,11 +737,18 @@ class RestoreBundleImporter(
             blockedDomainsJson,
         )
 
+        val validatedSafeExit =
+            SafeExitRestorePayloadCodec
+                .decodeIfPresent(
+                    parsed,
+                )
+
         return ValidatedRestorePayload(
             notes = validatedNotes,
             checklistItems = validatedChecklistItems,
             recoverySessions = validatedRecoverySessions,
             blockedDomains = validatedBlockedDomains,
+            safeExit = validatedSafeExit,
             adaptive = AdaptiveRestorePayloadCodec.decodeIfPresent(
                 payload = parsed,
                 restoredAtMillis = System.currentTimeMillis(),
@@ -760,6 +771,8 @@ class RestoreBundleImporter(
             val journalNoteDao = database.journalNoteDao()
             val recoverySessionDao = database.recoverySessionDao()
             val blockedDomainDao = database.blockedDomainDao()
+            val safeExitDao =
+                database.safeExitDao()
 
             if (hasExistingUserData(database)) {
                 if (mode == ImportMode.RejectIfExistingData) {
@@ -775,6 +788,12 @@ class RestoreBundleImporter(
                 journalNoteDao.clearAllUserNotesForRestore()
                 recoverySessionDao.clearAllForRestore()
                 blockedDomainDao.clearAllUserDomainsForRestore()
+                validatedPayload
+                    .safeExit
+                    ?.let {
+                        safeExitDao
+                            .clearAllForRestore()
+                    }
             }
 
             validatedPayload.adaptive?.let {
@@ -826,6 +845,19 @@ class RestoreBundleImporter(
                 )
             }
 
+            validatedPayload
+                .safeExit
+                ?.records
+                ?.takeIf {
+                    it.isNotEmpty()
+                }
+                ?.let { records ->
+                    safeExitDao
+                        .insertForRestore(
+                            records,
+                        )
+                }
+
             for (domain in validatedPayload.blockedDomains) {
                 blockedDomainDao.insertForRestore(
                     domain,
@@ -858,6 +890,12 @@ class RestoreBundleImporter(
             }
 
             ImportOutcome.Success
+        }
+
+        if (outcome == ImportOutcome.Success) {
+            AdaptiveSupportCyclePreferencesDataSource
+                .getInstance(appContext)
+                .clearAll()
         }
 
         if (

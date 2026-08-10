@@ -3,7 +3,6 @@ package com.impulsive.app.backend.session.pathshift
 import com.impulsive.app.backend.domain.engine.adaptive.InterventionProtocolRegistry
 import com.impulsive.app.backend.domain.engine.adaptive.MomentPlanContentRevisionIds
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveDecision
-import com.impulsive.app.backend.domain.model.adaptive.AdaptivePreferences
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveSourceKind
 import com.impulsive.app.backend.domain.model.adaptive.FeedbackCode
 import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
@@ -17,7 +16,6 @@ import com.impulsive.app.backend.domain.pathshift.PathShiftForecastResult
 import com.impulsive.app.backend.domain.pathshift.PathShiftProtectedMoment
 import com.impulsive.app.backend.domain.pathshift.PathShiftReviewCounts
 import com.impulsive.app.backend.domain.repository.adaptive.AdaptiveDecisionRepository
-import com.impulsive.app.backend.domain.repository.adaptive.AdaptivePreferenceRepository
 import com.impulsive.app.backend.domain.repository.adaptive.MomentPlanRepository
 import com.impulsive.app.backend.domain.repository.pathshift.PathShiftCycleRepository
 import com.impulsive.app.backend.session.adaptive.AdaptiveClock
@@ -52,7 +50,6 @@ sealed interface PathShiftCreateResult {
     data class Existing(val cycle: PathShiftCycle) : PathShiftCreateResult
     data class Unavailable(val forecast: PathShiftForecastResult.Unavailable) :
         PathShiftCreateResult
-    data object Disabled : PathShiftCreateResult
     data object PersistenceFailure : PathShiftCreateResult
     data class SchedulingFailure(val cycle: PathShiftCycle) : PathShiftCreateResult
 }
@@ -85,7 +82,6 @@ data class PathShiftRecoveryResult(
 class PathShiftCoordinator(
     private val cycles: PathShiftCycleRepository,
     private val decisions: AdaptiveDecisionRepository,
-    private val preferences: AdaptivePreferenceRepository,
     private val plans: MomentPlanRepository,
     private val forecastPolicy: PathShiftForecastPolicy,
     private val scheduler: PathShiftWorkScheduler,
@@ -94,7 +90,6 @@ class PathShiftCoordinator(
     private val idSource: PathShiftIdSource = UuidPathShiftIdSource,
 ) {
     suspend fun createCycle(): PathShiftCreateResult {
-        if (!preferences.get().pathShiftEnabled) return PathShiftCreateResult.Disabled
         cycles.getActive()?.let { return PathShiftCreateResult.Existing(it) }
         val now = clock.nowMillis()
         val recent = try {
@@ -347,6 +342,3 @@ class PathShiftRecoveryCoordinator(
         }
     }
 }
-
-fun AdaptivePreferences.withPathShiftEnabled(enabled: Boolean): AdaptivePreferences =
-    copy(pathShiftEnabled = enabled)

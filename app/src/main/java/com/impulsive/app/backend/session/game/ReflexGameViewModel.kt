@@ -3,6 +3,7 @@ package com.impulsive.app.backend.session.game
 import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.local.preferences.ReflexGameHistoryDataSource
 import com.impulsive.app.backend.data.repository.ScoreRepository
@@ -17,6 +18,8 @@ import com.impulsive.app.backend.domain.model.score.ScoreGameType
 import com.impulsive.app.backend.domain.model.score.ScoreSessionOutcome
 import com.impulsive.app.backend.domain.model.score.ScoreSessionRecord
 import com.impulsive.app.backend.domain.model.score.newScoreSessionId
+import com.impulsive.app.backend.session.progress.SafeExitRecordingCoordinator
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,9 +48,33 @@ data class ReflexGameUiState(
     val history: GameHistory = GameHistory(),
 )
 
-class ReflexGameViewModel(application: Application) : AndroidViewModel(application) {
+class ReflexGameViewModel(
+    application: Application,
+    savedStateHandle: SavedStateHandle,
+) : AndroidViewModel(application) {
+    private val supportCycleRuntime = RecoveryGameSupportCycleRuntime(application)
+    private val resultStateStore = RecoveryGameResultStateStore(savedStateHandle)
+    private val resultActionCoordinator = RecoveryGameResultActionCoordinator(
+        runtime = supportCycleRuntime,
+        clearResultState = { resultStateStore.clear() },
+    )
     private val dataSource = ReflexGameHistoryDataSource(application)
     private val scoreRepository = ScoreRepository(application)
+    private val pivotGameSessionCommitCoordinator =
+        PivotGameSessionCommitCoordinator(
+            scoreRepository =
+                scoreRepository,
+            immediateSafeExitRecorder =
+                PivotGameSafeExitRecorder(
+                    SafeExitRecordingCoordinator(
+                        application,
+                    ),
+                ),
+            reconciliationScheduler =
+                WorkManagerPivotGameSafeExitReconciliationScheduler(
+                    application,
+                ),
+        )
     private val gameStoreManager = com.impulsive.app.backend.data.repository.GameStoreManager(application)
     private val _uiState = MutableStateFlow(ReflexGameUiState())
     val uiState: StateFlow<ReflexGameUiState> = _uiState
@@ -75,6 +102,179 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
     private var urgeBeforeRating: Int? = null
     private var urgeAfterRating: Int? = null
     private var lastRecordedSession: ScoreSessionRecord? = null
+    private var roundDurationMillis = ReflexGameConfig.ROUND_SECONDS * 1_000L
+    private var lastSupportOutcome: SupportCycleGameTerminalOutcome? = null
+    private var lastSupportElapsedMillis: Long = 0L
+    private var activeLaunchContext: RecoveryGameLaunchContext = RecoveryGameLaunchContext.Standalone
+
+    suspend fun configureLaunchContext(launchContext: RecoveryGameLaunchContext): Boolean {
+        val binding = supportCycleRuntime.bindWithRecovery(
+            requested = launchContext,
+            standaloneDurationMillis = ReflexGameConfig.ROUND_SECONDS * 1_000L,
+        ) ?: return false
+
+        roundDurationMillis = binding.durationMillis
+        activeLaunchContext = launchContext
+
+        val snapshot = resultStateStore.restore(
+            launchContext = launchContext,
+            expectedGameType = ScoreGameType.ReflexOverride,
+        )
+
+        val authoritativeResult = binding.resolvedStep
+
+        /*
+         * The support-cycle repository says the current step is already terminal.
+         * The result presentation must therefore be restored from SavedStateHandle.
+         */
+        if (authoritativeResult != null) {
+            val snapshotOutcome = snapshot?.supportOutcomeOrNull()
+
+            if (
+                snapshot == null ||
+                snapshotOutcome != authoritativeResult.outcome ||
+                !restoreResultSnapshot(snapshot)
+            ) {
+                /*
+                 * The authoritative step is terminal but the presentation state
+                 * cannot be trusted. Finish the active cycle so it cannot remain
+                 * stranded, then allow the existing screen-exit path to run.
+                 */
+                resultStateStore.clear()
+
+                supportCycleRuntime.resolveAndEnd(
+                    outcome = authoritativeResult.outcome,
+                    elapsedDurationMillis = authoritativeResult.elapsedDurationMillis,
+                )
+
+                return false
+            }
+
+            /*
+             * The repository is authoritative for the terminal outcome and
+             * consumed duration, even when the snapshot contains older values.
+             */
+            lastSupportOutcome = authoritativeResult.outcome
+            lastSupportElapsedMillis = authoritativeResult.elapsedDurationMillis
+
+            return true
+        }
+
+        /*
+         * Snapshot exists while the authoritative step remains InProgress.
+         *
+         * This covers process death after the result was saved but before the
+         * asynchronous resolveForContinuation write completed.
+         */
+        if (snapshot != null) {
+            val snapshotOutcome = snapshot.supportOutcomeOrNull()
+
+            if (snapshotOutcome == null || !restoreResultSnapshot(snapshot)) {
+                /*
+                 * The support-cycle step is still legitimately InProgress.
+                 * A corrupt presentation snapshot must not terminalise that step.
+                 * Remove the bad snapshot and continue from the normal Ready state.
+                 */
+                resultStateStore.clear()
+
+                if (_uiState.value.view == GameView.Ready) {
+                    _uiState.update { it.copy(timeLeft = roundDurationSeconds()) }
+                }
+
+                return true
+            }
+
+            lastSupportOutcome = snapshotOutcome
+            lastSupportElapsedMillis = snapshot.supportElapsedDurationMillis.coerceAtLeast(0L)
+
+            val resolution = supportCycleRuntime.resolveForContinuation(
+                outcome = snapshotOutcome,
+                elapsedDurationMillis = lastSupportElapsedMillis,
+            )
+
+            /*
+             * A restored result must remain visible whenever the retry keeps
+             * it valid: continuation succeeded, the outcome was already
+             * persisted as terminal/NotFound, or the failure is explicitly
+             * retryable. Only a non-retryable failure (e.g. OutcomeConflict)
+             * discards the snapshot.
+             */
+            if (!resolution.keepsRestoredResultVisible) {
+                resultStateStore.clear()
+
+                return false
+            }
+
+            return true
+        }
+
+        if (_uiState.value.view == GameView.Ready) {
+            _uiState.update { it.copy(timeLeft = roundDurationSeconds()) }
+        }
+
+        return true
+    }
+
+    fun abandonSupportCycle() {
+        val elapsed = if (startMs > 0L) SystemClock.uptimeMillis() - startMs else 0L
+        viewModelScope.launch {
+            resultActionCoordinator.abandon(elapsedDurationMillis = elapsed)
+        }
+    }
+
+    fun continueWithAnotherGame(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        viewModelScope.launch {
+            val allowed = resultActionCoordinator.continueWithAnotherGame(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+            )
+
+            if (allowed) {
+                onReady()
+            }
+        }
+    }
+
+    fun replayWithRemainingBudget(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        viewModelScope.launch {
+            val duration = resultActionCoordinator.prepareReplay(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+                requestedDurationMillis = ReflexGameConfig.ROUND_SECONDS * 1_000L,
+            ) ?: return@launch
+
+            roundDurationMillis = duration
+            lastSupportOutcome = null
+            lastSupportElapsedMillis = 0L
+            onReady()
+        }
+    }
+
+    fun finishSupportCycleAfterChoice(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: SupportCycleGameTerminalOutcome.Abandoned
+        val elapsed = if (lastSupportOutcome == null && startMs > 0L) {
+            SystemClock.uptimeMillis() - startMs
+        } else {
+            lastSupportElapsedMillis
+        }
+        viewModelScope.launch {
+            val allowed = resultActionCoordinator.finish(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+            )
+
+            if (allowed) {
+                onReady()
+            }
+        }
+    }
+
+    private fun roundDurationSeconds(): Int =
+        ((roundDurationMillis + 999L) / 1_000L).toInt().coerceAtLeast(1)
 
     init {
         viewModelScope.launch {
@@ -90,6 +290,7 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun startCountdown() {
+        resultStateStore.clear()
         _uiState.update {
             it.copy(
                 view = GameView.Countdown,
@@ -112,6 +313,7 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun startGame() {
+        resultStateStore.clear()
         score = 0
         combo = 0
         resultRecorded = false
@@ -133,7 +335,7 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
             it.copy(
                 view = GameView.Playing,
                 countdown = 3,
-                timeLeft = ReflexGameConfig.ROUND_SECONDS,
+                timeLeft = roundDurationSeconds(),
                 score = 0,
                 combo = 0,
                 lives = ReflexGameConfig.MAX_BOMBS,
@@ -151,12 +353,13 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
 
         val now = SystemClock.uptimeMillis()
         val elapsedSec = (now - startMs) / 1000.0
-        if (elapsedSec >= ReflexGameConfig.ROUND_SECONDS) {
+        val roundSeconds = roundDurationMillis / 1_000.0
+        if (elapsedSec >= roundSeconds) {
             finishRound(earlyExit = false)
             return
         }
 
-        val timeLeft = max(0, ceil(ReflexGameConfig.ROUND_SECONDS - elapsedSec).toInt())
+        val timeLeft = max(0, ceil(roundSeconds - elapsedSec).toInt())
         difficulty = min(
             ReflexGameConfig.DIFFICULTY.size,
             floor(elapsedSec / ReflexGameConfig.DIFFICULTY_STEP_SECONDS).toInt() + 1,
@@ -369,7 +572,7 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
             misses = misses,
             difficulty = difficulty,
             gameOver = earlyExit,
-            durationSec = min(ReflexGameConfig.ROUND_SECONDS, ((SystemClock.uptimeMillis() - startMs) / 1000L).toInt()),
+            durationSec = min(roundDurationSeconds(), ((SystemClock.uptimeMillis() - startMs) / 1000L).toInt()),
             validCompletion = !earlyExit && score > 0 && hits > 0 && ((SystemClock.uptimeMillis() - startMs) / 1000L) >= 5L,
         )
         targets = emptyList()
@@ -387,35 +590,81 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         }
         val outcome = if (result.validCompletion) ScoreSessionOutcome.Completed else ScoreSessionOutcome.Abandoned
         recordScoreSession(outcome = outcome, scoreValue = score, result = result)
+        val elapsedMillis = (SystemClock.uptimeMillis() - startMs).coerceAtLeast(0L)
+        val supportOutcome = when {
+            roundDurationMillis < ReflexGameConfig.ROUND_SECONDS * 1_000L &&
+                elapsedMillis >= roundDurationMillis -> SupportCycleGameTerminalOutcome.TimedOut
+            !result.validCompletion -> SupportCycleGameTerminalOutcome.Abandoned
+            else -> SupportCycleGameTerminalOutcome.Completed
+        }
+        lastSupportOutcome = supportOutcome
+        lastSupportElapsedMillis = elapsedMillis
+
+        /*
+         * SavedStateHandle is updated synchronously before the asynchronous
+         * support-cycle mutation. This closes the process-death race between result
+         * presentation and terminal-step persistence.
+         */
+        saveCurrentResultSnapshot()
+
+        viewModelScope.launch {
+            supportCycleRuntime.resolveForContinuation(
+                outcome = supportOutcome,
+                elapsedDurationMillis = elapsedMillis,
+            )
+        }
     }
 
     fun walkAway() {
-        val old = _uiState.value.history
-        val base = _uiState.value.result?.score ?: score
-        val total = base + ReflexGameConfig.WALK_AWAY_BONUS
-        recordCurrentResult(
-            outcome = ScoreSessionOutcome.WalkedAway,
-            scoreOverride = total,
-        )
-        val nextHistory = old.copy(
-            pb = max(old.pb, total),
+        val result = _uiState.value.result ?: return
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        val oldHistory = _uiState.value.history
+        val total = result.score + ReflexGameConfig.WALK_AWAY_BONUS
+        val nextHistory = oldHistory.copy(
+            pb = max(oldHistory.pb, total),
             prev = total,
         )
-        viewModelScope.launch { dataSource.save(nextHistory) }
-        _uiState.update {
-            it.copy(
-                view = GameView.Walked,
-                walkScore = total,
-                history = nextHistory,
-                targets = emptyList(),
-                flashes = emptyList(),
+
+        viewModelScope.launch {
+            /*
+             * Finish using the authoritative outcome already assigned when the
+             * result appeared. Do not replace Failed or TimedOut with Completed.
+             */
+            val allowed = resultActionCoordinator.finish(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
             )
+
+            if (!allowed) {
+                return@launch
+            }
+
+            recordCurrentResult(
+                outcome = ScoreSessionOutcome.WalkedAway,
+                scoreOverride = total,
+            )
+
+            _uiState.update {
+                it.copy(
+                    view = GameView.Walked,
+                    walkScore = total,
+                    history = nextHistory,
+                    targets = emptyList(),
+                    flashes = emptyList(),
+                )
+            }
+
+            dataSource.save(nextHistory)
         }
     }
 
     fun setUrgeBefore(rating: Int) {
         urgeBeforeRating = rating.coerceIn(0, 10)
     }
+
+    fun taskRewardCompletionToken(): String =
+        "${ScoreGameType.ReflexOverride.id}:$activeSessionId"
 
     /**
      * Captures the post-game rating. The session has already been recorded by
@@ -430,6 +679,7 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
         val recorded = lastRecordedSession ?: return
         val updated = recorded.copy(urgeAfter = coerced)
         lastRecordedSession = updated
+        saveCurrentResultSnapshot()
         viewModelScope.launch { scoreRepository.recordSession(updated) }
     }
 
@@ -456,18 +706,148 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
             urgeBefore = urgeBeforeRating,
             urgeAfter = urgeAfterRating,
             outcome = outcome,
-            validCompletion = when (outcome) {
-                ScoreSessionOutcome.Abandoned -> false
-                else -> result.validCompletion || outcome == ScoreSessionOutcome.WalkedAway
-            },
+            validCompletion =
+                result.validCompletion &&
+                outcome !=
+                ScoreSessionOutcome.Abandoned,
         )
         lastRecordedSession = record
         viewModelScope.launch {
-            scoreRepository.recordSession(record)
-            if (outcome != ScoreSessionOutcome.WalkedAway) {
-                gameStoreManager.recordPlay(gameId = "REFLEX_OVERRIDE", won = !result.gameOver)
+            pivotGameSessionCommitCoordinator
+                .commit(
+                    record,
+                )
+
+            if (
+                outcome !=
+                ScoreSessionOutcome.WalkedAway
+            ) {
+                gameStoreManager
+                    .recordPlay(
+                        gameId =
+                            "REFLEX_OVERRIDE",
+                        won =
+                            !result.gameOver,
+                    )
             }
         }
+    }
+
+    private fun saveCurrentResultSnapshot() {
+        val launch = activeLaunchContext as? RecoveryGameLaunchContext.SupportCycle ?: return
+        val outcome = lastSupportOutcome ?: return
+        val state = _uiState.value
+        val result = state.result ?: return
+
+        resultStateStore.save(
+            RecoveryGameResultSnapshot(
+                cycleId = launch.cycleId,
+                decisionId = launch.decisionId,
+                gameTypeId = ScoreGameType.ReflexOverride.id,
+                supportOutcomeName = outcome.name,
+                supportElapsedDurationMillis = lastSupportElapsedMillis.coerceAtLeast(0L),
+                activeSessionId = activeSessionId,
+                sessionStartedAtIso = sessionStartedAt.toString(),
+                urgeBeforeRating = urgeBeforeRating,
+                urgeAfterRating = urgeAfterRating,
+                lastRecordedSession = lastRecordedSession?.let { ScoreSessionSnapshot.from(it) },
+                payload = RecoveryGameResultPayload.Reflex(
+                    score = state.score,
+                    combo = state.combo,
+                    lives = state.lives,
+                    historyPersonalBest = state.history.pb,
+                    historyPrevious = state.history.prev,
+                    historyBestReactionMs = state.history.bestReactionMs,
+                    historyBestCombo = state.history.bestCombo,
+                    resultScore = result.score,
+                    resultPreviousBest = result.previousBest,
+                    resultPreviousScore = result.previousScore,
+                    resultBestReactionMs = result.bestReactionMs,
+                    resultMaxCombo = result.maxCombo,
+                    resultHits = result.hits,
+                    resultMisses = result.misses,
+                    resultDifficulty = result.difficulty,
+                    resultGameOver = result.gameOver,
+                    resultDurationSec = result.durationSec,
+                    resultValidCompletion = result.validCompletion,
+                ),
+            ),
+        )
+    }
+
+    private fun restoreResultSnapshot(snapshot: RecoveryGameResultSnapshot): Boolean {
+        val payload = snapshot.payload as? RecoveryGameResultPayload.Reflex ?: return false
+        val restoredSessionStart = snapshot.sessionStartedAtOrNull() ?: return false
+        val restoredOutcome = snapshot.supportOutcomeOrNull() ?: return false
+        val restoredRecordedSession = snapshot.lastRecordedSession?.toRecordOrNull()
+
+        if (snapshot.lastRecordedSession != null && restoredRecordedSession == null) {
+            return false
+        }
+
+        if (snapshot.activeSessionId <= 0L || snapshot.supportElapsedDurationMillis < 0L) {
+            return false
+        }
+
+        activeSessionId = snapshot.activeSessionId
+        sessionStartedAt = restoredSessionStart
+        urgeBeforeRating = snapshot.urgeBeforeRating?.coerceIn(0, 10)
+        urgeAfterRating = snapshot.urgeAfterRating?.coerceIn(0, 10)
+        lastRecordedSession = restoredRecordedSession
+        lastSupportOutcome = restoredOutcome
+        lastSupportElapsedMillis = snapshot.supportElapsedDurationMillis
+
+        score = payload.score
+        combo = payload.combo
+        maxCombo = payload.resultMaxCombo
+        hits = payload.resultHits
+        misses = payload.resultMisses
+        difficulty = payload.resultDifficulty
+        gameOver = payload.resultGameOver
+        bombStreak = (ReflexGameConfig.MAX_BOMBS - payload.lives).coerceAtLeast(0)
+        targets = emptyList()
+        reactionTimes.clear()
+        resultRecorded = true
+
+        /*
+         * A restored result must never resume the old gameplay clock or loop.
+         */
+        startMs = 0L
+        nextSpawnMs = 0L
+
+        _uiState.value = ReflexGameUiState(
+            view = GameView.Result,
+            countdown = 0,
+            timeLeft = 0,
+            score = payload.score,
+            combo = payload.combo,
+            lives = payload.lives.coerceIn(0, ReflexGameConfig.MAX_BOMBS),
+            targets = emptyList(),
+            flashes = emptyList(),
+            result = GameResult(
+                score = payload.resultScore,
+                previousBest = payload.resultPreviousBest,
+                previousScore = payload.resultPreviousScore,
+                bestReactionMs = payload.resultBestReactionMs,
+                maxCombo = payload.resultMaxCombo,
+                hits = payload.resultHits,
+                misses = payload.resultMisses,
+                difficulty = payload.resultDifficulty,
+                gameOver = payload.resultGameOver,
+                durationSec = payload.resultDurationSec,
+                validCompletion = payload.resultValidCompletion,
+            ),
+            walkScore = 0,
+            shake = false,
+            history = GameHistory(
+                pb = payload.historyPersonalBest,
+                prev = payload.historyPrevious,
+                bestReactionMs = payload.historyBestReactionMs,
+                bestCombo = payload.historyBestCombo,
+            ),
+        )
+
+        return true
     }
 
     fun playAgain() {
@@ -475,13 +855,14 @@ class ReflexGameViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun reset() {
+        resultStateStore.clear()
         targets = emptyList()
         resultRecorded = false
         _uiState.update {
             it.copy(
                 view = GameView.Ready,
                 countdown = 3,
-                timeLeft = ReflexGameConfig.ROUND_SECONDS,
+                timeLeft = roundDurationSeconds(),
                 score = 0,
                 combo = 0,
                 lives = ReflexGameConfig.MAX_BOMBS,

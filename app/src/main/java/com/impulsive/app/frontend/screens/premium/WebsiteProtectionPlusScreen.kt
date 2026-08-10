@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,10 +39,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,9 +52,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.impulsive.app.backend.data.repository.AuthResult
 import com.impulsive.app.backend.domain.model.auth.PurchaseAccountGatePhase
 import com.impulsive.app.backend.domain.model.premium.BillingPeriod
@@ -61,6 +67,9 @@ import com.impulsive.app.backend.service.billing.SubscriptionCatalogState
 import com.impulsive.app.backend.service.billing.allowsPurchaseAction
 import com.impulsive.app.backend.service.billing.subscriptionPlanDisclosure
 import com.impulsive.app.backend.service.billing.subscriptionPlanTitle
+import com.impulsive.app.backend.session.protection.WebsiteProtectionBlockingCondition
+import com.impulsive.app.backend.session.protection.WebsiteProtectionNextAction
+import com.impulsive.app.backend.session.protection.WebsiteProtectionSetupState
 import com.impulsive.app.frontend.components.ImpulsiveAmbientBackground
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 
@@ -69,6 +78,9 @@ fun WebsiteProtectionPlusScreen(
     onBack: () -> Unit,
     onOpenDnsFilterCheck: () -> Unit,
     onChooseWebsiteProtectionApps: () -> Unit,
+    websiteSetupState: WebsiteProtectionSetupState,
+    onRefreshWebsiteSetup: () -> Unit,
+    onWebsiteSetupAction: (WebsiteProtectionNextAction) -> Unit,
     isPlus: Boolean,
     subscriptionCatalogState: SubscriptionCatalogState,
     billingUiState: BillingUiState,
@@ -87,7 +99,8 @@ fun WebsiteProtectionPlusScreen(
     onManageSubscription: () -> Unit,
     billingRestoreState: BillingRestoreState,
     onRestorePurchases: () -> Unit,
-    isWebsiteProtectionEnabled: Boolean,
+    websiteProtectionEnableIntent: Boolean,
+    websiteProtectionRuntimeEnabled: Boolean,
     isWebsiteProtectionAlwaysOn: Boolean,
     isReleaseWindowActive: Boolean,
     releaseWindowEndsAt: String?,
@@ -112,6 +125,27 @@ fun WebsiteProtectionPlusScreen(
     LaunchedEffect(purchaseAccountGatePhase) {
         if (purchaseAccountGatePhase == PurchaseAccountGatePhase.Ready) {
             showPurchaseAccountGate = false
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentRefreshWebsiteSetup by rememberUpdatedState(onRefreshWebsiteSetup)
+
+    LaunchedEffect(Unit) {
+        currentRefreshWebsiteSetup()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                currentRefreshWebsiteSetup()
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -157,11 +191,14 @@ fun WebsiteProtectionPlusScreen(
                     surface = surface,
                     text = text,
                     muted = muted,
-                    enabled = isWebsiteProtectionEnabled,
+                    enabledIntent = websiteProtectionEnableIntent,
+                    runtimeEnabled = websiteProtectionRuntimeEnabled,
                     alwaysOn = isWebsiteProtectionAlwaysOn,
                     releaseWindowActive = isReleaseWindowActive,
                     releaseWindowEndsAt = releaseWindowEndsAt,
+                    setupState = websiteSetupState,
                     onChooseApps = onChooseWebsiteProtectionApps,
+                    onSetupAction = onWebsiteSetupAction,
                     onTurnOn = onOpenDnsFilterCheck,
                     onTurnOff = onTurnWebsiteProtectionOff,
                     onAlwaysOnChanged = onAlwaysOnChanged,
@@ -195,7 +232,7 @@ fun WebsiteProtectionPlusScreen(
 
                 PlusDisclosureCard(
                     title = "Important",
-                    body = "Uses Android VPN permission for local DNS-based filtering. This is not a private browsing VPN and does not hide your IP address.",
+                    body = "Uses Android VPN permission to inspect and locally filter DNS from your selected browsers. When a site isn't blocked locally, Impulsive sends the DNS request over encrypted DNS-over-HTTPS to Cloudflare (1.1.1.1 for Families) or, as a fallback, AdGuard Family Protection. This is not a private browsing VPN and does not hide your IP address, and your normal web traffic is not routed through an Impulsive remote VPN server.",
                     icon = Icons.Filled.Info,
                     accent = accent,
                     surface = surface,
@@ -205,7 +242,7 @@ fun WebsiteProtectionPlusScreen(
 
                 PlusDisclosureCard(
                     title = "Privacy first",
-                    body = "Website filtering should stay on device unless a future cloud feature is clearly added and consented to.",
+                    body = "Domain matching and blocking happen on your device. DNS requests that need resolving are sent to Cloudflare or AdGuard over encrypted DNS-over-HTTPS, not to Impulsive servers. Blocked-site incidents are stored locally on your device.",
                     icon = Icons.Filled.PrivacyTip,
                     accent = accent,
                     surface = surface,
@@ -322,29 +359,154 @@ private fun SubscriptionActionsCard(
 
 }
 
+internal data class WebsiteProtectionSetupPresentation(
+    val statusText: String?,
+    val bodyText: String?,
+    val setupActionLabel: String?,
+    val chooseAppsLabel: String,
+)
+
+internal fun WebsiteProtectionSetupState.toManagementPresentation(): WebsiteProtectionSetupPresentation =
+    when (condition) {
+        WebsiteProtectionBlockingCondition.BrowserNotSelected ->
+            WebsiteProtectionSetupPresentation(
+                statusText = "Choose a browser",
+                bodyText = "Choose at least one supported browser before turning on Website Protection.",
+                setupActionLabel = null,
+                chooseAppsLabel = "Choose a browser",
+            )
+
+        WebsiteProtectionBlockingCondition.UnsupportedBrowser ->
+            WebsiteProtectionSetupPresentation(
+                statusText = "Unsupported browser selected",
+                bodyText = "Choose a supported installed browser so Website Protection can apply correctly.",
+                setupActionLabel = null,
+                chooseAppsLabel = "Choose a supported browser",
+            )
+
+        WebsiteProtectionBlockingCondition.DisclosureReviewRequired ->
+            WebsiteProtectionSetupPresentation(
+                statusText = "Review required",
+                bodyText = "Website Protection is paused until you review and accept the current DNS handling disclosure.",
+                setupActionLabel = "Review disclosure",
+                chooseAppsLabel = "Choose apps for Website Protection",
+            )
+
+        WebsiteProtectionBlockingCondition.VpnPermissionRequired ->
+            WebsiteProtectionSetupPresentation(
+                statusText = "VPN permission needed",
+                bodyText = "Android VPN permission is required for Impulsive to filter selected browsers on this device.",
+                setupActionLabel = "Continue setup",
+                chooseAppsLabel = "Choose apps for Website Protection",
+            )
+
+        WebsiteProtectionBlockingCondition.CompetingVpnActive ->
+            WebsiteProtectionSetupPresentation(
+                statusText = "Another VPN is active",
+                bodyText = "Turn off the other VPN or Android VPN lockdown before enabling Website Protection.",
+                setupActionLabel = "Open VPN settings",
+                chooseAppsLabel = "Choose apps for Website Protection",
+            )
+
+        WebsiteProtectionBlockingCondition.PrivateDnsConflict ->
+            WebsiteProtectionSetupPresentation(
+                statusText = "Private DNS needs attention",
+                bodyText = "Turn off Android Private DNS so Impulsive can apply its local website filter.",
+                setupActionLabel = "Open Private DNS settings",
+                chooseAppsLabel = "Choose apps for Website Protection",
+            )
+
+        WebsiteProtectionBlockingCondition.ProtectionUnavailable ->
+            WebsiteProtectionSetupPresentation(
+                statusText = "Setup check unavailable",
+                bodyText = "Impulsive could not confirm the current website protection requirements.",
+                setupActionLabel = "Check again",
+                chooseAppsLabel = "Choose apps for Website Protection",
+            )
+
+        WebsiteProtectionBlockingCondition.Ready ->
+            WebsiteProtectionSetupPresentation(
+                statusText = null,
+                bodyText = null,
+                setupActionLabel = null,
+                chooseAppsLabel = "Choose apps for Website Protection",
+            )
+    }
+
+/**
+ * Pure decision model for the management card's action buttons, so the
+ * "Turn off must always stay reachable for a persisted enable intent" rule is
+ * testable without a Compose instrumentation dependency.
+ */
+internal data class WebsiteProtectionActionPlan(
+    val showSetupAction: Boolean,
+    val showTurnOff: Boolean,
+    val showTurnOn: Boolean,
+)
+
+internal fun websiteProtectionActionPlan(
+    setupState: WebsiteProtectionSetupState,
+    enabledIntent: Boolean,
+): WebsiteProtectionActionPlan {
+    val setupReady = setupState.condition == WebsiteProtectionBlockingCondition.Ready
+    /*
+     * The always-visible Choose Apps button is already the browser action, so no
+     * duplicate browser-selection button is offered for these conditions.
+     */
+    val browserSelectionRequired =
+        setupState.condition == WebsiteProtectionBlockingCondition.BrowserNotSelected ||
+            setupState.condition == WebsiteProtectionBlockingCondition.UnsupportedBrowser
+    val setupActionAvailable =
+        !setupReady &&
+            !browserSelectionRequired &&
+            setupState.toManagementPresentation().setupActionLabel != null
+
+    return WebsiteProtectionActionPlan(
+        showSetupAction = setupActionAvailable,
+        /*
+         * Turning off must stay reachable once an enable intent is persisted,
+         * even when a setup blocker (revoked VPN permission, a browser that
+         * disappeared, a stale disclosure) appears afterward.
+         */
+        showTurnOff = enabledIntent,
+        showTurnOn = !enabledIntent && setupReady,
+    )
+}
+
 @Composable
 private fun WebsiteProtectionManagementCard(
     accent: Color,
     surface: Color,
     text: Color,
     muted: Color,
-    enabled: Boolean,
+    enabledIntent: Boolean,
+    runtimeEnabled: Boolean,
     alwaysOn: Boolean,
     releaseWindowActive: Boolean,
     releaseWindowEndsAt: String?,
+    setupState: WebsiteProtectionSetupState,
     onChooseApps: () -> Unit,
+    onSetupAction: (WebsiteProtectionNextAction) -> Unit,
     onTurnOn: () -> Unit,
     onTurnOff: () -> Unit,
     onAlwaysOnChanged: (Boolean) -> Unit,
 ) {
-    val pausedByReleaseWindow = enabled && releaseWindowActive && !alwaysOn
-    val statusText = when {
-        !enabled -> "Off"
+    val setupPresentation = setupState.toManagementPresentation()
+    val setupReady = setupState.condition == WebsiteProtectionBlockingCondition.Ready
+    val actionPlan = websiteProtectionActionPlan(
+        setupState = setupState,
+        enabledIntent = enabledIntent,
+    )
+
+    val pausedByReleaseWindow = runtimeEnabled && releaseWindowActive && !alwaysOn
+    val operationalStatusText = when {
+        !runtimeEnabled -> "Off"
         alwaysOn -> "Always on"
         pausedByReleaseWindow && releaseWindowEndsAt != null -> "Paused until $releaseWindowEndsAt"
         pausedByReleaseWindow -> "Paused during release window"
         else -> "Active"
     }
+    val statusText = setupPresentation.statusText ?: operationalStatusText
 
     Surface(
         color = surface,
@@ -365,13 +527,13 @@ private fun WebsiteProtectionManagementCard(
 
             Text(
                 text = statusText,
-                color = if (enabled) accent else muted,
+                color = if (runtimeEnabled) accent else muted,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
 
             Text(
-                text = if (enabled) {
+                text = setupPresentation.bodyText ?: if (runtimeEnabled) {
                     "Impulsive will manage website blocking around your protection rhythm."
                 } else {
                     "Turn this on to block adult and risky website domains."
@@ -391,21 +553,39 @@ private fun WebsiteProtectionManagementCard(
                 onClick = onChooseApps,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .heightIn(min = 48.dp),
             ) {
-                Text("Choose apps for Website Protection")
+                Text(setupPresentation.chooseAppsLabel)
             }
 
-            if (enabled) {
+            if (actionPlan.showSetupAction && setupPresentation.setupActionLabel != null) {
+                Button(
+                    onClick = { onSetupAction(setupState.nextAction) },
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accent,
+                        contentColor = Color(0xFF2F2637),
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                ) {
+                    Text(setupPresentation.setupActionLabel)
+                }
+            }
+
+            if (actionPlan.showTurnOff) {
                 OutlinedButton(
                     onClick = onTurnOff,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .heightIn(min = 48.dp),
                 ) {
                     Text("Turn off Website Protection")
                 }
-            } else {
+            }
+
+            if (actionPlan.showTurnOn) {
                 Button(
                     onClick = onTurnOn,
                     shape = RoundedCornerShape(18.dp),
@@ -415,7 +595,7 @@ private fun WebsiteProtectionManagementCard(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .heightIn(min = 48.dp),
                 ) {
                     Text("Turn on Website Protection")
                 }
@@ -442,6 +622,7 @@ private fun WebsiteProtectionManagementCard(
                 Switch(
                     checked = alwaysOn,
                     onCheckedChange = onAlwaysOnChanged,
+                    enabled = setupReady,
                 )
             }
         }
@@ -473,7 +654,7 @@ private fun WebsiteProtectionExplanationCard(
             )
 
             Text(
-                text = "Website Protection blocks adult and risky website domains using Android VPN permission for local DNS-based filtering.",
+                text = "Website Protection blocks adult and risky website domains using Android VPN permission. Domain matching happens locally on your device, and DNS requests that need resolving are sent over encrypted DNS-over-HTTPS to Cloudflare (1.1.1.1 for Families) or, as a fallback, AdGuard Family Protection — not to Impulsive servers.",
                 color = muted,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -803,7 +984,7 @@ private fun PlusIncludedCard(
                 fontWeight = FontWeight.Bold,
             )
             PlusIncludedRow("Adult and risky website blocking", Icons.Filled.Lock, accent, text, muted)
-            PlusIncludedRow("Local DNS-based filtering", Icons.Filled.Security, accent, text, muted)
+            PlusIncludedRow("On-device filtering with encrypted DNS resolution", Icons.Filled.Security, accent, text, muted)
             PlusIncludedRow("Safer browser protection", Icons.Filled.CheckCircle, accent, text, muted)
             PlusIncludedRow("Stronger anti-bypass support", Icons.Filled.CheckCircle, accent, text, muted)
             PlusIncludedRow("Designed for protected windows", Icons.Filled.CheckCircle, accent, text, muted)

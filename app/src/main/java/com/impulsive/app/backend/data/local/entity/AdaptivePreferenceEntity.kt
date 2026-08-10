@@ -24,8 +24,8 @@ data class AdaptivePreferenceEntity(
     val privateScreenProtectionEnabled: Boolean = true,
     @ColumnInfo(defaultValue = "'SixMonths'")
     val historyRetentionPolicy: String = "SixMonths",
-    @ColumnInfo(defaultValue = "0")
-    val pathShiftEnabled: Boolean = false,
+    @ColumnInfo(defaultValue = "1")
+    val pathShiftEnabled: Boolean = true,
 ) {
     companion object {
         const val SingleRowId = 1

@@ -277,13 +277,6 @@ private fun CurrentPathCard(
     CalmCard {
         Text("CURRENT PATH", style = MaterialTheme.typography.labelLarge)
         when (state.experience) {
-            PathShiftExperienceState.Disabled -> {
-                Text("Future Path is off.")
-                Text(
-                    "Turn it on in Personal Support to use encrypted on-device " +
-                        "Moment history for cautious estimates.",
-                )
-            }
             PathShiftExperienceState.InsufficientHistory -> {
                 Text("Not enough history yet", style = MaterialTheme.typography.titleLarge)
                 Text(
@@ -444,7 +437,6 @@ private fun PrivacyControlsCard(
         OutlinedButton(onClick = onReportUnhelpful) {
             Text("Report this estimate as unhelpful")
         }
-        TextButton(onClick = onOpenSettings) { Text("Turn off Future Path") }
         TextButton(onClick = onOpenSettings) { Text("Reset personal learning") }
         TextButton(onClick = onOpenSettings) { Text("Delete all Moment data") }
     }

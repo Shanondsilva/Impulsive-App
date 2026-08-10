@@ -3,6 +3,7 @@ package com.impulsive.app.backend.session.adaptive
 import androidx.annotation.StringRes
 import com.impulsive.app.R
 import com.impulsive.app.backend.domain.engine.adaptive.InterventionProtocolRegistry
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveDecision
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveReasonCode
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveSourceKind
@@ -10,7 +11,6 @@ import com.impulsive.app.backend.domain.model.adaptive.ImpulsiveDestination
 import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
 import com.impulsive.app.backend.domain.model.adaptive.MomentPlan
 import com.impulsive.app.backend.domain.model.adaptive.MomentPlanActionType
-import com.impulsive.app.backend.domain.model.adaptive.MomentIntensity
 import com.impulsive.app.backend.domain.repository.adaptive.AdaptiveDecisionRepository
 import com.impulsive.app.backend.domain.repository.adaptive.MomentPlanRepository
 import java.security.MessageDigest
@@ -58,30 +58,54 @@ data class AdaptiveIncidentHandoff(
     val fallbackRequired: Boolean,
 )
 
+enum class AdaptiveIncidentAdmissionReason { ProtectionAttempt }
+enum class AdaptiveIncidentAdmissionOutcome { Admitted, Duplicate, ActiveCycle }
+
+data class AdaptiveAdmittedIncident(
+    val sourceKind: AdaptiveSourceKind,
+    val incidentToken: String,
+    val detectedAtMillis: Long,
+    val admissionReason: AdaptiveIncidentAdmissionReason,
+    val admissionOutcome: AdaptiveIncidentAdmissionOutcome,
+)
+
 class AdaptiveProtectionBridge(
     private val coordinator: AdaptiveMomentCoordinator,
     private val decisions: AdaptiveDecisionRepository? = null,
     private val momentPlans: MomentPlanRepository? = null,
 ) {
-    suspend fun recognise(signal: AdaptiveIncidentSignal): AdaptiveIncidentHandoff {
+    suspend fun recognise(signal: AdaptiveIncidentSignal): AdaptiveIncidentHandoff = recogniseSafe(
+        AdaptiveAdmittedIncident(
+            sourceKind = when (signal.source) {
+                AdaptiveProtectionSource.MonitoredApplication -> AdaptiveSourceKind.App
+                AdaptiveProtectionSource.VpnWebsite -> AdaptiveSourceKind.Website
+            },
+            incidentToken = AdaptiveIncidentTokenFactory.create(signal),
+            detectedAtMillis = signal.incidentStartedAtMillis,
+            admissionReason = AdaptiveIncidentAdmissionReason.ProtectionAttempt,
+            admissionOutcome = AdaptiveIncidentAdmissionOutcome.Admitted,
+        ),
+    )
+
+    suspend fun recogniseSafe(incident: AdaptiveAdmittedIncident): AdaptiveIncidentHandoff {
         val result = try {
             coordinator.coordinate(
                 AdaptiveProtectionIncidentRequest(
-                    incidentToken = AdaptiveIncidentTokenFactory.create(signal),
-                    sourceKind = when (signal.source) {
-                        AdaptiveProtectionSource.MonitoredApplication -> AdaptiveSourceKind.App
-                        AdaptiveProtectionSource.VpnWebsite -> AdaptiveSourceKind.Website
-                    },
-                    detectedAtMillis = signal.incidentStartedAtMillis,
+                    incidentToken = incident.incidentToken,
+                    sourceKind = incident.sourceKind,
+                    detectedAtMillis = incident.detectedAtMillis,
+                    /*
+                     * The protected Moment is game-only. Short Pause, Reading
+                     * and a selectable Moment Plan are no longer admitted for an
+                     * App/Website protection incident; they remain available to
+                     * other, non-protected surfaces.
+                     */
                     currentlyAllowedInterventions = setOf(
-                        InterventionFamily.ShortPause,
                         InterventionFamily.PivotGame,
-                        InterventionFamily.PivotReading,
-                        InterventionFamily.MomentPlan,
                     ),
                     gameProductEligible = true,
-                    readingProductEligible = true,
-                    momentPlansProductEligible = true,
+                    readingProductEligible = false,
+                    momentPlansProductEligible = false,
                 ),
             )
         } catch (cancellation: CancellationException) {
@@ -90,23 +114,12 @@ class AdaptiveProtectionBridge(
             return AdaptiveIncidentHandoff(null, duplicate = false, fallbackRequired = true)
         }
         val decisionId = result.presentation.decisionId.takeIf { result.persisted }
-        val decisionRepository = decisions
-        if (
-            decisionId != null &&
-            result.presentation.momentIntensity == MomentIntensity.FirstAttempt &&
-            decisionRepository != null
-        ) {
-            val alternatives = buildSet {
-                add(InterventionFamily.PivotGame)
-                add(InterventionFamily.PivotReading)
-                if (momentPlans?.observeEnabled()?.firstOrNull()?.isNotEmpty() == true) {
-                    add(InterventionFamily.MomentPlan)
-                }
-            }
-            runCatching {
-                decisionRepository.addEligibleInterventions(decisionId, alternatives)
-            }
-        }
+        /*
+         * A first attempt previously widened into Reading/Moment Plan
+         * alternatives so the user could escape a Short Pause. The protected
+         * Moment is now game-only from the start, so no alternative
+         * interventions are added to a protected decision.
+         */
         return AdaptiveIncidentHandoff(
             decisionId = decisionId,
             duplicate = result.duplicateIncident,
@@ -169,6 +182,7 @@ object AdaptiveWhyThisCopy {
 }
 
 enum class AdaptiveRouteKind {
+    AdaptiveMoment,
     Game,
     Reading,
     MomentPlan,
@@ -182,6 +196,7 @@ data class AdaptiveRouteRequest(
     val decisionId: String,
     val kind: AdaptiveRouteKind,
     val opaqueTarget: String? = null,
+    val gameLaunchContext: RecoveryGameLaunchContext? = null,
 )
 
 object AdaptiveMomentRoutingPolicy {
@@ -198,13 +213,25 @@ object AdaptiveMomentRoutingPolicy {
         return when (intervention) {
             InterventionFamily.ShortPause -> null
             InterventionFamily.PivotGame ->
-                AdaptiveRouteRequest(decisionId, AdaptiveRouteKind.Game)
+                AdaptiveRouteRequest(
+                    decisionId,
+                    AdaptiveRouteKind.Game,
+                    gameLaunchContext = RecoveryGameLaunchContext.Standalone,
+                )
             InterventionFamily.PivotReading ->
                 AdaptiveRouteRequest(decisionId, AdaptiveRouteKind.Reading)
             InterventionFamily.MomentPlan ->
                 AdaptiveRouteRequest(decisionId, AdaptiveRouteKind.MomentPlan)
         }
     }
+
+    fun forSupportCycleGame(
+        launch: RecoveryGameLaunchContext.SupportCycle,
+    ): AdaptiveRouteRequest = AdaptiveRouteRequest(
+        decisionId = launch.decisionId,
+        kind = AdaptiveRouteKind.Game,
+        gameLaunchContext = launch,
+    )
 
     fun forPlanAction(decisionId: String, plan: MomentPlan): AdaptiveRouteRequest? {
         InterventionProtocolRegistry.resolveForPlan(plan) ?: return null

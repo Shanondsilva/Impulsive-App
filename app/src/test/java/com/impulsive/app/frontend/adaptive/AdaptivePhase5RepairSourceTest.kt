@@ -97,12 +97,15 @@ class AdaptivePhase5RepairSourceTest {
         )
         assertTrue(group.contains("AccordionGroup("))
         assertFalse(group.contains("Card("))
-        assertEquals(6, Regex("""SettingsRow\(""").findAll(group).count())
-        assertEquals(1, Regex("""SettingsSwitch\(""").findAll(group).count())
-        assertTrue(group.contains("\"Future Path\""))
-        assertTrue(group.contains("R.string.tips_title"))
-        assertTrue(group.contains("\"Suggestion preferences\""))
+        assertEquals(2, Regex("""SettingsRow\(""").findAll(group).count())
+        assertEquals(0, Regex("""SettingsSwitch\(""").findAll(group).count())
+        assertFalse(group.contains("\"Future Path\""))
+        assertFalse(group.contains("R.string.tips_title"))
+        assertFalse(group.contains("\"Suggestion preferences\""))
+        assertFalse(group.contains("\"Safe Browse Pass\""))
+        assertTrue(group.contains("\"What Works for Me\""))
         assertTrue(group.contains("\"Privacy and data\""))
+        assertTrue(group.contains("SafeBrowseAdPrivacyChoicesRow()"))
         assertFalse(group.contains("\"How suggestions work\""))
         assertFalse(group.contains("\"Reset personal learning\""))
         assertFalse(group.contains("\"Delete all Moment data\""))
@@ -112,8 +115,7 @@ class AdaptivePhase5RepairSourceTest {
             settings.indexOf("ProtectionFocusGroup("),
         )
         assertTrue(callSite.contains("appLockGuard.run("))
-        assertTrue(callSite.contains("action = onOpenMomentPlans"))
-        assertTrue(callSite.contains("action = onOpenSuggestionPreferences"))
+        assertTrue(callSite.contains("action = onOpenWhatWorksForMe"))
         assertTrue(callSite.contains("action = onOpenPrivacyAndData"))
     }
 
@@ -144,8 +146,9 @@ class AdaptivePhase5RepairSourceTest {
 
     @Test
     fun laterMigrationsDoNotAddLifecycleWritesToPhaseFiveRepair() {
-        assertTrue(database.contains("version = 12"))
+        assertTrue(database.contains("version = 14"))
         assertTrue(database.contains("Migration11To12"))
+        assertTrue(database.contains("Migration12To13"))
         assertFalse(screen.contains("markCompleted"))
         assertFalse(screen.contains("updateFeedback"))
         assertFalse(viewModel.contains("markCompleted"))

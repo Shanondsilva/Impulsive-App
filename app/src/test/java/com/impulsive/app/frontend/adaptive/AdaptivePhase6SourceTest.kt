@@ -68,9 +68,24 @@ class AdaptivePhase6SourceTest {
         val rhythm = source("frontend/screens/games/RhythmTilesScreen.kt")
         val reading = source("frontend/screens/tasks/ResetReadScreen.kt")
 
+        val compactCascade = cascade.replace(Regex("\\s+"), " ")
+        val compactSkyline = skyline.replace(Regex("\\s+"), " ")
+
         assertTrue(reflex.contains("uiState.result?.validCompletion == true"))
-        assertTrue(cascade.contains("if (uiState.completed) onAdaptiveCompleted"))
-        assertTrue(skyline.contains("if (uiState.completed) onAdaptiveCompleted"))
+        assertTrue(
+            compactCascade.contains(
+                "viewModel.finishSupportCycleAfterChoice { " +
+                    "onAdaptiveExit?.invoke(uiState.completed) ?: onExit() }",
+            ),
+        )
+        assertTrue(
+            compactSkyline.contains(
+                "viewModel.finishSupportCycleAfterChoice { " +
+                    "onAdaptiveExit?.invoke(uiState.completed) ?: onExit() }",
+            ),
+        )
+        assertFalse(compactCascade.contains("if (uiState.completed) onAdaptiveCompleted"))
+        assertFalse(compactSkyline.contains("if (uiState.completed) onAdaptiveCompleted"))
         assertTrue(rhythm.contains("uiState.result?.validCompletion == true"))
         assertTrue(rhythm.contains("uiState.result?.gameOver == false"))
         assertTrue(reading.contains("if (uiState.validCompletion)"))
@@ -178,8 +193,9 @@ class AdaptivePhase6SourceTest {
         assertFalse(feedback.contains("\"URL\""))
         assertFalse(feedback.contains("\"domain\""))
         assertFalse(feedback.contains("plan.actionText"))
-        assertTrue(database.contains("version = 12"))
+        assertTrue(database.contains("version = 14"))
         assertTrue(database.contains("Migration11To12"))
+        assertTrue(database.contains("Migration12To13"))
     }
 
     @Test
@@ -199,5 +215,18 @@ class AdaptivePhase6SourceTest {
     }
 
     private fun source(relative: String): String =
-        root.resolve("java/com/impulsive/app/$relative").readText()
+        root.resolve(
+            "java/com/impulsive/app/$relative",
+        ).readNormalizedText()
 }
+
+private fun File.readNormalizedText(): String =
+    readText()
+        .replace(
+            "\r\n",
+            "\n",
+        )
+        .replace(
+            '\r',
+            '\n',
+        )

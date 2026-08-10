@@ -3,6 +3,7 @@ package com.impulsive.app.backend.session.game
 import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.repository.ScoreRepository
 import com.impulsive.app.backend.domain.game.BlockCascadeBag
@@ -10,6 +11,7 @@ import com.impulsive.app.backend.domain.game.BlockCascadeGameState
 import com.impulsive.app.backend.domain.game.BlockCascadeMinimumLines
 import com.impulsive.app.backend.domain.game.BlockCascadeMinimumMoves
 import com.impulsive.app.backend.domain.game.BlockCascadeRoundSeconds
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import com.impulsive.app.backend.domain.game.canMoveDown
 import com.impulsive.app.backend.domain.game.hardDropPiece
 import com.impulsive.app.backend.domain.game.lockAndAdvance
@@ -44,7 +46,16 @@ data class BlockCascadeUiState(
     val failureReason: String? = null,
 )
 
-class BlockCascadeViewModel(application: Application) : AndroidViewModel(application) {
+class BlockCascadeViewModel(
+    application: Application,
+    savedStateHandle: SavedStateHandle,
+) : AndroidViewModel(application) {
+    private val supportCycleRuntime = RecoveryGameSupportCycleRuntime(application)
+    private val resultStateStore = RecoveryGameResultStateStore(savedStateHandle)
+    private val resultActionCoordinator = RecoveryGameResultActionCoordinator(
+        runtime = supportCycleRuntime,
+        clearResultState = { resultStateStore.clear() },
+    )
     private val scoreRepository = ScoreRepository(application)
     private val gameStoreManager = com.impulsive.app.backend.data.repository.GameStoreManager(application)
     private val _uiState = MutableStateFlow(BlockCascadeUiState())
@@ -61,8 +72,166 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
     private var urgeBeforeRating: Int? = null
     private var urgeAfterRating: Int? = null
     private var lastRecordedSession: ScoreSessionRecord? = null
+    private var roundDurationMillis = BlockCascadeRoundSeconds * 1_000L
+    private var lastSupportOutcome: SupportCycleGameTerminalOutcome? = null
+    private var lastSupportElapsedMillis: Long = 0L
+    private var activeLaunchContext: RecoveryGameLaunchContext = RecoveryGameLaunchContext.Standalone
+
+    suspend fun configureLaunchContext(launchContext: RecoveryGameLaunchContext): Boolean {
+        val binding = supportCycleRuntime.bindWithRecovery(
+            requested = launchContext,
+            standaloneDurationMillis = BlockCascadeRoundSeconds * 1_000L,
+        ) ?: return false
+
+        roundDurationMillis = binding.durationMillis
+        activeLaunchContext = launchContext
+
+        val snapshot = resultStateStore.restore(
+            launchContext = launchContext,
+            expectedGameType = ScoreGameType.BlockCascade,
+        )
+
+        val authoritativeResult = binding.resolvedStep
+
+        /*
+         * The repository already contains a terminal game step. Restore only the
+         * matching stable Result presentation.
+         */
+        if (authoritativeResult != null) {
+            val snapshotOutcome = snapshot?.supportOutcomeOrNull()
+
+            if (
+                snapshot == null ||
+                snapshotOutcome != authoritativeResult.outcome ||
+                !restoreResultSnapshot(snapshot)
+            ) {
+                /*
+                 * A terminal authoritative step without a trusted presentation
+                 * cannot be restarted as a fresh game. Finish its existing cycle
+                 * through the recorded outcome and leave through the established
+                 * unavailable-binding path.
+                 */
+                resultStateStore.clear()
+
+                supportCycleRuntime.resolveAndEnd(
+                    outcome = authoritativeResult.outcome,
+                    elapsedDurationMillis = authoritativeResult.elapsedDurationMillis,
+                )
+
+                return false
+            }
+
+            lastSupportOutcome = authoritativeResult.outcome
+            lastSupportElapsedMillis = authoritativeResult.elapsedDurationMillis
+
+            return true
+        }
+
+        /*
+         * The snapshot may have been written immediately before process death,
+         * while the asynchronous authoritative terminal mutation was still
+         * incomplete.
+         */
+        if (snapshot != null) {
+            val snapshotOutcome = snapshot.supportOutcomeOrNull()
+
+            if (snapshotOutcome == null || !restoreResultSnapshot(snapshot)) {
+                /*
+                 * The repository still owns an InProgress step. A corrupt
+                 * presentation snapshot must not resolve or replace it.
+                 */
+                resultStateStore.clear()
+
+                return true
+            }
+
+            lastSupportOutcome = snapshotOutcome
+            lastSupportElapsedMillis = snapshot.supportElapsedDurationMillis.coerceAtLeast(0L)
+
+            val resolution = supportCycleRuntime.resolveForContinuation(
+                outcome = snapshotOutcome,
+                elapsedDurationMillis = lastSupportElapsedMillis,
+            )
+
+            if (!resolution.keepsRestoredResultVisible) {
+                /*
+                 * Non-retryable conflicts remain fail-closed. Do not delete the
+                 * valid result snapshot here; it remains available for
+                 * authoritative reconciliation and diagnosis.
+                 */
+                return false
+            }
+
+            return true
+        }
+
+        return true
+    }
+
+    fun abandonSupportCycle() {
+        val elapsed = accumulatedForegroundMs.coerceAtLeast(0L)
+
+        viewModelScope.launch {
+            resultActionCoordinator.abandon(elapsedDurationMillis = elapsed)
+        }
+    }
+
+    fun continueWithAnotherGame(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        viewModelScope.launch {
+            val allowed = resultActionCoordinator.continueWithAnotherGame(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+            )
+
+            if (allowed) {
+                onReady()
+            }
+        }
+    }
+
+    fun replayWithRemainingBudget(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: return
+        val elapsed = lastSupportElapsedMillis
+        viewModelScope.launch {
+            val duration = resultActionCoordinator.prepareReplay(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+                requestedDurationMillis = BlockCascadeRoundSeconds * 1_000L,
+            ) ?: return@launch
+
+            roundDurationMillis = duration
+            lastSupportOutcome = null
+            lastSupportElapsedMillis = 0L
+            onReady()
+        }
+    }
+
+    fun finishSupportCycleAfterChoice(onReady: () -> Unit) {
+        val outcome = lastSupportOutcome ?: SupportCycleGameTerminalOutcome.Abandoned
+        val elapsed = if (lastSupportOutcome == null) {
+            accumulatedForegroundMs.coerceAtLeast(0L)
+        } else {
+            lastSupportElapsedMillis
+        }
+        viewModelScope.launch {
+            val allowed = resultActionCoordinator.finish(
+                outcome = outcome,
+                elapsedDurationMillis = elapsed,
+            )
+
+            if (allowed) {
+                onReady()
+            }
+        }
+    }
+
+    private fun roundDurationSeconds(): Int =
+        ((roundDurationMillis + 999L) / 1_000L).toInt().coerceAtLeast(1)
 
     fun start() {
+        resultStateStore.clear()
         bag = BlockCascadeBag(seed = System.nanoTime() xor SystemClock.elapsedRealtimeNanos())
         resultRecorded = false
         activeSessionId = newScoreSessionId()
@@ -173,6 +342,9 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
         urgeBeforeRating = rating.coerceIn(0, 10)
     }
 
+    fun taskRewardCompletionToken(): String =
+        "${ScoreGameType.BlockCascade.id}:$activeSessionId"
+
     /**
      * Captures the post-game rating. The session has already been recorded by
      * the time the Result panel shows, so this re-records the same session id
@@ -185,6 +357,7 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
         val recorded = lastRecordedSession ?: return
         val updated = recorded.copy(urgeAfter = coerced)
         lastRecordedSession = updated
+        saveCurrentResultSnapshot()
         viewModelScope.launch { scoreRepository.recordSession(updated) }
     }
 
@@ -268,10 +441,25 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
             resumed = false
             lastFrameMs = null
             recordCurrentResult(ScoreSessionOutcome.Abandoned)
+            lastSupportOutcome = SupportCycleGameTerminalOutcome.Abandoned
+            lastSupportElapsedMillis = accumulatedForegroundMs
+
+            /*
+             * Save the stable result before the asynchronous authoritative support-cycle
+             * mutation. Active gameplay state is deliberately excluded.
+             */
+            saveCurrentResultSnapshot()
+
+            viewModelScope.launch {
+                supportCycleRuntime.resolveForContinuation(
+                    SupportCycleGameTerminalOutcome.Abandoned,
+                    accumulatedForegroundMs,
+                )
+            }
             return
         }
 
-        if (state.secondsPlayed >= BlockCascadeRoundSeconds) {
+        if (state.secondsPlayed >= roundDurationSeconds()) {
             val completed = enoughActivity
             _uiState.update {
                 if (completed) {
@@ -293,7 +481,112 @@ class BlockCascadeViewModel(application: Application) : AndroidViewModel(applica
             resumed = false
             lastFrameMs = null
             recordCurrentResult(if (completed) ScoreSessionOutcome.Completed else ScoreSessionOutcome.Abandoned)
+            val supportOutcome = when {
+                roundDurationMillis < BlockCascadeRoundSeconds * 1_000L ->
+                    SupportCycleGameTerminalOutcome.TimedOut
+                completed -> SupportCycleGameTerminalOutcome.Completed
+                else -> SupportCycleGameTerminalOutcome.Failed
+            }
+            lastSupportOutcome = supportOutcome
+            lastSupportElapsedMillis = accumulatedForegroundMs
+
+            saveCurrentResultSnapshot()
+
+            viewModelScope.launch {
+                supportCycleRuntime.resolveForContinuation(
+                    supportOutcome,
+                    accumulatedForegroundMs,
+                )
+            }
         }
+    }
+
+    private fun saveCurrentResultSnapshot() {
+        val launch = activeLaunchContext as? RecoveryGameLaunchContext.SupportCycle ?: return
+        val outcome = lastSupportOutcome ?: return
+        val state = _uiState.value
+
+        if (state.view != BlockCascadeView.Result) {
+            return
+        }
+
+        resultStateStore.save(
+            RecoveryGameResultSnapshot(
+                cycleId = launch.cycleId,
+                decisionId = launch.decisionId,
+                gameTypeId = ScoreGameType.BlockCascade.id,
+                supportOutcomeName = outcome.name,
+                supportElapsedDurationMillis = lastSupportElapsedMillis.coerceAtLeast(0L),
+                activeSessionId = activeSessionId,
+                sessionStartedAtIso = sessionStartedAt.toString(),
+                urgeBeforeRating = urgeBeforeRating,
+                urgeAfterRating = urgeAfterRating,
+                lastRecordedSession = lastRecordedSession?.let { ScoreSessionSnapshot.from(it) },
+                payload = RecoveryGameResultPayload.BlockCascade(
+                    secondsPlayed = state.secondsPlayed,
+                    linesCleared = state.linesCleared,
+                    validMoves = state.validMoves,
+                    completed = state.completed,
+                    failed = state.failed,
+                    failureReason = state.failureReason,
+                ),
+            ),
+        )
+    }
+
+    private fun restoreResultSnapshot(snapshot: RecoveryGameResultSnapshot): Boolean {
+        val payload = snapshot.payload as? RecoveryGameResultPayload.BlockCascade ?: return false
+        val restoredSessionStart = snapshot.sessionStartedAtOrNull() ?: return false
+        val restoredOutcome = snapshot.supportOutcomeOrNull() ?: return false
+        val restoredRecordedSession = snapshot.lastRecordedSession?.toRecordOrNull()
+
+        if (snapshot.lastRecordedSession != null && restoredRecordedSession == null) {
+            return false
+        }
+
+        /*
+         * Every legitimate Block Cascade result is either completed or failed,
+         * never both and never neither.
+         */
+        if (
+            snapshot.activeSessionId <= 0L ||
+            snapshot.supportElapsedDurationMillis < 0L ||
+            payload.secondsPlayed < 0 ||
+            payload.linesCleared < 0 ||
+            payload.validMoves < 0 ||
+            payload.completed == payload.failed
+        ) {
+            return false
+        }
+
+        activeSessionId = snapshot.activeSessionId
+        sessionStartedAt = restoredSessionStart
+        urgeBeforeRating = snapshot.urgeBeforeRating?.coerceIn(0, 10)
+        urgeAfterRating = snapshot.urgeAfterRating?.coerceIn(0, 10)
+        lastRecordedSession = restoredRecordedSession
+        lastSupportOutcome = restoredOutcome
+        lastSupportElapsedMillis = snapshot.supportElapsedDurationMillis
+        accumulatedForegroundMs = snapshot.supportElapsedDurationMillis
+        resumed = false
+        lastFrameMs = null
+        fallAccumulatorMs = 0L
+
+        /*
+         * Never reconstruct the board or active falling piece after process death.
+         * The Result panel only requires these stable summary fields.
+         */
+        _uiState.value = BlockCascadeUiState(
+            view = BlockCascadeView.Result,
+            gameState = null,
+            secondsPlayed = payload.secondsPlayed,
+            linesCleared = payload.linesCleared,
+            validMoves = payload.validMoves,
+            completed = payload.completed,
+            failed = payload.failed,
+            failureReason = payload.failureReason,
+        )
+
+        return true
     }
 
     private fun fallIntervalFor(secondsPlayed: Int): Long {

@@ -14,8 +14,6 @@ class JournalReminderScheduler(context: Context) {
 
     fun schedule(
         noteId: Long,
-        title: String,
-        preview: String,
         reminderAtMillis: Long?,
     ) {
         if (noteId <= 0L || reminderAtMillis == null) {
@@ -29,11 +27,14 @@ class JournalReminderScheduler(context: Context) {
             return
         }
 
-        val data = Data.Builder()
-            .putLong(JournalReminderWorker.KeyNoteId, noteId)
-            .putString(JournalReminderWorker.KeyTitle, title.ifBlank { "Journal reminder" })
-            .putString(JournalReminderWorker.KeyPreview, preview.ifBlank { "You asked Impulsive to remind you." })
-            .build()
+        val data =
+            Data.Builder()
+                .putLong(
+                    JournalReminderWorker
+                        .KeyNoteId,
+                    noteId,
+                )
+                .build()
 
         val request = OneTimeWorkRequestBuilder<JournalReminderWorker>()
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)

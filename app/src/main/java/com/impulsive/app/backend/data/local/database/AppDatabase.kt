@@ -17,6 +17,7 @@ import com.impulsive.app.backend.data.local.dao.MomentPlanRehearsalDao
 import com.impulsive.app.backend.data.local.dao.PathShiftCycleDao
 import com.impulsive.app.backend.data.local.dao.ProtectionCoachSuggestionDao
 import com.impulsive.app.backend.data.local.dao.RecoverySessionDao
+import com.impulsive.app.backend.data.local.dao.SafeExitDao
 import com.impulsive.app.backend.data.local.dao.SyncTombstoneDao
 import com.impulsive.app.backend.data.local.entity.AdaptiveDecisionEntity
 import com.impulsive.app.backend.data.local.entity.AdaptivePreferenceEntity
@@ -30,6 +31,7 @@ import com.impulsive.app.backend.data.local.entity.MomentPlanRehearsalEntity
 import com.impulsive.app.backend.data.local.entity.PathShiftCycleEntity
 import com.impulsive.app.backend.data.local.entity.ProtectionCoachSuggestionEntity
 import com.impulsive.app.backend.data.local.entity.RecoverySessionEntity
+import com.impulsive.app.backend.data.local.entity.SafeExitEntity
 import com.impulsive.app.backend.data.local.entity.SyncTombstoneEntity
 import com.impulsive.app.backend.domain.engine.adaptive.LegacyMomentPlanContentRevisionFactory
 import com.impulsive.app.security.storage.DatabasePassphraseStore
@@ -50,8 +52,9 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         MomentPlanRehearsalEntity::class,
         PathShiftCycleEntity::class,
         ProtectionCoachSuggestionEntity::class,
+        SafeExitEntity::class,
     ],
-    version = 12,
+    version = 14,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,6 +70,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun momentPlanRehearsalDao(): MomentPlanRehearsalDao
     abstract fun pathShiftCycleDao(): PathShiftCycleDao
     abstract fun protectionCoachSuggestionDao(): ProtectionCoachSuggestionDao
+    abstract fun safeExitDao(): SafeExitDao
 
     companion object {
         private const val DatabaseName = "impulsive.db"
@@ -629,6 +633,120 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val Migration12To13 =
+            object : Migration(
+                12,
+                13,
+            ) {
+                override fun migrate(
+                    db: SupportSQLiteDatabase,
+                ) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS adaptive_preferences_new (
+                            id INTEGER NOT NULL,
+                            personalSuggestionsEnabled INTEGER NOT NULL DEFAULT 1,
+                            gameSuggestionsEnabled INTEGER NOT NULL DEFAULT 1,
+                            readingSuggestionsEnabled INTEGER NOT NULL DEFAULT 1,
+                            momentPlanSuggestionsEnabled INTEGER NOT NULL DEFAULT 1,
+                            randomisedExplorationEnabled INTEGER NOT NULL DEFAULT 1,
+                            updatedAtMillis INTEGER NOT NULL DEFAULT 0,
+                            privateScreenProtectionEnabled INTEGER NOT NULL DEFAULT 1,
+                            historyRetentionPolicy TEXT NOT NULL DEFAULT 'SixMonths',
+                            pathShiftEnabled INTEGER NOT NULL DEFAULT 1,
+                            PRIMARY KEY(id)
+                        )
+                        """.trimIndent(),
+                    )
+
+                    db.execSQL(
+                        """
+                        INSERT INTO adaptive_preferences_new (
+                            id,
+                            personalSuggestionsEnabled,
+                            gameSuggestionsEnabled,
+                            readingSuggestionsEnabled,
+                            momentPlanSuggestionsEnabled,
+                            randomisedExplorationEnabled,
+                            updatedAtMillis,
+                            privateScreenProtectionEnabled,
+                            historyRetentionPolicy,
+                            pathShiftEnabled
+                        )
+                        SELECT
+                            id,
+                            personalSuggestionsEnabled,
+                            gameSuggestionsEnabled,
+                            readingSuggestionsEnabled,
+                            momentPlanSuggestionsEnabled,
+                            randomisedExplorationEnabled,
+                            updatedAtMillis,
+                            privateScreenProtectionEnabled,
+                            historyRetentionPolicy,
+                            1
+                        FROM adaptive_preferences
+                        """.trimIndent(),
+                    )
+
+                    db.execSQL(
+                        "DROP TABLE adaptive_preferences",
+                    )
+
+                    db.execSQL(
+                        """
+                        ALTER TABLE adaptive_preferences_new
+                        RENAME TO adaptive_preferences
+                        """.trimIndent(),
+                    )
+
+                    installFuturePathInvariantTriggers(
+                        db,
+                    )
+                }
+            }
+
+
+        internal val Migration13To14 =
+            object : Migration(
+                13,
+                14,
+            ) {
+                override fun migrate(
+                    db: SupportSQLiteDatabase,
+                ) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS safe_exit_records (
+                            sourceKey TEXT NOT NULL,
+                            source TEXT NOT NULL,
+                            sourceId TEXT NOT NULL,
+                            completedAt TEXT NOT NULL,
+                            PRIMARY KEY(sourceKey)
+                        )
+                        """.trimIndent(),
+                    )
+
+                    db.execSQL(
+                        """
+                        CREATE INDEX IF NOT EXISTS
+                        index_safe_exit_records_completedAt
+                        ON safe_exit_records(completedAt)
+                        """.trimIndent(),
+                    )
+
+                    db.execSQL(
+                        """
+                        CREATE INDEX IF NOT EXISTS
+                        index_safe_exit_records_source_completedAt
+                        ON safe_exit_records(
+                            source,
+                            completedAt
+                        )
+                        """.trimIndent(),
+                    )
+                }
+            }
+
         private fun createProtectionCoachSuggestionsTable(db: SupportSQLiteDatabase) {
             db.execSQL(
                 """
@@ -821,12 +939,14 @@ abstract class AppDatabase : RoomDatabase() {
                 installRehearsalInvariantTriggers(db)
                 installPathShiftInvariantTriggers(db)
                 installProtectionCoachInvariantTriggers(db)
+                installFuturePathInvariantTriggers(db)
             }
 
             override fun onOpen(db: SupportSQLiteDatabase) {
                 installRehearsalInvariantTriggers(db)
                 installPathShiftInvariantTriggers(db)
                 installProtectionCoachInvariantTriggers(db)
+                installFuturePathInvariantTriggers(db)
             }
         }
 
@@ -854,6 +974,40 @@ abstract class AppDatabase : RoomDatabase() {
                     OR NEW.relatedMomentPlanContentRevisionId LIKE '%://%'
                 BEGIN
                     SELECT RAISE(ABORT, 'Protection Coach identifiers must not contain sensitive free text');
+                END
+                """.trimIndent(),
+            )
+        }
+
+        private fun installFuturePathInvariantTriggers(
+            db: SupportSQLiteDatabase,
+        ) {
+            db.execSQL(
+                """
+                CREATE TRIGGER IF NOT EXISTS
+                adaptive_preferences_require_future_path_insert
+                BEFORE INSERT ON adaptive_preferences
+                WHEN NEW.pathShiftEnabled != 1
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'Future Path must remain enabled'
+                    );
+                END
+                """.trimIndent(),
+            )
+
+            db.execSQL(
+                """
+                CREATE TRIGGER IF NOT EXISTS
+                adaptive_preferences_require_future_path_update
+                BEFORE UPDATE OF pathShiftEnabled ON adaptive_preferences
+                WHEN NEW.pathShiftEnabled != 1
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'Future Path must remain enabled'
+                    );
                 END
                 """.trimIndent(),
             )
@@ -951,6 +1105,8 @@ abstract class AppDatabase : RoomDatabase() {
                             Migration9To10,
                             Migration10To11,
                             Migration11To12,
+                            Migration12To13,
+                            Migration13To14,
                         )
                         .addCallback(DatabaseInvariantCallback)
                         .build()

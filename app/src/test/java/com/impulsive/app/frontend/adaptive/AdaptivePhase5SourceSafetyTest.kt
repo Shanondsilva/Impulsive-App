@@ -22,14 +22,15 @@ class AdaptivePhase5SourceSafetyTest {
     ).readText()
 
     @Test
-    fun adaptiveRoutesContainOnlyDecisionId() {
-        assertTrue(nav.contains("""const val AdaptiveMoment = "adaptive_moment/{decisionId}""""))
+    fun adaptiveRouteAddsOnlyTheAllowedTransientTriggeringPackage() {
+        assertTrue(nav.contains("triggeringPackageName={triggeringPackageName}"))
         assertTrue(nav.contains("""const val MomentPlanRun = "moment_plan_run/{decisionId}""""))
         val declarations = nav.lines().filter {
             it.contains("adaptive_moment/") || it.contains("moment_plan_run/")
         }.joinToString()
         assertFalse(declarations.contains("sourcePackageName"))
         assertFalse(declarations.contains("sourceLabel"))
+        assertFalse(declarations.contains("domain"))
         assertFalse(declarations.contains("cue"))
         assertFalse(declarations.contains("urge"))
     }
@@ -57,11 +58,16 @@ class AdaptivePhase5SourceSafetyTest {
     }
 
     @Test
+    /**
+     * An interruption with a decision now enters the automatic protected bridge;
+     * one without still falls back to the existing game choice. Reading is no
+     * longer offered from protection.
+     */
     fun overlayFallsBackToExistingChoicesWhenDecisionUnavailable() {
-        assertTrue(overlay.contains("adaptiveDecisionId != null"))
+        assertTrue(overlay.contains("if (!isFocusSession && adaptiveDecisionId != null)"))
         assertTrue(overlay.contains("Pivot by Game"))
-        assertTrue(overlay.contains("Pivot by Reading"))
-        assertTrue(overlay.contains("Continue deliberately"))
+        assertFalse(overlay.contains("Pivot by Reading"))
+        assertFalse(overlay.contains("Continue deliberately"))
     }
 
     @Test
@@ -76,23 +82,24 @@ class AdaptivePhase5SourceSafetyTest {
     }
 
     @Test
-    fun plusWebsiteOwnerStillCannotReceiveTheAppMonitorContinuePath() {
+    fun plusWebsiteOwnerStillCannotReceiveAContinueBypass() {
         val footer = overlay.substring(
             overlay.indexOf("val footer ="),
-            overlay.indexOf("card.addView(\n            footer"),
+            overlay.indexOf("resetChoices.alpha = 1f"),
         )
-        assertTrue(footer.contains("owner == Owner.AppMonitor"))
-        assertTrue(footer.contains("Continue deliberately"))
-        assertFalse(footer.contains("owner == Owner.Vpn"))
+        assertTrue(footer.contains("Leave this app"))
+        assertFalse(footer.contains("owner == Owner.AppMonitor"))
+        assertFalse(footer.contains("Continue deliberately"))
+        assertFalse(footer.contains("grantTemporaryAccessSafely"))
     }
 
     @Test
-    fun nonPlusTemporaryAccessCountdownAndCooldownRemainIntact() {
-        assertTrue(overlay.contains("configureResetStatus("))
-        assertTrue(overlay.contains("grantTemporaryAccessSafely("))
-        assertTrue(overlay.contains("grantIfAvailable("))
-        assertTrue(overlay.contains("TemporaryAccessGrantResult.OnCooldown"))
-        assertTrue(overlay.contains("continueAction.isEnabled = false"))
+    fun temporaryAccessCountdownAndCooldownAreRemoved() {
+        assertFalse(overlay.contains("configureResetStatus("))
+        assertFalse(overlay.contains("grantTemporaryAccessSafely("))
+        assertFalse(overlay.contains("grantIfAvailable("))
+        assertFalse(overlay.contains("TemporaryAccessGrantResult"))
+        assertFalse(overlay.contains("continueAction.isEnabled = false"))
     }
 
     @Test

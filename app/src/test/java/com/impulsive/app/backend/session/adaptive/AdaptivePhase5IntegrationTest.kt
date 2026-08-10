@@ -118,7 +118,14 @@ class AdaptivePhase5IntegrationTest {
     }
 
     @Test
-    fun firstAttemptKeepsShortPauseAssignedWhileAddingOnlyAvailableOverrides() = runBlocking {
+    /**
+     * A protected incident is game-only.
+     *
+     * It used to assign a Short Pause and widen into Reading/Moment Plan
+     * overrides so the user could escape it. The protected Moment now starts
+     * the game directly, so no other intervention is admitted.
+     */
+    fun protectedIncidentAssignsTheGameAndAdmitsNoOtherIntervention() = runBlocking {
         val decisions = FakeDecisionRepository()
         val plans = FakeMomentPlanRepository(listOf(momentPlan()))
         val bridge = AdaptiveProtectionBridge(
@@ -134,7 +141,7 @@ class AdaptivePhase5IntegrationTest {
         val stored = decisions.getById(requireNotNull(result.decisionId))
 
         assertEquals(
-            InterventionFamily.ShortPause,
+            InterventionFamily.PivotGame,
             stored?.assignment?.assignedSuggestion,
         )
         assertEquals(
@@ -142,8 +149,9 @@ class AdaptivePhase5IntegrationTest {
             stored?.assignment?.reasonCode,
         )
         assertTrue(InterventionFamily.PivotGame in stored!!.assignment.eligibleInterventions)
-        assertTrue(InterventionFamily.PivotReading in stored.assignment.eligibleInterventions)
-        assertTrue(InterventionFamily.MomentPlan in stored.assignment.eligibleInterventions)
+        assertFalse(InterventionFamily.ShortPause in stored.assignment.eligibleInterventions)
+        assertFalse(InterventionFamily.PivotReading in stored.assignment.eligibleInterventions)
+        assertFalse(InterventionFamily.MomentPlan in stored.assignment.eligibleInterventions)
     }
 
     @Test

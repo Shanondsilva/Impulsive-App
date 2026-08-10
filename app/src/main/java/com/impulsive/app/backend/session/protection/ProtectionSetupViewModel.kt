@@ -4,8 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.repository.ProtectionSetupRepository
+import com.impulsive.app.backend.data.local.device.DnsFilterGate
+import com.impulsive.app.backend.data.local.device.InstalledAppScanner
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
+import com.impulsive.app.backend.domain.model.protection.DnsFilterGateEvaluator
+import com.impulsive.app.backend.domain.model.protection.ProtectedAppCategory
 import com.impulsive.app.backend.service.protection.ImpulsiveVpnController
 import com.impulsive.app.backend.service.protection.InterruptionNotificationLimiter
 import com.impulsive.app.backend.service.protection.ProtectionInterruptionOverlay
@@ -23,6 +27,12 @@ class ProtectionSetupViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
     private val repository = ProtectionSetupRepository(application)
+    private val dnsFilterGate = DnsFilterGate(application)
+    private val installedAppScanner = InstalledAppScanner(application)
+    private val websiteSetupStateProducer = WebsiteProtectionSetupStateProducer()
+
+    val websiteSetupState: StateFlow<WebsiteProtectionSetupState> =
+        websiteSetupStateProducer.state
 
     val state: StateFlow<ProtectionSetupState> = repository.state.stateIn(
         scope = viewModelScope,
@@ -70,11 +80,48 @@ class ProtectionSetupViewModel(
     fun setWebsiteProtectedAppPackageNames(packageNames: Set<String>) {
         viewModelScope.launch {
             repository.setWebsiteProtectedAppPackageNames(packageNames)
+            refreshWebsiteProtectionSetupState(packageNames)
 
-            if (state.value.websiteProtectionEnabled) {
+            if (
+                state.value
+                    .websiteProtectionRuntimeEnabled
+            ) {
                 ImpulsiveVpnController.refreshAllowedApplications(getApplication())
             }
         }
+    }
+
+    fun refreshWebsiteProtectionSetupState(
+        selectedBrowserPackageNames: Set<String> = state.value.websiteProtectedAppPackageNames,
+    ) {
+        val gateResult = dnsFilterGate.evaluate()
+        val supportedInstalledBrowsers = installedAppScanner.getLaunchableAppCandidates()
+            .asSequence()
+            .filter { it.category == ProtectedAppCategory.BrowserSearch }
+            .mapTo(mutableSetOf()) { it.packageName }
+        websiteSetupStateProducer.refresh(
+            WebsiteProtectionCapabilitySnapshot(
+                capabilitiesLoaded = true,
+                browserSelected = selectedBrowserPackageNames.isNotEmpty(),
+                selectedBrowserSupported =
+                    selectedBrowserPackageNames.isNotEmpty() &&
+                        selectedBrowserPackageNames.all(supportedInstalledBrowsers::contains),
+                vpnPermissionGranted =
+                    ImpulsiveVpnController.consentIntent(getApplication()) == null,
+                competingVpnActive =
+                    gateResult.blockers.contains(DnsFilterGateEvaluator.Blocker.AnotherVpnActive) ||
+                        gateResult.blockers.contains(
+                            DnsFilterGateEvaluator.Blocker.LockdownModeActive,
+                        ),
+                privateDnsConflict = gateResult.blockers.contains(
+                    DnsFilterGateEvaluator.Blocker.PrivateDnsActive,
+                ),
+                websiteProtectionEnableIntent =
+                    state.value.websiteProtectionEnabled,
+                websiteProtectionDisclosureAccepted =
+                    state.value.websiteProtectionDisclosureAccepted,
+            ),
+        )
     }
 
     fun setAppProtectionMonitorEnabled(enabled: Boolean) {
@@ -108,23 +155,71 @@ class ProtectionSetupViewModel(
         }
     }
 
-    fun setWebsiteProtectionEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.setWebsiteProtectionEnabled(enabled)
+    suspend fun acceptCurrentWebsiteProtectionDisclosure():
+        Boolean =
+        runCatching {
+            repository
+                .acceptCurrentWebsiteProtectionDisclosure()
 
+            true
+        }.getOrDefault(
+            false,
+        )
+
+    suspend fun enableWebsiteProtectionAfterDisclosure():
+        Boolean {
+        val enabled =
+            runCatching {
+                repository
+                    .setWebsiteProtectionEnabled(
+                        true,
+                    )
+            }.getOrDefault(
+                false,
+            )
+
+        if (!enabled) {
+            return false
+        }
+
+        ProtectionServiceController.start(
+            context =
+                getApplication(),
+            origin =
+                ProtectionServiceStartOrigin
+                    .VisibleApp,
+        )
+
+        return true
+    }
+
+    fun setWebsiteProtectionEnabled(
+        enabled:
+            Boolean,
+    ) {
+        viewModelScope.launch {
             if (enabled) {
-                ProtectionServiceController.start(
-                    context = getApplication(),
-                    origin =
-                        ProtectionServiceStartOrigin
-                            .VisibleApp,
-                )
-            } else {
-                ProtectionNotificationHelper(getApplication())
-                    .cancelBlockedAttemptNotification()
-                InterruptionNotificationLimiter.clearAppEncounters()
-                ImpulsiveVpnController.stop(getApplication())
+                enableWebsiteProtectionAfterDisclosure()
+                return@launch
             }
+
+            repository
+                .setWebsiteProtectionEnabled(
+                    false,
+                )
+
+            ProtectionNotificationHelper(
+                getApplication(),
+            )
+                .cancelBlockedAttemptNotification()
+
+            InterruptionNotificationLimiter
+                .clearAppEncounters()
+
+            ImpulsiveVpnController
+                .stop(
+                    getApplication(),
+                )
         }
     }
 
@@ -132,7 +227,10 @@ class ProtectionSetupViewModel(
         viewModelScope.launch {
             repository.setWebsiteProtectionAlwaysOn(enabled)
 
-            if (state.value.websiteProtectionEnabled) {
+            if (
+                state.value
+                    .websiteProtectionRuntimeEnabled
+            ) {
                 ProtectionServiceController.start(
                     context = getApplication(),
                     origin =

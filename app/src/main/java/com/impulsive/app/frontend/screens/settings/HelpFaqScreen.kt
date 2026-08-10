@@ -199,7 +199,7 @@ private val helpFaqCategories = listOf(
             ),
             HelpFaqItem(
                 question = "Does Impulsive see my browsing when website protection is on?",
-                answer = "No. Website protection filters requests directly on your device. Your browsing activity and visited websites are not sent to Impulsive and are not stored on our servers.",
+                answer = "No. Website domain matching and blocking decisions happen directly on your device. When a site isn't blocked locally, Impulsive resolves the DNS request using encrypted DNS-over-HTTPS through Cloudflare (1.1.1.1 for Families), with AdGuard Family Protection as a fallback. Normal web traffic is not routed through an Impulsive remote VPN server, and these DNS requests are not sent to Impulsive servers. Blocked-site incidents are stored locally on your device.",
             ),
             HelpFaqItem(
                 question = "How do I delete my account and data?",

@@ -8,7 +8,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -33,6 +36,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,10 +58,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,6 +80,7 @@ import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
 import com.impulsive.app.backend.domain.model.tasks.toTaskRewardState
 import com.impulsive.app.backend.session.game.RhythmTilesUiState
 import com.impulsive.app.backend.session.game.RhythmTilesViewModel
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import com.impulsive.app.backend.session.onboarding.OnboardingViewModel
 import com.impulsive.app.backend.session.settings.AppSettingsViewModel
 import com.impulsive.app.backend.session.tasks.TaskRewardViewModel
@@ -93,6 +101,7 @@ fun RhythmTilesScreen(
     onAdaptiveCompleted: (() -> Unit)? = null,
     onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.RECOVERY_GAME,
+    gameLaunchContext: RecoveryGameLaunchContext = RecoveryGameLaunchContext.Standalone,
     viewModel: RhythmTilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -121,9 +130,13 @@ fun RhythmTilesScreen(
         adjustedNextReleaseWindow = taskRewardState.adjustedNextReleaseWindow,
         now = currentNow,
     )
-    var rewardLogged by remember(launchSource) { mutableStateOf(false) }
+    var rewardedCompletionToken by remember(launchSource) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(launchSource) {
+    LaunchedEffect(launchSource, gameLaunchContext) {
+        if (!viewModel.configureLaunchContext(gameLaunchContext)) {
+            onExit()
+            return@LaunchedEffect
+        }
         if (launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE) {
             viewModel.startTaskCountdown()
         }
@@ -131,14 +144,19 @@ fun RhythmTilesScreen(
 
     LaunchedEffect(uiState.result, launchSource) {
         val result = uiState.result
+        val completionToken = if (result != null) {
+            viewModel.taskRewardCompletionToken()
+        } else {
+            null
+        }
         if (
             launchSource == ReflexGameLaunchSource.TASK_TO_COMPLETE &&
             result != null &&
             result.validCompletion &&
             !result.gameOver &&
-            !rewardLogged
+            rewardedCompletionToken != completionToken
         ) {
-            rewardLogged = true
+            rewardedCompletionToken = completionToken
             taskRewardViewModel.completeTask(
                 taskType = PsychologyTaskType.RhythmTiles,
                 releasePlan = releasePlan,
@@ -148,6 +166,7 @@ fun RhythmTilesScreen(
                 score = result.score,
                 durationSec = result.durationSec,
                 validCompletion = true,
+                completionToken = checkNotNull(completionToken),
             )
         }
     }
@@ -156,10 +175,9 @@ fun RhythmTilesScreen(
     val adaptiveCompleted =
         uiState.result?.validCompletion == true && uiState.result?.gameOver == false
     fun exitWithAdaptiveOutcome() {
-        onAdaptiveExit?.invoke(adaptiveCompleted) ?: onExit()
-    }
-    LaunchedEffect(adaptiveCompleted) {
-        if (adaptiveCompleted) onAdaptiveCompleted?.invoke()
+        viewModel.finishSupportCycleAfterChoice {
+            onAdaptiveExit?.invoke(adaptiveCompleted) ?: onExit()
+        }
     }
     // A block-launched round that ended early has no allowed exit: the only way on
     // is to finish a full round. Hub rounds keep back.
@@ -235,8 +253,10 @@ fun RhythmTilesScreen(
                 result = uiState.result,
                 onUrgeAfterSelected = viewModel::setUrgeAfter,
                 onWalkAway = viewModel::walkAway,
-                onPlayAgain = viewModel::playAgain,
-                onPlayAnother = onPlayAnother,
+                onPlayAgain = {
+                    viewModel.replayWithRemainingBudget(viewModel::playAgain)
+                },
+                onPlayAnother = { viewModel.continueWithAnotherGame(onPlayAnother) },
                 onExit = ::exitWithAdaptiveOutcome,
             )
             GameView.Walked -> RhythmWalkedView(
@@ -308,10 +328,25 @@ private fun RhythmReadyView(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberScrollState())
+                .selectableGroup(),
         ) {
             RhythmTilesCatalog.songs.forEach { song ->
                 val selected = song.id == uiState.selectedSong.id
+                /*
+                 * The transparent wrapper reserves the Material minimum target
+                 * so the visible pill keeps its existing size.
+                 */
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .selectable(
+                            selected = selected,
+                            onClick = { onSelectSong(song.id) },
+                            role = Role.RadioButton,
+                        )
+                        .minimumInteractiveComponentSize(),
+                ) {
                 Surface(
                     color = if (selected) {
                         ImpulsivePsychological
@@ -319,11 +354,7 @@ private fun RhythmReadyView(
                         MaterialTheme.colorScheme.surfaceVariant
                     },
                     shape = RoundedCornerShape(50),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .pointerInput(song.id) {
-                            detectTapGestures { onSelectSong(song.id) }
-                        },
+                    modifier = Modifier.clip(RoundedCornerShape(50)),
                 ) {
                     Text(
                         text = song.title,
@@ -334,6 +365,7 @@ private fun RhythmReadyView(
                         maxLines = 1,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     )
+                }
                 }
             }
         }
@@ -458,29 +490,27 @@ private fun RhythmPlayingView(
 
             ImpulsiveAmbientBackground(modifier = Modifier.fillMaxSize())
 
-            Row(modifier = Modifier.fillMaxSize()) {
-                repeat(RhythmTilesConfig.LANES) { lane ->
-                    Box(
-                        modifier = Modifier
-                            .width(laneWidth)
-                            .fillMaxSize()
-                            .border(
-                                width = 1.dp,
-                                color = laneDividerColor,
-                            )
-                            .pointerInput(lane) {
-                                detectTapGestures {
-                                    val semitone = viewModel.tapLane(lane)
-                                    if (semitone != null) {
-                                        notePlayer.playNote(semitone)
-                                    } else {
-                                        viewModel.tapEmpty()
-                                    }
-                                }
-                            },
-                    )
+            /*
+             * One shared action for touch and every accessibility path, so hit
+             * and miss handling can never diverge between them.
+             */
+            val activateLane: (Int) -> Unit = { lane ->
+                val semitone = viewModel.tapLane(lane)
+
+                if (semitone != null) {
+                    notePlayer.playNote(semitone)
+                } else {
+                    viewModel.tapEmpty()
                 }
             }
+
+            RhythmLaneInteractionLayer(
+                laneCount = RhythmTilesConfig.LANES,
+                laneWidth = laneWidth,
+                laneDividerColor = laneDividerColor,
+                enabled = uiState.view == GameView.Playing,
+                onLaneActivated = activateLane,
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -687,6 +717,49 @@ private fun RhythmWalkedView(score: Int, onExit: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Done")
+        }
+    }
+}
+
+/**
+ * The lane interaction layer, extracted verbatim so an instrumentation test can
+ * render it directly. Gameplay stays in the caller's [onLaneActivated] closure;
+ * this composable owns no hit/miss logic.
+ */
+@Composable
+internal fun RhythmLaneInteractionLayer(
+    laneCount: Int,
+    laneWidth: Dp,
+    laneDividerColor: Color,
+    enabled: Boolean,
+    onLaneActivated: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier.fillMaxSize()) {
+        repeat(laneCount) { lane ->
+            val interactionSource = remember(lane) { MutableInteractionSource() }
+
+            Box(
+                modifier = Modifier
+                    .width(laneWidth)
+                    .fillMaxSize()
+                    .border(
+                        width = 1.dp,
+                        color = laneDividerColor,
+                    )
+                    .clickable(
+                        interactionSource = interactionSource,
+                        // The lane has never shown a ripple.
+                        indication = null,
+                        enabled = enabled,
+                        onClickLabel = "Play lane ${lane + 1}",
+                        role = Role.Button,
+                        onClick = { onLaneActivated(lane) },
+                    )
+                    .semantics {
+                        contentDescription = "Rhythm lane ${lane + 1}"
+                    },
+            )
         }
     }
 }

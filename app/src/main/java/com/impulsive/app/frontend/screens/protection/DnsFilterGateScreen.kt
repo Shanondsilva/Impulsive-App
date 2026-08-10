@@ -49,20 +49,70 @@ import com.impulsive.app.frontend.theme.ImpulsivePsychological
 @Composable
 fun DnsFilterGateScreen(
     state: DnsFilterGateUiState,
+    protectedBrowserPackageNames: Set<String>,
+    websiteProtectionDisclosureAccepted:
+        Boolean,
+    continueInProgress:
+        Boolean,
+    disclosureSaveFailed:
+        Boolean,
     onOpenPrivateDnsSettings: () -> Unit,
     onRefresh: () -> Unit,
-    onContinue: () -> Unit,
+    onContinue:
+        (
+            needsDisclosurePersistence:
+                Boolean,
+        ) -> Unit,
     onTurnOff: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var browserSecureDnsConfirmed by remember { mutableStateOf(false) }
+    val lifecycleOwner =
+        LocalLifecycleOwner.current
+
+    val browserSecureDnsGuides =
+        remember(
+            protectedBrowserPackageNames,
+        ) {
+            BrowserSecureDnsGuidancePolicy
+                .requiredGuides(
+                    protectedBrowserPackageNames,
+                )
+        }
+
+    var confirmedBrowserSecureDnsGuides by
+        remember(
+            browserSecureDnsGuides,
+        ) {
+            mutableStateOf(
+                emptySet<BrowserSecureDnsGuide>(),
+            )
+        }
+
+    var disclosureAcknowledged by
+        remember(
+            websiteProtectionDisclosureAccepted,
+        ) {
+            mutableStateOf(
+                false,
+            )
+        }
+
+    val disclosureSatisfied =
+        websiteProtectionDisclosureAccepted ||
+            disclosureAcknowledged
+
     val continueEnabled =
         canContinueDnsFilterGate(
-            state = state,
-            browserSecureDnsConfirmed = browserSecureDnsConfirmed,
-        )
+            state =
+                state,
+            requiredBrowserSecureDnsGuides =
+                browserSecureDnsGuides,
+            confirmedBrowserSecureDnsGuides =
+                confirmedBrowserSecureDnsGuides,
+        ) &&
+            disclosureSatisfied &&
+            !continueInProgress
 
     LaunchedEffect(Unit) {
         onRefresh()
@@ -113,6 +163,49 @@ fun DnsFilterGateScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
+                GateCard(
+                    icon =
+                        Icons.Filled.Dns,
+                    title =
+                        "How Website Protection handles DNS",
+                    body =
+                        "Website Protection uses Android's VPN permission to inspect DNS " +
+                            "domain requests from the browsers you select. Impulsive checks " +
+                            "blocked domains on this device. DNS requests that are not blocked " +
+                            "locally are resolved over encrypted DNS-over-HTTPS using Cloudflare " +
+                            "1.1.1.1 for Families. If Cloudflare is unavailable, AdGuard Family " +
+                            "Protection may be used as a fallback. These DNS providers receive " +
+                            "the domain names needed to answer those DNS requests. Impulsive " +
+                            "does not route your normal web traffic through an Impulsive remote " +
+                            "VPN server, and these DNS requests are not sent to Impulsive " +
+                            "servers. Blocked-site incidents may be kept locally on this device " +
+                            "to support protection.",
+                )
+
+                if (!websiteProtectionDisclosureAccepted) {
+                    GateConfirmationCard(
+                        text =
+                            "I understand and agree to this Website Protection DNS handling",
+                        checked =
+                            disclosureAcknowledged,
+                        onCheckedChange = { checked ->
+                            disclosureAcknowledged =
+                                checked
+                        },
+                    )
+                }
+
+                if (disclosureSaveFailed) {
+                    GateCard(
+                        icon =
+                            Icons.Filled.Dns,
+                        title =
+                            "Your choice was not saved",
+                        body =
+                            "Website Protection was not started. Please try again.",
+                    )
+                }
+
                 if (state.privateDnsActive) {
                     GateCard(
                         icon = Icons.Filled.Dns,
@@ -128,21 +221,38 @@ fun DnsFilterGateScreen(
                     )
                 }
 
-                GateCard(
-                    icon = Icons.Filled.Dns,
-                    title = "Browser Secure DNS",
-                    body =
-                        "Chrome and Brave can use their own encrypted DNS setting, which can bypass " +
-                            "Impulsive. Turn off Secure DNS in each protected browser before enabling " +
-                            "Website Protection.\n\n" +
-                            "Chrome:\nSettings → Privacy and security → Use Secure DNS → Off\n\n" +
-                            "Brave:\nSettings → Brave Shields & privacy → Use Secure DNS → Off",
-                )
+                browserSecureDnsGuides
+                    .forEach { guide ->
+                        val copy =
+                            guide.displayCopy()
 
-                BrowserSecureDnsConfirmationCard(
-                    checked = browserSecureDnsConfirmed,
-                    onCheckedChange = { browserSecureDnsConfirmed = it },
-                )
+                        GateCard(
+                            icon =
+                                Icons.Filled.Dns,
+                            title =
+                                copy.title,
+                            body =
+                                copy.body,
+                        )
+
+                        GateConfirmationCard(
+                            text =
+                                copy.confirmationText,
+                            checked =
+                                guide in
+                                    confirmedBrowserSecureDnsGuides,
+                            onCheckedChange = { checked ->
+                                confirmedBrowserSecureDnsGuides =
+                                    if (checked) {
+                                        confirmedBrowserSecureDnsGuides +
+                                            guide
+                                    } else {
+                                        confirmedBrowserSecureDnsGuides -
+                                            guide
+                                    }
+                            },
+                        )
+                    }
 
                 if (state.anotherVpnActive) {
                     GateCard(
@@ -184,7 +294,11 @@ fun DnsFilterGateScreen(
                     state.canEnable -> {
                         PrimaryGateButton(
                             text = "Continue",
-                            onClick = onContinue,
+                            onClick = {
+                                onContinue(
+                                    !websiteProtectionDisclosureAccepted,
+                                )
+                            },
                             enabled = continueEnabled,
                         )
                     }
@@ -231,16 +345,83 @@ private fun PrimaryGateButton(
     }
 }
 
+internal fun websiteProtectionDisclosureSatisfied(
+    alreadyAccepted:
+        Boolean,
+    acknowledgedNow:
+        Boolean,
+): Boolean =
+    alreadyAccepted ||
+        acknowledgedNow
+
 internal fun canContinueDnsFilterGate(
     state: DnsFilterGateUiState,
-    browserSecureDnsConfirmed: Boolean,
+    requiredBrowserSecureDnsGuides:
+        Collection<BrowserSecureDnsGuide>,
+    confirmedBrowserSecureDnsGuides:
+        Set<BrowserSecureDnsGuide>,
 ): Boolean =
     state.hasChecked &&
         state.canEnable &&
-        browserSecureDnsConfirmed
+        confirmedBrowserSecureDnsGuides
+            .containsAll(
+                requiredBrowserSecureDnsGuides,
+            )
+
+private data class BrowserSecureDnsDisplayCopy(
+    val title: String,
+    val body: String,
+    val confirmationText: String,
+)
+
+private fun BrowserSecureDnsGuide
+    .displayCopy():
+    BrowserSecureDnsDisplayCopy =
+    when (this) {
+        BrowserSecureDnsGuide.Chrome ->
+            BrowserSecureDnsDisplayCopy(
+                title =
+                    "Chrome Secure DNS",
+                body =
+                    "Chrome can use its own encrypted DNS setting, which can bypass " +
+                        "Impulsive. Impulsive cannot read this Chrome setting directly.\n\n" +
+                        "In Chrome, open:\n" +
+                        "Settings → Privacy and security → Use Secure DNS → Off",
+                confirmationText =
+                    "I turned off Secure DNS in Chrome",
+            )
+
+        BrowserSecureDnsGuide.Brave ->
+            BrowserSecureDnsDisplayCopy(
+                title =
+                    "Brave Secure DNS",
+                body =
+                    "Brave can use its own encrypted DNS setting, which can bypass " +
+                        "Impulsive. Impulsive cannot read this Brave setting directly.\n\n" +
+                        "In Brave, open:\n" +
+                        "Settings → Brave Shields & privacy → Use Secure DNS → Off",
+                confirmationText =
+                    "I turned off Secure DNS in Brave",
+            )
+
+        BrowserSecureDnsGuide.OtherBrowsers ->
+            BrowserSecureDnsDisplayCopy(
+                title =
+                    "Secure DNS in other browsers",
+                body =
+                    "Some other protected browsers can use encrypted DNS outside Android's " +
+                        "Private DNS setting. Impulsive cannot read those browser settings " +
+                        "directly.\n\n" +
+                        "Open each other protected browser's privacy or security settings and " +
+                        "turn off Secure DNS, DNS over HTTPS or encrypted DNS before continuing.",
+                confirmationText =
+                    "I checked Secure DNS in my other protected browsers",
+            )
+    }
 
 @Composable
-private fun BrowserSecureDnsConfirmationCard(
+private fun GateConfirmationCard(
+    text: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
@@ -265,7 +446,7 @@ private fun BrowserSecureDnsConfirmationCard(
             onCheckedChange = onCheckedChange,
         )
         Text(
-            text = "I turned off Secure DNS in my protected browsers",
+            text = text,
             color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,

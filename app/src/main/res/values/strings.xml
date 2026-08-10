@@ -40,6 +40,12 @@
     <!-- Monitoring (persistent foreground) notification -->
     <string name="notif_monitoring_title">Impulsive protection is on</string>
     <string name="notif_monitoring_body">Protected apps are checked during your protected time.</string>
+    <!-- APP-015: the monitoring notification must state only what is operational now. -->
+    <string name="notif_monitoring_checking_title">Impulsive protection</string>
+    <string name="notif_monitoring_checking_body">Checking protection status.</string>
+    <string name="notif_monitoring_website_title">Website protection is on</string>
+    <string name="notif_monitoring_website_body">Protected websites are being checked.</string>
+    <string name="notif_monitoring_app_and_website_body">Protected apps and websites are being checked.</string>
     <string name="notif_vpn_title">Website protection is on</string>
     <string name="notif_vpn_body">Impulsive is checking sites during your protected time.</string>
 
@@ -106,7 +112,6 @@
     <string name="block_screen_btn_start_reading_task">Start reading task</string>
     <string name="block_screen_btn_task_not_needed">Task not needed right now</string>
     <string name="block_screen_btn_return_home">Return home</string>
-    <string name="block_screen_btn_one_minute">Open for 45 seconds</string>
     <string name="block_screen_source_label">Source: %1$s</string>
 
     <!-- Moment Plans -->

@@ -21,14 +21,23 @@ import java.util.Random
 
 class AdaptiveRecommendationPolicyTest {
     @Test
-    fun firstAttemptSelectsShortPauseWithoutRandomisation() {
+    /**
+     * A first attempt used to be answered with a Short Pause. Short Pause is
+     * retired as an active intervention, so minimum friction is now the game --
+     * still chosen deterministically, without consuming randomisation.
+     */
+    fun firstAttemptSelectsTheGameWithoutRandomisation() {
         val random = SequenceRandomisationSource(doubles = listOf(0.0), ints = listOf(2))
 
         val result = AdaptiveRecommendationPolicy(random).recommend(
             repeatedRequest().copy(momentIntensity = MomentIntensity.FirstAttempt),
         )
 
-        assertEquals(InterventionFamily.ShortPause, result.assignment.assignedSuggestion)
+        assertEquals(InterventionFamily.PivotGame, result.assignment.assignedSuggestion)
+        assertEquals(
+            setOf(InterventionFamily.PivotGame),
+            result.assignment.eligibleInterventions,
+        )
         assertEquals(AssignmentMode.MinimumFriction, result.assignment.assignmentMode)
         assertEquals(AdaptiveReasonCode.MinimumEffectiveFriction, result.assignment.reasonCode)
         assertEquals(0, random.doubleCalls)

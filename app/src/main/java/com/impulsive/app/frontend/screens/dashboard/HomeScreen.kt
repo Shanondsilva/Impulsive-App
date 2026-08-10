@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Security
@@ -72,8 +73,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -126,6 +131,9 @@ import com.impulsive.app.frontend.components.rememberBottomNavIndicatorState
 import com.impulsive.app.frontend.screens.tips.TipsViewModel
 import com.impulsive.app.frontend.screens.lock.AppLockGuardHost
 import com.impulsive.app.frontend.screens.lock.rememberAppLockGuardController
+import com.impulsive.app.frontend.screens.safebrowse.SafeBrowseSetupPendingUiState
+import com.impulsive.app.frontend.screens.safebrowse.SafeBrowseUiState
+import com.impulsive.app.frontend.screens.safebrowse.toHomePresentation
 import com.impulsive.app.frontend.theme.ImpulsiveMutedText
 import com.impulsive.app.frontend.theme.ImpulsivePsychological
 import com.impulsive.app.frontend.theme.ImpulsivePsychologicalDark
@@ -203,7 +211,7 @@ fun HomeScreen(
     premiumViewModel: PremiumViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onOpenRecoveryGames: () -> Unit = {},
     onOpenJournal: () -> Unit = {},
-    onOpenReflexOverrideTask: () -> Unit = {},
+    onOpenSnakeTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
     onOpenRhythmTilesTask: () -> Unit = {},
@@ -212,6 +220,7 @@ fun HomeScreen(
     onOpenScore: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenWebsiteProtectionPlus: () -> Unit = {},
+    onOpenSafeBrowse: () -> Unit = {},
     onOpenMomentPlans: () -> Unit = {},
     onOpenTips: () -> Unit = {},
     onOpenTip: (ImpulsiveTipId) -> Unit = {},
@@ -269,10 +278,12 @@ fun HomeScreen(
     var bodyModeSheetVisible by remember { mutableStateOf(false) }
     var soulModeSheetVisible by remember { mutableStateOf(false) }
     val websiteProtectionHealthy =
-        protectionSetupState.websiteProtectionEnabled && ImpulsiveVpnService.isRunning
+        protectionSetupState.websiteProtectionRuntimeEnabled && ImpulsiveVpnService.isRunning
     val configurationOpportunities = buildSet {
         if (!protectionSetupState.blockedAppsSelected) add(TipFeature.AppProtection)
-        if (!protectionSetupState.websiteProtectionEnabled) add(TipFeature.WebsiteProtection)
+        if (!protectionSetupState.websiteProtectionRuntimeEnabled) {
+            add(TipFeature.WebsiteProtection)
+        }
         if (momentPlanState.activePlan == null) add(TipFeature.MomentPlan)
     }
     LaunchedEffect(state.answers, configurationOpportunities) {
@@ -282,10 +293,13 @@ fun HomeScreen(
         )
         tipsViewModel.ensureHomeTip()
     }
+
     val bottomNavReservedSpace = 104.dp
     val startRecommendedMindTask = {
         when (recommendedMindTaskType) {
-            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+            PsychologyTaskType.Snake -> onOpenSnakeTask()
+            // Legacy task data routes to the active game.
+            PsychologyTaskType.ReflexOverride -> onOpenSnakeTask()
             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
             PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
@@ -398,6 +412,14 @@ fun HomeScreen(
                 onOpenTips = onOpenTips,
                 onOpenTip = onOpenTip,
                 onRotateTip = tipsViewModel::rotate,
+                palette = palette,
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            SafeBrowseHomeCard(
+                state = SafeBrowseSetupPendingUiState,
+                onClick = onOpenSafeBrowse,
                 palette = palette,
             )
 
@@ -1044,6 +1066,11 @@ private data class HomeRecommendedTask(
 )
 
 private fun PsychologyTaskType.homePreview(): HomeRecommendedTask = when (this) {
+    PsychologyTaskType.Snake -> HomeRecommendedTask(
+        title = "Snake",
+        description = "Guide the snake, collect fruit, and stay with one moving goal.",
+    )
+    // Legacy: only reachable from historical task data.
     PsychologyTaskType.ReflexOverride -> HomeRecommendedTask(
         title = "Reflex Override",
         description = "Break autopilot with a fast control challenge.",
@@ -1108,9 +1135,9 @@ private fun DashboardCards(
                 ) { onOpenRecoveryGames() },
                 label = "PIVOT GAME",
                 title = "Pivot\nGames",
-                subtext = "Reflex, block and stack games",
+                subtext = "Snake, block, stack and rhythm",
                 animatedTitles = listOf(
-                    "Reflex Override",
+                    "Snake",
                     "Block Cascade",
                     "SkyStack",
                     "Rhythm Tiles",
@@ -1838,6 +1865,121 @@ private fun WebsiteProtectionStatusHomeCard(
             )
         }
 
+    }
+}
+
+@Composable
+private fun SafeBrowseHomeCard(
+    state: SafeBrowseUiState,
+    onClick: () -> Unit,
+    palette: HomeReadablePalette,
+) {
+    val presentation = state.toHomePresentation()
+    val surfaceColor = if (palette.cardSurface == Color.Unspecified) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        palette.cardSurface
+    }
+    val isDark = palette.cardSurface != Color.Unspecified
+    val cardShape = RoundedCornerShape(24.dp)
+
+    Surface(
+        color = surfaceColor,
+        shape = cardShape,
+        border = impulsiveGlowBorderStroke(
+            enabled = isDark,
+            glowColor = HomeLavenderGlow,
+            fallbackColor = palette.subtleBorder,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .shadow(
+                elevation = 6.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = palette.softShadow,
+                spotColor = palette.softShadow,
+            )
+            .impulsiveGlowShadow(
+                enabled = isDark,
+                shape = cardShape,
+                glowColor = HomeLavenderGlow,
+                elevation = 14.dp,
+                ambientAlpha = 0.12f,
+                spotAlpha = 0.16f,
+            )
+            .heightIn(min = 112.dp)
+            .testTag("home_safe_browse_card")
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                stateDescription = presentation.stateDescription
+            },
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        color = HomeLavenderGlow.copy(alpha = if (isDark) 0.28f else 0.68f),
+                        shape = RoundedCornerShape(16.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Language,
+                    contentDescription = null,
+                    tint = if (isDark) HomeLavenderGlow else palette.primaryText.copy(alpha = 0.82f),
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "SAFE BROWSE",
+                    color = if (isDark) HomeLavenderGlow else palette.mutedText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(3.dp))
+
+                Text(
+                    text = "Safe Browse",
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(5.dp))
+
+                Text(
+                    text = presentation.supportingText,
+                    color = palette.mutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = if (isDark) HomeLavenderGlow else palette.actionText,
+                modifier = Modifier.size(22.dp),
+            )
+        }
     }
 }
 

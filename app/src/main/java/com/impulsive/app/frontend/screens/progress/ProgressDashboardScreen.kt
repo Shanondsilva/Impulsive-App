@@ -140,6 +140,9 @@ private const val ScoreFlipDurationMs = 1_050
 private const val ScoreFlipPersonalBestHoldMs = 8_000L
 private val ScoreFlipCardHeight = 218.dp
 private val ScoreFlipControlReservedSpace = 52.dp
+private val ScoreFlipHeaderMinHeight = 40.dp
+private val ScoreFlipHeaderBadgeSize = 40.dp
+private val ScoreFlipHeaderIconSize = 22.dp
 private val ResetReadingGreenGlow = Color(0xFF93E9BE)
 
 private data class ScoreScreenColors(
@@ -210,7 +213,7 @@ fun ProgressDashboardScreen(
     onOpenHome: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenFocus: () -> Unit = {},
-    onOpenReflexOverrideTask: () -> Unit = {},
+    onOpenSnakeTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
     onOpenRhythmTilesTask: () -> Unit = {},
@@ -255,7 +258,9 @@ fun ProgressDashboardScreen(
     val taskRewardState = taskRewardStoreState.toTaskRewardState(releasePlan)
     val startRecommendedMindTask = {
         when (taskRewardState.recommendedTaskType) {
-            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+            PsychologyTaskType.Snake -> onOpenSnakeTask()
+            // Legacy task data routes to the active game.
+            PsychologyTaskType.ReflexOverride -> onOpenSnakeTask()
             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
             PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()
@@ -1310,13 +1315,19 @@ private fun ScoreFlipHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 40.dp)
+                .heightIn(
+                    min = ScoreFlipHeaderMinHeight,
+                )
                 .padding(end = ScoreFlipControlReservedSpace),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(
+
+
+                        ScoreFlipHeaderBadgeSize,
+                    )
                     .background(
                         color = if (isDark) {
                             colors.surface.copy(alpha = 0.72f)
@@ -1331,7 +1342,10 @@ private fun ScoreFlipHeader(
                     imageVector = icon,
                     contentDescription = iconContentDescription,
                     tint = colors.muted,
-                    modifier = Modifier.size(22.dp),
+                    modifier =
+                        Modifier.size(
+                            ScoreFlipHeaderIconSize,
+                        ),
                 )
             }
         }
@@ -1802,13 +1816,17 @@ private fun ResetReadingFlipFaceSurface(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 32.dp)
+                        .heightIn(
+                            min = ScoreFlipHeaderMinHeight,
+                        )
                         .padding(end = ScoreFlipControlReservedSpace),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(
+                                ScoreFlipHeaderBadgeSize,
+                            )
                             .background(
                                 color = if (isDark) {
                                     accent.copy(alpha = 0.30f)
@@ -1823,7 +1841,10 @@ private fun ResetReadingFlipFaceSurface(
                             imageVector = Icons.AutoMirrored.Outlined.MenuBook,
                             contentDescription = null,
                             tint = if (isDark) accent else colors.text.copy(alpha = 0.74f),
-                            modifier = Modifier.size(17.dp),
+                            modifier =
+                                Modifier.size(
+                                    ScoreFlipHeaderIconSize,
+                                ),
                         )
                     }
                 }
@@ -2649,6 +2670,7 @@ private fun ScoreGameType.accentColor(): Color = when (this) {
     ScoreGameType.BreathControl -> ImpulsivePsychological
     ScoreGameType.RageDischarge -> ImpulsiveFocusMode
     ScoreGameType.RhythmTiles -> ImpulsivePsychological
+    ScoreGameType.Snake -> ImpulsivePsychological
     ScoreGameType.FocusSession -> ImpulsiveFocusMode
     ScoreGameType.Unknown -> ImpulsivePsychological
 }
@@ -2664,6 +2686,7 @@ private fun ScoreGameType.scoreIcon(): ImageVector = when (this) {
     ScoreGameType.BreathControl -> Icons.Filled.ShowChart
     ScoreGameType.RageDischarge -> Icons.Filled.AutoAwesome
     ScoreGameType.RhythmTiles -> Icons.Filled.AutoAwesome
+    ScoreGameType.Snake -> Icons.Filled.SportsEsports
     ScoreGameType.FocusSession -> Icons.Filled.Psychology
     ScoreGameType.Unknown -> Icons.Filled.SportsEsports
 }

@@ -4,6 +4,7 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -131,6 +132,94 @@ class RestoreBundleWriterAutoBundleTest {
         assertEquals(1, RestoreBundleWriter.SchemaVersion)
     }
 
+    @Test
+    fun sharedPayloadWriterIncludesVersionedSafeExitExtension() {
+        val source =
+            writerSource()
+
+        assertEquals(
+            1,
+            RestoreBundleWriter
+                .SchemaVersion,
+        )
+
+        assertTrue(
+            source.contains(
+                "SafeExitRestorePayloadCodec.JsonKey",
+            ),
+        )
+
+        assertTrue(
+            source.contains(
+                ".safeExitDao()",
+            ),
+        )
+
+        assertTrue(
+            source.contains(
+                ".getAllForBackup()",
+            ),
+        )
+    }
+
+    @Test
+    fun automaticBundleBuilderAcceptsPayloadAtSharedUtf8Limit() {
+        val payloadJson =
+            "a".repeat(
+                RestorePayloadSizePolicy
+                    .MaximumPayloadBytes,
+            )
+
+        val bundle =
+            RestoreBundleWriter
+                .buildAutomaticBundleJson(
+                    ownerUid =
+                        "user-a",
+                    ownerGoogleSubjectHash =
+                        ValidGoogleSubjectHash,
+                    payloadJson =
+                        payloadJson,
+                    createdAtMillis =
+                        1_700_000_000_000L,
+                )
+
+        assertTrue(
+            bundle.isNotBlank(),
+        )
+    }
+
+    @Test
+    fun automaticBundleBuilderRejectsPayloadOneUtf8ByteOverLimit() {
+        val payloadJson =
+            "a".repeat(
+                RestorePayloadSizePolicy
+                    .MaximumPayloadBytes +
+                    1,
+            )
+
+        val error =
+            assertThrows(
+                IllegalArgumentException::class.java,
+            ) {
+                RestoreBundleWriter
+                    .buildAutomaticBundleJson(
+                        ownerUid =
+                            "user-a",
+                        ownerGoogleSubjectHash =
+                            ValidGoogleSubjectHash,
+                        payloadJson =
+                            payloadJson,
+                        createdAtMillis =
+                            1_700_000_000_000L,
+                    )
+            }
+
+        assertEquals(
+            RestorePayloadSizePolicy
+                .OversizedPayloadMessage,
+            error.message,
+        )
+    }
     private fun writerSource(): String = File(
         "src/main/java/com/impulsive/app/backend/data/restore/RestoreBundleWriter.kt",
     ).readText()

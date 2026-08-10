@@ -6,6 +6,7 @@ import com.impulsive.app.backend.data.restore.AdaptiveRestoreSnapshotObserver
 import com.impulsive.app.backend.session.adaptive.AdaptivePhase4Dependencies
 import com.impulsive.app.backend.session.adaptive.AdaptiveHistoryRetentionScheduler
 import com.impulsive.app.backend.session.adaptive.AdaptiveRetentionDependencies
+import com.impulsive.app.backend.session.game.WorkManagerPivotGameSafeExitReconciliationScheduler
 import com.impulsive.app.backend.session.pathshift.PathShiftDependencies
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,11 @@ class ImpulsiveApplication : Application() {
 
         FirebaseApp.initializeApp(this)
         AppCheckInitializer.install()
+
+        WorkManagerPivotGameSafeExitReconciliationScheduler(
+            applicationContext,
+        )
+            .request()
 
         startupScope.launch {
             adaptiveRestoreSnapshotObserver =

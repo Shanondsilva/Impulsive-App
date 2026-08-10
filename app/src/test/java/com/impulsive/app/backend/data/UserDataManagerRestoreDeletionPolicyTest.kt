@@ -110,8 +110,21 @@ class UserDataManagerRestoreDeletionPolicyTest {
 
         assertTrue(
             source.contains(
+                "\"website_protection_incidents_v4\"",
+            ),
+        )
+        assertTrue(
+            source.contains(
                 "\"website_protection_incidents_v3\"",
             ),
+        )
+        assertTrue(
+            source.indexOf(
+                "\"website_protection_incidents_v4\"",
+            ) <
+                source.indexOf(
+                    "\"website_protection_incidents_v3\"",
+                ),
         )
         assertTrue(
             source.contains(

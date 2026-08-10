@@ -3,7 +3,6 @@ package com.impulsive.app.backend.session.pathshift
 import android.content.Context
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.repository.adaptive.RoomAdaptiveDecisionRepository
-import com.impulsive.app.backend.data.repository.adaptive.RoomAdaptivePreferenceRepository
 import com.impulsive.app.backend.data.repository.adaptive.RoomMomentPlanRepository
 import com.impulsive.app.backend.data.repository.pathshift.RoomPathShiftCycleRepository
 import com.impulsive.app.backend.domain.pathshift.PathShiftForecastPolicy
@@ -19,7 +18,6 @@ object PathShiftDependencies {
         return PathShiftCoordinator(
             cycles = RoomPathShiftCycleRepository(database.pathShiftCycleDao()),
             decisions = RoomAdaptiveDecisionRepository(database.adaptiveDecisionDao()),
-            preferences = RoomAdaptivePreferenceRepository(database.adaptivePreferenceDao()),
             plans = RoomMomentPlanRepository(database.momentPlanDao()),
             forecastPolicy = PathShiftForecastPolicy(),
             scheduler = WorkManagerPathShiftWorkScheduler(context, clock),

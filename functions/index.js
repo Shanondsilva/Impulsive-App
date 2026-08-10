@@ -10,18 +10,23 @@ const {
   createFirestoreRtdnStore,
   createRtdnProcessor,
 } = require("./subscriptionRtdn");
+const {
+  ENTITLEMENT_KIND,
+  productDefinition,
+  requireProductForEntitlement,
+  userFieldForEntitlement,
+  storedEntitlementKindForProductId,
+} = require("./subscriptionCatalog");
+const {
+  cleanString,
+  deriveExpectedProductEntitlement,
+} = require("./subscriptionEntitlement");
 
 admin.initializeApp();
 
 const db = admin.firestore();
 
 const PACKAGE_NAME = "com.impulsive.app";
-const MONTHLY_PRODUCT_ID = "impulsive_plus_monthly";
-const YEARLY_PRODUCT_ID = "impulsive_plus_yearly";
-const SUPPORTED_PRODUCT_IDS = new Set([
-  MONTHLY_PRODUCT_ID,
-  YEARLY_PRODUCT_ID,
-]);
 const REGION = "us-central1";
 const WEB_DELETE_SHARED_SECRET = defineSecret("WEB_DELETE_SHARED_SECRET");
 const PLAY_RTDN_TOPIC = "play-rtdn";
@@ -35,12 +40,6 @@ const DELETE_BATCH_SIZE = 450;
 // subcollection. Leave enough headroom for large, long-lived accounts.
 const ERASE_USER_DATA_TIMEOUT_SECONDS = 540;
 
-const ENTITLED_STATES = new Set([
-  "SUBSCRIPTION_STATE_ACTIVE",
-  "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
-]);
-
-const CANCELED_STATE = "SUBSCRIPTION_STATE_CANCELED";
 const ACKNOWLEDGEMENT_PENDING = "ACKNOWLEDGEMENT_STATE_PENDING";
 
 const auth = new google.auth.GoogleAuth({
@@ -57,19 +56,135 @@ const rtdnStore = createFirestoreRtdnStore({
   fieldValue: admin.firestore.FieldValue,
   packageName: PACKAGE_NAME,
   logger,
+  userFieldForEntitlement,
+  storedEntitlementKindForProductId,
 });
 
 const processPlayRtdn = createRtdnProcessor({
   store: rtdnStore,
   verifyPurchase: verifyPurchaseWithGoogle,
+  acknowledgePurchase: acknowledgeIfNeeded,
   logger,
   packageName: PACKAGE_NAME,
-  supportedProductIds: SUPPORTED_PRODUCT_IDS,
+  productDefinition,
   hashToken,
   isRetryableError: (error) => {
     return error instanceof HttpsError && error.code === "unavailable";
   },
 });
+
+/**
+ * Verifies a Google Play subscription purchase for the signed-in Firebase
+ * user, scoped to exactly one entitlement kind. A purchase whose product
+ * belongs to a different entitlement kind (for example a Safe Browse Pass
+ * purchase token submitted to the Plus callable) is rejected before Google
+ * is ever contacted -- entitlement kinds can never verify or credit each
+ * other's purchases.
+ *
+ * @param {*} request Callable request.
+ * @param {string} expectedEntitlementKind Entitlement kind this callable
+ *   is scoped to.
+ * @param {string} wrongProductMessage Message for a mismatched product.
+ * @param {function(string): Promise<object>} verifyPurchase Play verifier.
+ * @param {function(string, object, string): Promise<boolean>} acknowledge
+ *   Acknowledgement dependency.
+ * @param {function(...*): Promise<void>} save Entitlement-save dependency.
+ * @return {Promise<object>} Verified entitlement summary.
+ */
+async function verifySubscriptionPurchase(
+    request,
+    expectedEntitlementKind,
+    wrongProductMessage,
+    verifyPurchase = verifyPurchaseWithGoogle,
+    acknowledge = acknowledgeIfNeeded,
+    save = saveEntitlement,
+) {
+  const uid = request.auth && request.auth.uid;
+
+  if (!uid) {
+    throw new HttpsError(
+        "unauthenticated",
+        "You must be signed in to verify a purchase.",
+    );
+  }
+
+  const input = parseInput(request.data, expectedEntitlementKind);
+  const purchase = await verifyPurchase(input.purchaseToken);
+  const entitlement = deriveExpectedProductEntitlement(
+      purchase,
+      input.definition,
+      Date.now(),
+  );
+
+  if (!entitlement.hasMatchingProduct) {
+    logger.warn("Verified purchase did not contain the expected product.", {
+      uid,
+      entitlementKind: expectedEntitlementKind,
+      productId: entitlement.productId,
+      subscriptionState: entitlement.subscriptionState,
+    });
+
+    throw new HttpsError("permission-denied", wrongProductMessage);
+  }
+
+  if (!entitlement.metadataValid) {
+    logger.warn("Verified purchase had no valid base-plan metadata.", {
+      uid,
+      entitlementKind: expectedEntitlementKind,
+      productId: entitlement.productId,
+    });
+
+    throw new HttpsError(
+        "failed-precondition",
+        "The subscription plan could not be verified.",
+    );
+  }
+
+  if (!entitlement.active) {
+    logger.info("Verified purchase is not currently entitled.", {
+      uid,
+      entitlementKind: expectedEntitlementKind,
+      productId: entitlement.productId,
+      subscriptionState: entitlement.subscriptionState,
+      expiryTimeMillis: entitlement.expiryTimeMillis,
+    });
+
+    throw new HttpsError(
+        "failed-precondition",
+        "The purchase is not currently active.",
+    );
+  }
+
+  await acknowledge(
+      input.purchaseToken,
+      purchase,
+      entitlement.productId,
+  );
+  await save(
+      uid,
+      input.purchaseToken,
+      purchase,
+      entitlement,
+      input.definition,
+  );
+
+  logger.info("Subscription verified.", {
+    uid,
+    entitlementKind: expectedEntitlementKind,
+    productId: entitlement.productId,
+    subscriptionState: entitlement.subscriptionState,
+    expiryTimeMillis: entitlement.expiryTimeMillis,
+  });
+
+  return {
+    active: true,
+    productId: entitlement.productId,
+    basePlanId: entitlement.basePlanId,
+    planKind: entitlement.planKind,
+    subscriptionState: entitlement.subscriptionState,
+    expiryTimeMillis: entitlement.expiryTimeMillis,
+  };
+}
 
 /**
  * Verifies a Google Play subscription purchase for the signed-in Firebase user.
@@ -83,71 +198,30 @@ exports.verifyPlusSubscription = onCall(
       timeoutSeconds: 60,
       memory: "512MiB",
     },
-    async (request) => {
-      const uid = request.auth && request.auth.uid;
+    async (request) => verifySubscriptionPurchase(
+        request,
+        ENTITLEMENT_KIND.PLUS,
+        "The purchase does not contain Impulsive Plus.",
+    ),
+);
 
-      if (!uid) {
-        throw new HttpsError(
-            "unauthenticated",
-            "You must be signed in to verify a purchase.",
-        );
-      }
-
-      const input = parseInput(request.data);
-      const purchase = await verifyPurchaseWithGoogle(input.purchaseToken);
-      const entitlement = deriveEntitlement(
-          purchase,
-          input.productId,
-      );
-
-      if (!entitlement.hasMatchingProduct) {
-        logger.warn("Verified purchase did not contain Plus product.", {
-          uid,
-          productId: entitlement.productId,
-          subscriptionState: entitlement.subscriptionState,
-        });
-
-        throw new HttpsError(
-            "permission-denied",
-            "The purchase does not contain Impulsive Plus.",
-        );
-      }
-
-      if (!entitlement.active) {
-        logger.info("Verified purchase is not currently entitled.", {
-          uid,
-          productId: entitlement.productId,
-          subscriptionState: entitlement.subscriptionState,
-          expiryTimeMillis: entitlement.expiryTimeMillis,
-        });
-
-        throw new HttpsError(
-            "failed-precondition",
-            "The purchase is not currently active.",
-        );
-      }
-
-      await acknowledgeIfNeeded(
-          input.purchaseToken,
-          purchase,
-          entitlement.productId,
-      );
-      await saveEntitlement(uid, input.purchaseToken, purchase, entitlement);
-
-      logger.info("Plus subscription verified.", {
-        uid,
-        productId: entitlement.productId,
-        subscriptionState: entitlement.subscriptionState,
-        expiryTimeMillis: entitlement.expiryTimeMillis,
-      });
-
-      return {
-        active: entitlement.active,
-        productId: entitlement.productId,
-        subscriptionState: entitlement.subscriptionState,
-        expiryTimeMillis: entitlement.expiryTimeMillis,
-      };
+/**
+ * Verifies a Google Play Safe Browse Pass purchase for the signed-in user.
+ */
+exports.verifySafeBrowsePassSubscription = onCall(
+    {
+      region: REGION,
+      serviceAccount: SERVICE_ACCOUNT,
+      enforceAppCheck: true,
+      maxInstances: 10,
+      timeoutSeconds: 60,
+      memory: "512MiB",
     },
+    async (request) => verifySubscriptionPurchase(
+        request,
+        ENTITLEMENT_KIND.SAFE_BROWSE_PASS,
+        "The purchase does not contain the Safe Browse Pass.",
+    ),
 );
 
 /**
@@ -426,6 +500,84 @@ exports.handlePlayRtdn = onMessagePublished(
 );
 
 /**
+ * Returns the server-held entitlement for one entitlement kind for the
+ * signed-in user and lazily downgrades records whose expiry has already
+ * passed. Reads only the one Firestore field that entitlement kind owns --
+ * it can never see or report another kind's entitlement.
+ *
+ * @param {*} request Callable request.
+ * @param {string} expectedEntitlementKind Entitlement kind this callable
+ *   is scoped to.
+ * @param {*} firestore Firestore dependency.
+ * @param {*} fieldValue Firestore FieldValue dependency.
+ * @return {Promise<object>} Entitlement summary.
+ */
+async function checkEntitlementForRequest(
+    request,
+    expectedEntitlementKind,
+    firestore = db,
+    fieldValue = admin.firestore.FieldValue,
+) {
+  const uid = request.auth && request.auth.uid;
+
+  if (!uid) {
+    throw new HttpsError(
+        "unauthenticated",
+        "You must be signed in to check your subscription.",
+    );
+  }
+
+  const userField = userFieldForEntitlement(expectedEntitlementKind);
+
+  if (!userField) {
+    throw new HttpsError(
+        "internal",
+        "The subscription definition is invalid.",
+    );
+  }
+
+  const userRef = firestore.collection("users").doc(uid);
+  const snapshot = await userRef.get();
+  const entitlement = snapshot.exists ? snapshot.get(userField) : null;
+
+  if (!entitlement || typeof entitlement !== "object") {
+    return {active: false};
+  }
+
+  const expiryTimeMillis = Number(entitlement.expiryTimeMillis) || 0;
+  const storedActive = entitlement.active === true;
+  const activeNow = storedActive && expiryTimeMillis > Date.now();
+
+  if (storedActive && !activeNow) {
+    await userRef.set(
+        {
+          [userField]: {
+            active: false,
+            productId: entitlement.productId || null,
+            basePlanId: entitlement.basePlanId || null,
+            planKind: entitlement.planKind || null,
+            expiryTimeMillis,
+            updatedAt: fieldValue.serverTimestamp(),
+          },
+        },
+        {merge: true},
+    );
+
+    logger.info("Stale entitlement lazily downgraded.", {uid, userField});
+  }
+
+  return {
+    active: activeNow,
+    productId: entitlement.productId || null,
+    basePlanId: entitlement.basePlanId || null,
+    planKind: entitlement.planKind || null,
+    subscriptionState: entitlement.subscriptionState ||
+      "SUBSCRIPTION_STATE_UNSPECIFIED",
+    expiryTimeMillis,
+  };
+}
+
+/**
  * Returns the server-held Plus entitlement for the signed-in user and
  * lazily downgrades records whose expiry has already passed.
  */
@@ -436,50 +588,25 @@ exports.checkPlusEntitlement = onCall(
       maxInstances: 10,
       memory: "256MiB",
     },
-    async (request) => {
-      const uid = request.auth && request.auth.uid;
+    async (request) => checkEntitlementForRequest(
+        request, ENTITLEMENT_KIND.PLUS,
+    ),
+);
 
-      if (!uid) {
-        throw new HttpsError(
-            "unauthenticated",
-            "You must be signed in to check your subscription.",
-        );
-      }
-
-      const userRef = db.collection("users").doc(uid);
-      const snapshot = await userRef.get();
-      const plus = snapshot.exists ? snapshot.get("plus") : null;
-
-      if (!plus || typeof plus !== "object") {
-        return {active: false};
-      }
-
-      const expiryTimeMillis = Number(plus.expiryTimeMillis) || 0;
-      const storedActive = plus.active === true;
-      const activeNow = storedActive && expiryTimeMillis > Date.now();
-
-      if (storedActive && !activeNow) {
-        await userRef.set(
-            {
-              plus: {
-                active: false,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              },
-            },
-            {merge: true},
-        );
-
-        logger.info("Stale entitlement lazily downgraded.", {uid});
-      }
-
-      return {
-        active: activeNow,
-        productId: plus.productId || null,
-        subscriptionState: plus.subscriptionState ||
-          "SUBSCRIPTION_STATE_UNSPECIFIED",
-        expiryTimeMillis,
-      };
+/**
+ * Returns the server-held Safe Browse Pass entitlement for the signed-in
+ * user and lazily downgrades records whose expiry has already passed.
+ */
+exports.checkSafeBrowsePassEntitlement = onCall(
+    {
+      region: REGION,
+      enforceAppCheck: true,
+      maxInstances: 10,
+      memory: "256MiB",
     },
+    async (request) => checkEntitlementForRequest(
+        request, ENTITLEMENT_KIND.SAFE_BROWSE_PASS,
+    ),
 );
 
 
@@ -599,12 +726,16 @@ function assertEmptyCallableData(data) {
   }
 }
 /**
- * Validates and normalizes callable input.
+ * Validates and normalizes callable input, rejecting any product ID that is not
+ * catalogued under the expected entitlement kind.
  *
  * @param {*} data Callable request data.
- * @return {{productId: string, purchaseToken: string}} Normalized input.
+ * @param {string} expectedEntitlementKind Entitlement kind this callable
+ *   is scoped to.
+ * @return {{productId: string, purchaseToken: string, definition: object}}
+ *   Normalized input.
  */
-function parseInput(data) {
+function parseInput(data, expectedEntitlementKind) {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new HttpsError(
         "invalid-argument",
@@ -635,7 +766,11 @@ function parseInput(data) {
     );
   }
 
-  if (!SUPPORTED_PRODUCT_IDS.has(productId)) {
+  const definition = requireProductForEntitlement(
+      productId, expectedEntitlementKind,
+  );
+
+  if (!definition) {
     throw new HttpsError(
         "invalid-argument",
         "The subscription product is not supported.",
@@ -655,17 +790,8 @@ function parseInput(data) {
   return {
     productId,
     purchaseToken,
+    definition,
   };
-}
-
-/**
- * Returns a trimmed string only when the value is already a string.
- *
- * @param {*} value Input value.
- * @return {string} Trimmed value or an empty string.
- */
-function cleanString(value) {
-  return typeof value === "string" ? value.trim() : "";
 }
 
 /**
@@ -720,121 +846,178 @@ async function verifyPurchaseWithGoogle(purchaseToken) {
 }
 
 /**
- * Derives the current Plus entitlement from a Google subscription purchase.
- *
- * @param {object} purchase Google Play subscription purchase.
- * @param {string} expectedProductId Allowlisted expected Play product ID.
- * @return {object} Safe entitlement summary.
- */
-function deriveEntitlement(purchase, expectedProductId) {
-  const lineItems = Array.isArray(purchase.lineItems) ?
-    purchase.lineItems :
-    [];
-
-  const matchingItems = lineItems.filter(
-      (item) => item && item.productId === expectedProductId,
-  );
-
-  const expiryTimeMillis = getLatestExpiryTimeMillis(matchingItems);
-  const subscriptionState =
-    purchase.subscriptionState ||
-    "SUBSCRIPTION_STATE_UNSPECIFIED";
-  const nowMillis = Date.now();
-
-  let active = false;
-
-  if (ENTITLED_STATES.has(subscriptionState)) {
-    active = expiryTimeMillis > nowMillis;
-  } else if (subscriptionState === CANCELED_STATE) {
-    active = expiryTimeMillis > nowMillis;
-  }
-
-  return {
-    active,
-    hasMatchingProduct: matchingItems.length > 0,
-    productId: expectedProductId,
-    subscriptionState,
-    expiryTimeMillis,
-  };
-}
-
-/**
- * Calculates the latest valid expiry from matching subscription line items.
- *
- * @param {Array<object>} lineItems Matching Google Play line items.
- * @return {number} Latest expiry time in millis, or 0 when missing.
- */
-function getLatestExpiryTimeMillis(lineItems) {
-  return lineItems.reduce((latest, item) => {
-    const expiryTime = item && item.expiryTime;
-    const expiry = Date.parse(expiryTime || "");
-
-    if (!Number.isFinite(expiry)) {
-      return latest;
-    }
-
-    return Math.max(latest, expiry);
-  }, 0);
-}
-
-/**
- * Acknowledges verified purchases still pending acknowledgement.
+ * Acknowledges verified purchases still pending acknowledgement. Idempotent
+ * because it runs only when the verified Google response itself reports
+ * ACKNOWLEDGEMENT_STATE_PENDING.
  *
  * @param {string} purchaseToken Play purchase token.
  * @param {object} purchase Google Play subscription purchase.
  * @param {string} productId Server-verified Play product ID.
- * @return {Promise<void>}
+ * @param {*} publisherClient Android Publisher API client dependency.
+ * @return {Promise<boolean>} Whether acknowledgement was newly performed.
  */
-async function acknowledgeIfNeeded(purchaseToken, purchase, productId) {
+async function acknowledgeIfNeeded(
+    purchaseToken, purchase, productId, publisherClient = publisher,
+) {
   if (purchase.acknowledgementState !== ACKNOWLEDGEMENT_PENDING) {
-    return;
+    return false;
   }
 
   try {
-    await publisher.purchases.subscriptions.acknowledge({
+    await publisherClient.purchases.subscriptions.acknowledge({
       packageName: PACKAGE_NAME,
-      subscriptionId: productId,
       token: purchaseToken,
       requestBody: {},
     });
+
+    return true;
   } catch (error) {
+    const status = getErrorStatus(error);
+
     logger.error("Google Play acknowledgement failed.", {
-      status: getErrorStatus(error),
+      status,
       code: error && error.code,
       name: error && error.name,
+      productId,
     });
 
+    if (status >= 500 || status === 429) {
+      throw new HttpsError(
+          "unavailable",
+          "The purchase was verified but could not be acknowledged.",
+      );
+    }
+
     throw new HttpsError(
-        "unavailable",
-        "The purchase was verified but could not be acknowledged.",
+        "failed-precondition",
+        "Google Play rejected purchase acknowledgement.",
     );
   }
 }
 
 /**
- * Saves purchase-token ownership and the user's Plus entitlement atomically.
+ * Resolves the entitlement kind recorded on a purchase-token document,
+ * falling back to migrating an unmigrated legacy product ID.
+ *
+ * @param {?FirebaseFirestore.DocumentSnapshot} snapshot Token document.
+ * @return {?string} Entitlement kind, or null when unresolvable.
+ */
+function entitlementKindFromSnapshot(snapshot) {
+  if (!snapshot || !snapshot.exists) {
+    return null;
+  }
+
+  const explicit = cleanString(snapshot.get("entitlementKind"));
+
+  if (
+    explicit === ENTITLEMENT_KIND.PLUS ||
+    explicit === ENTITLEMENT_KIND.SAFE_BROWSE_PASS
+  ) {
+    return explicit;
+  }
+
+  return storedEntitlementKindForProductId(
+      cleanString(snapshot.get("productId")),
+  );
+}
+
+/**
+ * Rejects a stored token whose entitlement kind is unknown or conflicts
+ * with the entitlement kind currently being verified -- even when the
+ * Firebase UID is the same, a Plus token can never be linked into a Safe
+ * Browse Pass write or vice versa.
+ *
+ * @param {?FirebaseFirestore.DocumentSnapshot} snapshot Token document.
+ * @param {string} expectedEntitlementKind Entitlement kind being verified.
+ * @param {string} label Log-safe token label.
+ */
+function assertTokenEntitlementKind(snapshot, expectedEntitlementKind, label) {
+  if (!snapshot || !snapshot.exists) {
+    return;
+  }
+
+  const existingKind = entitlementKindFromSnapshot(snapshot);
+
+  if (!existingKind) {
+    logger.warn("Stored purchase token has no resolvable entitlement kind.", {
+      label,
+    });
+
+    throw new HttpsError(
+        "permission-denied",
+        "The stored purchase cannot be safely linked.",
+    );
+  }
+
+  if (existingKind !== expectedEntitlementKind) {
+    logger.warn("Purchase token entitlement conflict.", {
+      label,
+      expectedEntitlementKind,
+      existingKind,
+    });
+
+    throw new HttpsError(
+        "permission-denied",
+        "The purchase belongs to another subscription.",
+    );
+  }
+}
+
+/**
+ * Saves purchase-token ownership and the user's entitlement atomically,
+ * writing only the one Firestore field the trusted catalogue definition
+ * owns, and rejecting any current or linked token whose entitlement kind
+ * does not match.
  *
  * @param {string} uid Firebase Authentication user ID.
  * @param {string} purchaseToken Raw Play purchase token.
  * @param {object} purchase Google Play subscription purchase.
  * @param {object} entitlement Safe entitlement summary.
+ * @param {object} definition Trusted catalogue product definition.
+ * @param {*} firestore Firestore dependency.
+ * @param {*} fieldValue Firestore FieldValue dependency.
  * @return {Promise<void>}
  */
-async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
+async function saveEntitlement(
+    uid,
+    purchaseToken,
+    purchase,
+    entitlement,
+    definition,
+    firestore = db,
+    fieldValue = admin.firestore.FieldValue,
+) {
+  const validPlanKind =
+    entitlement.planKind === "prepaid" ||
+    entitlement.planKind === "autoRenewing";
+  const definitionValid = definition &&
+    definition.productId === entitlement.productId &&
+    definition.entitlementKind === entitlement.entitlementKind &&
+    cleanString(definition.userField).length > 0 &&
+    cleanString(entitlement.basePlanId).length > 0 &&
+    validPlanKind;
+
+  if (!definitionValid) {
+    throw new HttpsError(
+        "internal",
+        "The subscription definition is invalid.",
+    );
+  }
+
   const tokenHash = hashToken(purchaseToken);
   const linkedPurchaseToken = cleanString(purchase.linkedPurchaseToken);
   const linkedTokenHash = linkedPurchaseToken ?
     hashToken(linkedPurchaseToken) :
     null;
   const linkedTokenRef = linkedTokenHash && linkedTokenHash !== tokenHash ?
-    db.collection("playPurchaseTokens").doc(linkedTokenHash) :
+    firestore.collection("playPurchaseTokens").doc(linkedTokenHash) :
     null;
 
-  const tokenRef = db.collection("playPurchaseTokens").doc(tokenHash);
-  const userRef = db.collection("users").doc(uid);
+  const tokenRef = firestore.collection("playPurchaseTokens").doc(tokenHash);
+  const userRef = firestore.collection("users").doc(uid);
 
   try {
-    await db.runTransaction(async (transaction) => {
+    await firestore.runTransaction(async (transaction) => {
       const tokenSnapshot = await transaction.get(tokenRef);
       let linkedTokenSnapshot = null;
 
@@ -844,8 +1027,14 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
 
       assertTokenOwner(tokenSnapshot, uid, "purchase");
       assertLinkedTokenOwner(linkedTokenSnapshot, uid);
+      assertTokenEntitlementKind(
+          tokenSnapshot, definition.entitlementKind, "purchase",
+      );
+      assertTokenEntitlementKind(
+          linkedTokenSnapshot, definition.entitlementKind, "linked",
+      );
 
-      const updatedAt = admin.firestore.FieldValue.serverTimestamp();
+      const updatedAt = fieldValue.serverTimestamp();
 
       transaction.set(
           tokenRef,
@@ -853,6 +1042,9 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
             uid,
             packageName: PACKAGE_NAME,
             productId: entitlement.productId,
+            entitlementKind: definition.entitlementKind,
+            basePlanId: entitlement.basePlanId,
+            planKind: entitlement.planKind,
             active: entitlement.active,
             subscriptionState: entitlement.subscriptionState,
             expiryTimeMillis: entitlement.expiryTimeMillis,
@@ -867,6 +1059,7 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
             linkedTokenRef,
             {
               uid,
+              entitlementKind: definition.entitlementKind,
               active: false,
               supersededByTokenHash: tokenHash,
               updatedAt,
@@ -878,9 +1071,11 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
       transaction.set(
           userRef,
           {
-            plus: {
+            [definition.userField]: {
               active: entitlement.active,
               productId: entitlement.productId,
+              basePlanId: entitlement.basePlanId,
+              planKind: entitlement.planKind,
               subscriptionState: entitlement.subscriptionState,
               expiryTimeMillis: entitlement.expiryTimeMillis,
               purchaseTokenHash: tokenHash,
@@ -895,7 +1090,8 @@ async function saveEntitlement(uid, purchaseToken, purchase, entitlement) {
       throw error;
     }
 
-    logger.error("Could not save the Plus entitlement.", {
+    logger.error("Could not save the entitlement.", {
+      userField: definition.userField,
       message: error && error.message,
     });
 
@@ -974,6 +1170,14 @@ if (process.env.NODE_ENV === "test") {
     assertEmptyCallableData,
     getOnboardingCompletionForRequest,
     markOnboardingCompletedForRequest,
+  };
+  exports.__subscriptionTest = {
+    parseInput,
+    verifySubscriptionPurchase,
+    checkEntitlementForRequest,
+    saveEntitlement,
+    acknowledgeIfNeeded,
+    entitlementKindFromSnapshot,
   };
 }
 /**

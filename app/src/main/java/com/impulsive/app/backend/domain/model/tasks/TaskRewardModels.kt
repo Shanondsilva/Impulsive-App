@@ -10,6 +10,8 @@ enum class PsychologyTaskType(
     val id: String,
     val taskTitle: String,
 ) {
+    Snake("snake", "Snake"),
+    /** Legacy: retained so pre-cutover Reflex task data stays decodable. */
     ReflexOverride("reflex_override", "Reflex Override"),
     BlockCascade("block_cascade", "Block Cascade"),
     SkylineReset("skyline_reset", "SkyStack"),
@@ -163,6 +165,8 @@ val PsychologyTaskRewardDefinitions = listOf(
     // From the 6th same-game completion on the same local day, award 1 LP.
     // Same-day overuse is per game per day.
     // Do not exceed these values for future games without explicit founder approval.
+    TaskRewardDefinition(PsychologyTaskType.Snake, "Snake", 120, 10, 45, 2, 0, 1),
+    // Legacy: kept so a restored pre-upgrade Reflex task can still finish.
     TaskRewardDefinition(PsychologyTaskType.ReflexOverride, "Reflex Override", 120, 10, 45, 2, 0, 1),
     TaskRewardDefinition(PsychologyTaskType.BlockCascade, "Block Cascade", 90, 15, 45, 3, 10, 1),
     TaskRewardDefinition(PsychologyTaskType.SkylineReset, "SkyStack", 90, 15, 45, 3, 10, 1),
@@ -176,7 +180,8 @@ val PsychologyTaskRewardDefinitions = listOf(
 )
 
 fun PsychologyTaskType.isGameTask(): Boolean =
-    this == PsychologyTaskType.ReflexOverride ||
+    this == PsychologyTaskType.Snake ||
+        this == PsychologyTaskType.ReflexOverride ||
         this == PsychologyTaskType.BlockCascade ||
         this == PsychologyTaskType.SkylineReset ||
         this == PsychologyTaskType.RhythmTiles
@@ -341,13 +346,13 @@ fun recommendPsychologyTask(
                 PsychologyTaskType.BlockCascade,
                 PsychologyTaskType.SkylineReset,
                 PsychologyTaskType.RhythmTiles,
-                PsychologyTaskType.ReflexOverride,
+                PsychologyTaskType.Snake,
             )
         currentTriggerSource != null -> listOf(
             PsychologyTaskType.BlockCascade,
             PsychologyTaskType.SkylineReset,
             PsychologyTaskType.RhythmTiles,
-            PsychologyTaskType.ReflexOverride,
+            PsychologyTaskType.Snake,
         )
         currentTriggerType == TriggerType.RepeatedThought || currentTriggerType == TriggerType.Memory ->
             listOf(PsychologyTaskType.ResetRead)
@@ -360,7 +365,7 @@ fun recommendPsychologyTask(
         ) -> listOf(PsychologyTaskType.ResetRead)
         currentTriggerType == TriggerType.Unknown -> listOf(PsychologyTaskType.ResetRead)
         else -> listOf(
-            PsychologyTaskType.ReflexOverride,
+            PsychologyTaskType.Snake,
             PsychologyTaskType.BlockCascade,
             PsychologyTaskType.SkylineReset,
             PsychologyTaskType.RhythmTiles,
@@ -383,7 +388,7 @@ private fun chooseRecommendedTask(
     taskStatuses: List<TaskRewardStatus>,
     recentRecommendedTaskTypes: List<PsychologyTaskType>,
 ): PsychologyTaskType {
-    val allCandidates = candidates.ifEmpty { listOf(PsychologyTaskType.ReflexOverride) }
+    val allCandidates = candidates.ifEmpty { listOf(PsychologyTaskType.Snake) }
     val repeatedTooOften = recentRecommendedTaskTypes.takeLast(2)
         .takeIf { it.size == 2 && it[0] == it[1] }
         ?.firstOrNull()
@@ -398,6 +403,9 @@ private fun chooseRecommendedTask(
 }
 
 private fun recommendationReasonFor(taskType: PsychologyTaskType): String = when (taskType) {
+    PsychologyTaskType.Snake ->
+        "A simple moving goal keeps attention occupied and away from autopilot."
+    // Legacy: only reachable from historical task data.
     PsychologyTaskType.ReflexOverride -> "Strong novelty and a quick attention pivot."
     PsychologyTaskType.BlockCascade -> "Loads visual attention so the difficult image has less room."
     PsychologyTaskType.SkylineReset -> "Steady visual stacking gives attention somewhere calm to land."

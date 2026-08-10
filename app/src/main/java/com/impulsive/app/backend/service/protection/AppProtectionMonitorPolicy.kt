@@ -1,6 +1,5 @@
 package com.impulsive.app.backend.service.protection
 
-import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentPhase
 import com.impulsive.app.backend.domain.model.protection.AppProtectionMonitoringPolicy
 
 internal fun shouldMonitorProtectedApps(
@@ -38,14 +37,6 @@ internal fun shouldBypassGenericAppInterceptionForWebsiteProtection(
 ): Boolean =
     websiteProtectionEnabled &&
         foregroundPackage in websiteProtectedPackages
-
-internal fun canStartWebsiteInterruption(
-    phase: WebsiteProtectionIncidentPhase,
-): Boolean =
-    phase ==
-        WebsiteProtectionIncidentPhase.Friction ||
-        phase ==
-        WebsiteProtectionIncidentPhase.Cooldown
 
 internal fun isWebsiteFallbackIncidentEligible(
     incidentMatches: Boolean,

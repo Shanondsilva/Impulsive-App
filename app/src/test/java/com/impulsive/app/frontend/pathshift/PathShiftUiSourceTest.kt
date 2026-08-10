@@ -40,24 +40,68 @@ class PathShiftUiSourceTest {
     }
 
     @Test
-    fun `future path requires affirmative consent and supports confirmed disable`() {
-        assertTrue(settings.contains("Turn On Future Path"))
-        assertTrue(settings.contains("Not Now"))
-        assertTrue(settings.contains("No preselected consent").not())
-        assertTrue(settings.contains("Turn Off Future Path"))
-        assertTrue(settings.contains("pathShiftEnabled = true"))
-        assertTrue(settings.contains("pathShiftEnabled = false"))
+    fun `future path is removed from settings and has no disable controls`() {
+        assertFalse(
+            settings.contains(
+                "\"Always on\"",
+            ),
+        )
+
+        assertFalse(
+            settings.contains(
+                "Turn On Future Path",
+            ),
+        )
+
+        assertFalse(
+            settings.contains(
+                "Turn Off Future Path",
+            ),
+        )
+
+        assertFalse(
+            settings.contains(
+                "pathShiftConsentVisible",
+            ),
+        )
+
+        assertFalse(
+            settings.contains(
+                "pathShiftDisableVisible",
+            ),
+        )
+
+        assertFalse(
+            settings.contains(
+                "pathShiftEnabled = false",
+            ),
+        )
+
+        assertFalse(
+            screen.contains(
+                "Future Path is off.",
+            ),
+        )
+
+        assertFalse(
+            screen.contains(
+                "Turn off Future Path",
+            ),
+        )
     }
 
     @Test
-    fun `home omits PathShift while settings retain it`() {
+    fun `home omits PathShift and settings no longer duplicates it`() {
         assertFalse(home.contains("HomeSupportFeatureCard("))
         assertFalse(home.contains("eyebrow = \"FUTURE PATH\""))
         assertFalse(home.contains("title = \"Your Current Path\""))
-        assertTrue(settings.contains("title = \"Future Path\""))
+        assertFalse(settings.contains("title = \"Future Path\""))
+        assertTrue(navigation.contains("composable(AppRoutes.PathShift)"))
+        assertTrue(navigation.contains("PathShiftScreen("))
         assertFalse(home.contains("private fun PathShiftHomeCard("))
         assertFalse(home.contains("secondaryContainer.copy(alpha = 0.66f)"))
         assertFalse(home.contains("PathShiftChart"))
+        assertFalse(settings.contains("pathShiftEnabled = false"))
     }
 
     @Test

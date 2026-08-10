@@ -162,8 +162,10 @@ class V28TipsAndHomeSourceTest {
         assertFalse(coach.contains("Suggested apps, timing and support settings"))
     }
 
-    @Test fun coachSettingsCopyIsTimingOnly() =
-        assertTrue(settings.contains("R.string.protection_coach_description"))
+    @Test fun coachSettingsEntryIsRemovedWhileCoachCopyRemainsTimingOnly() {
+        assertFalse(settings.contains("R.string.protection_coach_description"))
+        assertTrue(coach.contains("protection_coach_timing_title"))
+    }
 
     @Test fun legacySuggestedSetupRouteRedirectsSafely() {
         val legacy = navigation.section("composable(AppRoutes.SuggestedSetup)", "composable(AppRoutes.ProtectionCoach)")
@@ -177,10 +179,13 @@ class V28TipsAndHomeSourceTest {
         assertFalse(coach.contains("repository.accept"))
     }
 
-    @Test fun settingsPreserveCoachFuturePathAndAddSmallTipsEntry() {
-        assertTrue(settings.contains("title = \"Protection Coach\""))
-        assertTrue(settings.contains("title = \"Future Path\""))
-        assertTrue(settings.contains("title = stringResource(R.string.tips_title)"))
+    @Test fun settingsNoLongerDuplicatesCoachFuturePathOrTipsRows() {
+        assertFalse(settings.contains("title = \"Protection Coach\""))
+        assertFalse(settings.contains("title = \"Future Path\""))
+        assertFalse(settings.contains("title = stringResource(R.string.tips_title)"))
+        assertTrue(navigation.contains("composable(AppRoutes.Tips)"))
+        assertTrue(navigation.contains("composable(AppRoutes.ProtectionCoach)"))
+        assertTrue(navigation.section("composable(AppRoutes.SuggestedSetup)", "composable(AppRoutes.ProtectionCoach)").contains("AppRoutes.ProtectionCoach"))
     }
 
     @Test fun catalogueContainsAtLeastEighteenStableEntries() =

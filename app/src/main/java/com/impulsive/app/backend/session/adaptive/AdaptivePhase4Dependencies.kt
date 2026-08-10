@@ -10,7 +10,9 @@ import com.impulsive.app.backend.data.repository.adaptive.RoomMomentPlanRehearsa
 import com.impulsive.app.backend.domain.engine.adaptive.AdaptiveRecommendationPolicy
 import com.impulsive.app.backend.domain.engine.adaptive.SecureRandomisationSource
 import com.impulsive.app.backend.domain.repository.adaptive.AdaptiveDecisionRepository
+import com.impulsive.app.backend.domain.repository.adaptive.AdaptiveSupportCycleClearAllResult
 import com.impulsive.app.backend.domain.repository.adaptive.MomentPlanRepository
+import com.impulsive.app.backend.domain.repository.adaptive.AdaptivePreferenceRepository
 import com.impulsive.app.backend.session.pathshift.PathShiftDependencies
 
 /**
@@ -18,6 +20,11 @@ import com.impulsive.app.backend.session.pathshift.PathShiftDependencies
  * SQLCipher AppDatabase and does not introduce a service locator or DI graph.
  */
 object AdaptivePhase4Dependencies {
+    fun preferences(context: Context): AdaptivePreferenceRepository {
+        val database = AppDatabase.getInstance(context.applicationContext)
+        return RoomAdaptivePreferenceRepository(database.adaptivePreferenceDao())
+    }
+
     fun decisions(context: Context): AdaptiveDecisionRepository {
         val database = AppDatabase.getInstance(context.applicationContext)
         return RoomAdaptiveDecisionRepository(database.adaptiveDecisionDao())
@@ -73,6 +80,30 @@ object AdaptivePhase4Dependencies {
             clock = clock,
         )
     }
+
+    fun familiarSteps(
+        context: Context,
+        clock: AdaptiveClock = SystemAdaptiveClock,
+    ): FamiliarStepCoordinator = FamiliarStepCoordinator(
+        decisions = decisions(context),
+        preferences = preferences(context),
+        plans = momentPlans(context),
+        lifecycle = lifecycle(context, clock),
+        supportCycles = AdaptiveSupportCycleDependencies.coordinator(context, clock),
+        clock = clock,
+    )
+
+    fun familiarStepHistory(context: Context): FamiliarStepHistoryService =
+        FamiliarStepHistoryService(decisions(context), momentPlans(context))
+
+    fun familiarStepControls(
+        context: Context,
+        clock: AdaptiveClock = SystemAdaptiveClock,
+    ): FamiliarStepControls = FamiliarStepControls(
+        resetCoordinator = resetCoordinator(context, clock),
+        preferences = preferences(context),
+        clock = clock,
+    )
 
     fun outcomeCoordinator(
         context: Context,
@@ -155,6 +186,11 @@ object AdaptivePhase4Dependencies {
                     AdaptiveHistoryRetentionScheduler.cancelCleanupAndAwait(context)
                 }
                 true
+            },
+            clearActiveSupportCycleState = {
+                AdaptiveSupportCycleDependencies
+                    .repository(context)
+                    .clearAll() == AdaptiveSupportCycleClearAllResult.Cleared
             },
         )
     }

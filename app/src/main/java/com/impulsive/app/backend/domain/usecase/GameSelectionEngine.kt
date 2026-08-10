@@ -26,7 +26,7 @@ object GameSelectionEngine {
 
     /** The only games eligible for the block-flow draw. */
     val candidates: List<ScoreGameType> = listOf(
-        ScoreGameType.ReflexOverride,
+        ScoreGameType.Snake,
         ScoreGameType.BlockCascade,
         ScoreGameType.SkylineReset,
         ScoreGameType.RhythmTiles,
@@ -45,24 +45,51 @@ object GameSelectionEngine {
         sessions: List<ScoreSessionRecord>,
         urgeEvents: List<UrgeEventRecord>,
         recentlyServed: List<ScoreGameType>,
+        eligibleGames: List<ScoreGameType> = candidates,
+        excludedGames: Set<ScoreGameType> = emptySet(),
         successWindow: Duration = Duration.ofMinutes(10),
         maxRunLength: Int = DefaultMaxRunLength,
         random: Random = Random.Default,
     ): ScoreGameType {
-        val pool = candidates
+        val pool = eligibleGames
+            .distinct()
+            .filter { it in candidates && it !in excludedGames }
+            .ifEmpty {
+                eligibleGames.distinct().filter { it in candidates }
+            }
+        require(pool.isNotEmpty()) { "At least one recovery game must be eligible." }
+
+        if (pool.size == 1) return pool.single()
+
+        val boundedSessions = sessions
+            .asSequence()
+            .filter { it.gameType in pool }
+            .sortedByDescending { it.completedAt }
+            .take(MaxEvidenceSessions)
+            .toList()
 
         // Streak guard: if the tail of recentlyServed is the same game repeated
         // maxRunLength times, drop it from this draw so the streak breaks.
-        val blocked: ScoreGameType? = run {
+        val repeatedSuccessfulGame: ScoreGameType? = run {
             if (maxRunLength <= 0 || recentlyServed.size < maxRunLength) return@run null
             val tail = recentlyServed.takeLast(maxRunLength)
             val first = tail.first()
-            if (tail.all { it == first }) first else null
+            val latestOutcome = boundedSessions.firstOrNull { it.gameType == first }
+            if (
+                tail.all { it == first } &&
+                latestOutcome?.isFavourable(urgeEvents, successWindow) == true
+            ) first else null
         }
-        val allowed = pool.filter { it != blocked }.ifEmpty { pool }
+
+        val latestFinalised = boundedSessions.firstOrNull()
+        val rotateAfterPoorOutcome = latestFinalised
+            ?.takeIf { !it.isFavourable(urgeEvents, successWindow) }
+            ?.gameType
+        val blocked = setOfNotNull(repeatedSuccessfulGame, rotateAfterPoorOutcome)
+        val allowed = pool.filter { it !in blocked }.ifEmpty { pool }
 
         // Unplayed first.
-        val playedTypes = sessions.map { it.gameType }.toSet()
+        val playedTypes = boundedSessions.map { it.gameType }.toSet()
         val unplayed = allowed.filter { it !in playedTypes }
         if (unplayed.isNotEmpty()) {
             return unplayed[random.nextInt(unplayed.size)]
@@ -70,8 +97,8 @@ object GameSelectionEngine {
 
         // Weighted random by smoothed success rate.
         val weights = allowed.map { game ->
-            val plays = sessions.filter { it.gameType == game }
-            val successes = plays.count { it.isSuccess(urgeEvents, successWindow) }
+            val plays = boundedSessions.filter { it.gameType == game }
+            val successes = plays.count { it.isFavourable(urgeEvents, successWindow) }
             // Laplace smoothing keeps early picks near even and lets confidence
             // grow with evidence. The floor of 1.0 means even a game that never
             // works still appears sometimes, both for variety and to retest it.
@@ -81,7 +108,7 @@ object GameSelectionEngine {
         return weightedPick(weights, random)
     }
 
-    private fun ScoreSessionRecord.isSuccess(
+    private fun ScoreSessionRecord.isFavourable(
         urgeEvents: List<UrgeEventRecord>,
         window: Duration,
     ): Boolean {
@@ -89,6 +116,7 @@ object GameSelectionEngine {
         val workedInGame = outcome == ScoreSessionOutcome.WalkedAway ||
             outcome == ScoreSessionOutcome.Completed
         if (!workedInGame) return false
+        if (urgeBefore != null && urgeAfter != null && urgeAfter >= urgeBefore) return false
         val windowEnd = completedAt.plus(window)
         val returnedToLoop = urgeEvents.any { event ->
             event.source == "app" &&
@@ -98,6 +126,8 @@ object GameSelectionEngine {
         }
         return !returnedToLoop
     }
+
+    private const val MaxEvidenceSessions = 100
 
     private fun weightedPick(
         weights: List<Pair<ScoreGameType, Double>>,

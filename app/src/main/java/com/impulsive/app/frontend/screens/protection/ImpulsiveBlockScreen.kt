@@ -61,8 +61,6 @@ fun ImpulsiveBlockScreen(
     onStartControlTask: () -> Unit,
     onStartReadingTask: () -> Unit,
     onReturnHome: () -> Unit,
-    oneMinuteAccessAvailable: Boolean = false,
-    onOpenForOneMinute: () -> Unit = {},
     modifier: Modifier = Modifier,
     onboardingViewModel: OnboardingViewModel = viewModel(),
     taskRewardViewModel: TaskRewardViewModel = viewModel(),
@@ -212,14 +210,6 @@ fun ImpulsiveBlockScreen(
                     }
                 }
 
-                if (!windowSnapshot.isProtectionPaused && oneMinuteAccessAvailable) {
-                    OutlinedButton(
-                        onClick = onOpenForOneMinute,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.block_screen_btn_one_minute))
-                    }
-                }
                 OutlinedButton(
                     onClick = onReturnHome,
                     modifier = Modifier.fillMaxWidth(),

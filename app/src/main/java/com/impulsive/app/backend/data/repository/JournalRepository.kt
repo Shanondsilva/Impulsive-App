@@ -9,10 +9,56 @@ import com.impulsive.app.backend.service.journal.JournalReminderScheduler
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
+data class JournalReminderContent(
+    val title: String,
+    val preview: String,
+)
+
 class JournalRepository(context: Context) {
     private val appContext = context.applicationContext
     private val dao = AppDatabase.getInstance(appContext).journalNoteDao()
     private val reminderScheduler = JournalReminderScheduler(appContext)
+
+    suspend fun getReminderContent(
+        noteId: Long,
+    ): JournalReminderContent? {
+        if (noteId <= 0L) {
+            return null
+        }
+
+        val note =
+            dao.getNote(noteId)
+                ?: return null
+
+        val checklistItems =
+            if (
+                note.noteType ==
+                "CHECKLIST"
+            ) {
+                dao.getChecklistItems(
+                    noteId,
+                )
+            } else {
+                emptyList()
+            }
+
+        return JournalReminderContent(
+            title =
+                note.title
+                    .ifBlank {
+                        "Journal reminder"
+                    },
+            preview =
+                note
+                    .previewForNotification(
+                        checklistItems,
+                    )
+                    .ifBlank {
+                        "You asked Impulsive to remind you."
+                    }
+                    .take(120),
+        )
+    }
 
     fun observeNotes(): Flow<List<JournalNoteEntity>> = dao.observeNotes()
 
@@ -35,10 +81,10 @@ class JournalRepository(context: Context) {
     ): Long {
         val savedId = dao.upsertNoteWithChecklist(note, checklistItems)
         reminderScheduler.schedule(
-            noteId = savedId,
-            title = note.title,
-            preview = note.previewForNotification(checklistItems),
-            reminderAtMillis = note.reminderAtMillis,
+            noteId =
+                savedId,
+            reminderAtMillis =
+                note.reminderAtMillis,
         )
         RestoreSnapshotRefreshScheduler.request(appContext)
         return savedId
@@ -47,10 +93,10 @@ class JournalRepository(context: Context) {
     suspend fun updateNote(note: JournalNoteEntity) {
         dao.update(note)
         reminderScheduler.schedule(
-            noteId = note.id,
-            title = note.title,
-            preview = note.previewForNotification(dao.getChecklistItems(note.id)),
-            reminderAtMillis = note.reminderAtMillis,
+            noteId =
+                note.id,
+            reminderAtMillis =
+                note.reminderAtMillis,
         )
         RestoreSnapshotRefreshScheduler.request(appContext)
     }

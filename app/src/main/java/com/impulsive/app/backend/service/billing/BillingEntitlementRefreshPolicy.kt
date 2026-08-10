@@ -1,6 +1,7 @@
 package com.impulsive.app.backend.service.billing
 
 import com.impulsive.app.backend.domain.model.premium.BillingPeriod
+import com.impulsive.app.backend.domain.model.safebrowse.SafeBrowsePassRenewalState
 
 internal enum class EntitlementRefreshOutcome {
     AppliedActive,
@@ -78,6 +79,117 @@ internal fun resolveServerEntitlementResponse(
     return ServerEntitlementResolution.Active(
         productId = productId,
         period = period,
+        expiryTimeMillis = expiryTimeMillis,
+        subscriptionState = subscriptionState,
+    )
+}
+
+/**
+ * Safe Browse Pass's own entitlement-response shape. Deliberately not [ServerEntitlementResolution]
+ * -- that type is keyed to [BillingPeriod] and the Plus product IDs, which a Pass response
+ * must never be interpreted through.
+ */
+internal sealed interface SafeBrowsePassEntitlementResolution {
+
+    data class Active(
+        val productId: String,
+        val basePlanId: String,
+        val isPrepaid: Boolean,
+        val expiryTimeMillis: Long,
+        val subscriptionState: String?,
+    ) : SafeBrowsePassEntitlementResolution
+
+    data class Inactive(
+        val subscriptionState: String?,
+    ) : SafeBrowsePassEntitlementResolution
+
+    data object RetryableFailure : SafeBrowsePassEntitlementResolution
+}
+
+internal fun resolveSafeBrowsePassRenewalState(
+    isPrepaid: Boolean,
+    subscriptionState: String?,
+): SafeBrowsePassRenewalState {
+    if (isPrepaid) {
+        return SafeBrowsePassRenewalState
+            .NotApplicable
+    }
+
+    return when (
+        subscriptionState
+            ?.trim()
+            ?.uppercase()
+    ) {
+        "SUBSCRIPTION_STATE_ACTIVE",
+        "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+        ->
+            SafeBrowsePassRenewalState
+                .Renewing
+
+        "SUBSCRIPTION_STATE_CANCELED" ->
+            SafeBrowsePassRenewalState
+                .CancelledUntilExpiry
+
+        else ->
+            SafeBrowsePassRenewalState
+                .Unknown
+    }
+}
+
+internal fun resolveSafeBrowsePassEntitlementResponse(
+    data: Any?,
+    nowMillis: Long,
+): SafeBrowsePassEntitlementResolution {
+    val map = data as? Map<*, *>
+        ?: return SafeBrowsePassEntitlementResolution.RetryableFailure
+
+    val active = map["active"] as? Boolean
+        ?: return SafeBrowsePassEntitlementResolution.RetryableFailure
+
+    val subscriptionState = (map["subscriptionState"] as? String)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+
+    if (!active) {
+        return SafeBrowsePassEntitlementResolution.Inactive(
+            subscriptionState = subscriptionState,
+        )
+    }
+
+    val productId = (map["productId"] as? String)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: return SafeBrowsePassEntitlementResolution.RetryableFailure
+
+    if (productId != BillingManager.SafeBrowsePassProductId) {
+        return SafeBrowsePassEntitlementResolution.RetryableFailure
+    }
+
+    val expiryTimeMillis = (map["expiryTimeMillis"] as? Number)
+        ?.toLong()
+        ?: return SafeBrowsePassEntitlementResolution.RetryableFailure
+
+    if (expiryTimeMillis <= nowMillis) {
+        return SafeBrowsePassEntitlementResolution.Inactive(
+            subscriptionState = subscriptionState,
+        )
+    }
+
+    val basePlanId = (map["basePlanId"] as? String)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: return SafeBrowsePassEntitlementResolution.RetryableFailure
+
+    val isPrepaid = when ((map["planKind"] as? String)?.trim()) {
+        "prepaid" -> true
+        "autoRenewing" -> false
+        else -> return SafeBrowsePassEntitlementResolution.RetryableFailure
+    }
+
+    return SafeBrowsePassEntitlementResolution.Active(
+        productId = productId,
+        basePlanId = basePlanId,
+        isPrepaid = isPrepaid,
         expiryTimeMillis = expiryTimeMillis,
         subscriptionState = subscriptionState,
     )

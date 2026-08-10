@@ -5,7 +5,6 @@ import com.impulsive.app.backend.data.local.entity.AdaptivePreferenceEntity
 import com.impulsive.app.pathshift.pathShiftCycleEntity
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,6 +43,40 @@ class PathShiftBackupRestoreInstrumentedTest {
             1_000L,
         )!!
         assertTrue(restoredTwo.pathShiftCycles.isEmpty())
-        assertFalse(restoredTwo.preferences.pathShiftEnabled)
+        assertTrue(
+            restoredTwo
+                .preferences
+                .pathShiftEnabled,
+        )
+
+        val schemaThreeFalse =
+            AdaptiveRestorePayloadCodec.encode(
+                plans = emptyList(),
+                preferences = AdaptivePreferenceEntity(),
+                decisions = emptyList(),
+                rehearsals = emptyList(),
+            ).apply {
+                getJSONObject(
+                    "preferences",
+                )
+                    .put(
+                        "pathShiftEnabled",
+                        false,
+                    )
+            }
+        val restoredThreeFalse =
+            AdaptiveRestorePayloadCodec.decodeIfPresent(
+                JSONObject()
+                    .put(
+                        AdaptiveRestorePayloadCodec.JsonKey,
+                        schemaThreeFalse,
+                    ),
+                1_000L,
+            )!!
+        assertTrue(
+            restoredThreeFalse
+                .preferences
+                .pathShiftEnabled,
+        )
     }
 }

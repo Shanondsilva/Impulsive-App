@@ -23,7 +23,12 @@ class RoomAdaptiveDataRepository(
             database.pathShiftCycleDao().clearAll()
             database.protectionCoachSuggestionDao().clearAllCoachData()
             database.momentPlanDao().clearAll()
-            database.adaptivePreferenceDao().clearAll()
+            database
+                .adaptivePreferenceDao()
+                .resetDefaults(
+                    updatedAtMillis =
+                        0L,
+                )
         }
     }
 }

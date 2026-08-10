@@ -15,6 +15,13 @@ class AdaptiveDatabaseSchemaSourceTest {
     private val schema9 = JSONObject(File(schemaDirectory, "9.json").readText())
     private val schema10 = JSONObject(File(schemaDirectory, "10.json").readText())
     private val schema12 = JSONObject(File(schemaDirectory, "12.json").readText())
+    private val schema13 =
+        JSONObject(
+            File(
+                schemaDirectory,
+                "13.json",
+            ).readText(),
+        )
 
     @Test
     fun exportedSchemaEightContainsAdaptiveTablesAndRequiredIndexes() {
@@ -142,17 +149,21 @@ class AdaptiveDatabaseSchemaSourceTest {
             "src/main/java/com/impulsive/app/backend/data/local/database/AppDatabase.kt",
         ).readText()
 
-        assertTrue(source.contains("version = 12"))
+        assertTrue(source.contains("version = 14"))
         assertTrue(source.contains("Migration7To8 = object : Migration(7, 8)"))
         assertTrue(source.contains("Migration8To9 = object : Migration(8, 9)"))
         assertTrue(source.contains("Migration9To10 = object : Migration(9, 10)"))
         assertTrue(source.contains("Migration10To11 = object : Migration(10, 11)"))
         assertTrue(source.contains("Migration11To12 = object : Migration(11, 12)"))
+        assertTrue(source.contains("Migration12To13"))
+        assertTrue(source.contains("Migration13To14"))
         assertTrue(source.contains("Migration7To8,"))
         assertTrue(source.contains("Migration8To9,"))
         assertTrue(source.contains("Migration9To10,"))
         assertTrue(source.contains("Migration10To11,"))
         assertTrue(source.contains("Migration11To12,"))
+        assertTrue(source.contains("Migration12To13,"))
+        assertTrue(source.contains("Migration13To14,"))
         assertTrue(source.contains("SupportOpenHelperFactory(passphrase)"))
         assertFalse(source.contains("fallbackToDestructiveMigration"))
         assertFalse(source.contains("createFromAsset"))
@@ -208,6 +219,78 @@ class AdaptiveDatabaseSchemaSourceTest {
                 columns.any { forbidden in it },
             )
         }
+    }
+
+    @Test
+    fun exportedSchemaThirteenMakesFuturePathEnabledByDefault() {
+        val database =
+            schema13.getJSONObject(
+                "database",
+            )
+
+        assertEquals(
+            13,
+            database.getInt(
+                "version",
+            ),
+        )
+
+        val preferences =
+            database
+                .getJSONArray(
+                    "entities",
+                )
+                .let { entities ->
+                    (0 until entities.length())
+                        .map {
+                            entities.getJSONObject(
+                                it,
+                            )
+                        }
+                        .single {
+                            it.getString(
+                                "tableName",
+                            ) ==
+                                "adaptive_preferences"
+                        }
+                }
+
+        val pathShift =
+            preferences
+                .getJSONArray(
+                    "fields",
+                )
+                .let { fields ->
+                    (0 until fields.length())
+                        .map {
+                            fields.getJSONObject(
+                                it,
+                            )
+                        }
+                        .single {
+                            it.getString(
+                                "columnName",
+                            ) ==
+                                "pathShiftEnabled"
+                        }
+                }
+
+        assertEquals(
+            "1",
+            pathShift.getString(
+                "defaultValue",
+            ),
+        )
+
+        assertTrue(
+            preferences
+                .getString(
+                    "createSql",
+                )
+                .contains(
+                    "pathShiftEnabled` INTEGER NOT NULL DEFAULT 1",
+                ),
+        )
     }
 
     @Test
@@ -285,6 +368,8 @@ class AdaptiveDatabaseSchemaSourceTest {
             "9.json" to "1F039785F96DA5BA24711177D0B8467DBBEBE9F785D73CF79A99C4CB13B86E22",
             "10.json" to "8BC1810D8136A975375F6BA5A144F3A310550C8012C853F946DC9C5FD829042E",
             "11.json" to "CF7623F6B5342B187B94CC7D04822A00DA0CAFF76B95DF0E9DBDA5BD55763CA4",
+            "12.json" to
+                "4BCB83988077C640B7CB003E4CCF7485EDFDD7AF0794B1AB7D7BEA77C3AADA6A",
         )
 
         val RequiredCoachIndexes = setOf(

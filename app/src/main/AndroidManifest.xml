@@ -42,6 +42,14 @@
         android:theme="@style/Theme.Impulsive"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false">
+        <!-- ===== Safe Browse: Google Mobile Ads (optional rewarded ad only) ===== -->
+        <!-- Value is supplied per build type in app/build.gradle.kts. Debug always uses
+             Google's official sample application ID; release uses IMPULSIVE_ADMOB_APP_ID
+             from Gradle properties, never a real ID committed to Git. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${admobApplicationId}" />
+
         <activity
             android:name="com.impulsive.app.MainActivity"
             android:launchMode="singleTop"
@@ -82,7 +90,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-enabled local VPN DNS filter protects selected websites on device without routing traffic to a remote VPN server." />
+                android:value="User-enabled local VPN DNS filter protects selected websites: domain matching happens on device, unresolved DNS queries use encrypted external DNS resolution (Cloudflare or AdGuard), and normal web traffic is not routed to a remote VPN server." />
 
             <intent-filter>
                 <action android:name="android.net.VpnService" />

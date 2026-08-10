@@ -4,6 +4,7 @@ import com.impulsive.app.backend.data.local.dao.AdaptiveDecisionDao
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveDecision
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveOutcomeRecord
 import com.impulsive.app.backend.domain.model.adaptive.FeedbackCode
+import com.impulsive.app.backend.domain.model.adaptive.FamiliarStepEvidenceRecord
 import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
 import com.impulsive.app.backend.domain.model.adaptive.MomentCue
 import com.impulsive.app.backend.domain.model.adaptive.MomentPlanUseRecord
@@ -301,6 +302,13 @@ class RoomAdaptiveDecisionRepository(
     ): List<AdaptiveOutcomeRecord> =
         dao.getRecentFinalised(limit.requirePositiveLimit()).map {
             it.toOutcomeRecord()
+        }
+
+    override suspend fun getRecentFamiliarStepEvidence(
+        limit: Int,
+    ): List<FamiliarStepEvidenceRecord> =
+        dao.getRecentFinalised(limit.requirePositiveLimit()).mapNotNull {
+            it.toFamiliarStepEvidenceRecord()
         }
 
     override suspend fun getFinalisedByActualIntervention(

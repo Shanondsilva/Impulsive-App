@@ -33,7 +33,7 @@ class ProtectionInterruptionOverlaySourceTest {
         val createView =
             source.substring(
                 source.indexOf("private fun createView"),
-                source.indexOf("private fun configureResetStatus"),
+                source.indexOf("private fun resetChoice"),
             )
 
         assertTrue(createView.contains("visibility = View.VISIBLE"))
@@ -73,9 +73,14 @@ class ProtectionInterruptionOverlaySourceTest {
             source.indexOf("// One explicit branch per interruption identity:"),
             source.indexOf("val footer = LinearLayout"),
         )
+        /*
+         * The adaptive card branch is gone: a protected interruption carrying a
+         * decision is now handled by the automatic bridge before this card is
+         * built. Focus is therefore bounded by the generic else branch.
+         */
         val focusChoiceBranch = resetChoicesBlock.substring(
             resetChoicesBlock.indexOf("isFocusSession ->"),
-            resetChoicesBlock.indexOf("adaptiveDecisionId != null ->"),
+            resetChoicesBlock.indexOf("else -> {"),
         )
         val genericChoiceBranch = resetChoicesBlock.substring(
             resetChoicesBlock.indexOf("else -> {"),
@@ -91,29 +96,21 @@ class ProtectionInterruptionOverlaySourceTest {
         assertFalse(focusChoiceBranch.contains("BlockLaunchTarget.ReadingReset"))
 
         assertTrue(genericChoiceBranch.contains("Pivot by Game"))
-        assertTrue(genericChoiceBranch.contains("Pivot by Reading"))
+        // Protection no longer offers Reading; standalone Reset Reading is unaffected.
+        assertFalse(genericChoiceBranch.contains("Pivot by Reading"))
     }
 
     @Test
-    fun `focus footer never renders continue deliberately or ordinary cooldown copy`() {
+    fun `footer never renders temporary continue bypass or cooldown copy`() {
         val footerBlock = source.substring(
             source.indexOf("footer.addView(softAction(context, \"Leave this app\")"),
-            source.indexOf("card.addView(\n            footer,"),
-        )
-        val focusFooterBranch = footerBlock.substring(
-            footerBlock.indexOf("isFocusSession -> {"),
-            footerBlock.indexOf("else -> {"),
+            source.indexOf("resetChoices.alpha = 1f"),
         )
 
         assertTrue(footerBlock.contains("\"Leave this app\""))
-        assertFalse(focusFooterBranch.contains("Continue deliberately"))
-        assertFalse(focusFooterBranch.contains("configureResetStatus"))
-
-        val genericAppMonitorBranch = footerBlock.substring(
-            footerBlock.indexOf("!isFocusSession && owner == Owner.AppMonitor -> {"),
-            footerBlock.indexOf("isFocusSession -> {"),
-        )
-        assertTrue(genericAppMonitorBranch.contains("Continue deliberately"))
+        assertFalse(footerBlock.contains("Continue deliberately"))
+        assertFalse(footerBlock.contains("configureResetStatus"))
+        assertFalse(footerBlock.contains("grantTemporaryAccessSafely"))
     }
 
     @Test

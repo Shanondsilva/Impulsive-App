@@ -6,8 +6,9 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +50,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -58,6 +61,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import com.impulsive.app.backend.domain.game.StackBlock
 import com.impulsive.app.backend.domain.game.StackBlockHeight
 import com.impulsive.app.backend.domain.game.StackDropResult
@@ -105,6 +109,7 @@ fun SkylineResetScreen(
     onAdaptiveCompleted: (() -> Unit)? = null,
     onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+    gameLaunchContext: RecoveryGameLaunchContext = RecoveryGameLaunchContext.Standalone,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: SkylineResetViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -116,6 +121,9 @@ fun SkylineResetScreen(
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
     val sounds = rememberImpulsiveSounds(appSettingsState.soundEffectsEnabled)
+    LaunchedEffect(gameLaunchContext) {
+        if (!viewModel.configureLaunchContext(gameLaunchContext)) onExit()
+    }
     LaunchedEffect(uiState.dropSeq) {
         if (uiState.dropSeq > 0) {
             sounds.skySetClick()
@@ -172,6 +180,7 @@ fun SkylineResetScreen(
             score = stackScore(),
             durationSec = uiState.secondsPlayed,
             validCompletion = validCompletion,
+            completionToken = viewModel.taskRewardCompletionToken(),
         )
     }
 
@@ -183,7 +192,9 @@ fun SkylineResetScreen(
         if (uiState.completed) {
             taskRewardViewModel.clearLastCompletionResult()
         }
-        onAdaptiveExit?.invoke(uiState.completed) ?: onExit()
+        viewModel.finishSupportCycleAfterChoice {
+            onAdaptiveExit?.invoke(uiState.completed) ?: onExit()
+        }
     }
 
     BackHandler {
@@ -209,7 +220,6 @@ fun SkylineResetScreen(
     LaunchedEffect(uiState.view, uiState.completed, uiState.failed) {
         if (uiState.view == SkylineResetView.Result) {
             logTaskResult(validCompletion = uiState.completed)
-            if (uiState.completed) onAdaptiveCompleted?.invoke()
         }
     }
 
@@ -288,12 +298,14 @@ fun SkylineResetScreen(
                 taskLaunch = taskLaunch,
                 onDone = ::exitSafely,
                 onPlayAgain = {
-                    viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
-                    taskRewardViewModel.clearLastCompletionResult()
-                    rewardLogged = false
-                    viewModel.start()
+                    viewModel.replayWithRemainingBudget {
+                        viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
+                        taskRewardViewModel.clearLastCompletionResult()
+                        rewardLogged = false
+                        viewModel.start()
+                    }
                 },
-                onPlayAnother = onPlayAnother,
+                onPlayAnother = { viewModel.continueWithAnotherGame(onPlayAnother) },
             )
         }
     }
@@ -400,7 +412,7 @@ private fun SkyStackHud(uiState: SkylineResetUiState) {
 }
 
 @Composable
-private fun SkyStackGameScene(
+internal fun SkyStackGameScene(
     uiState: SkylineResetUiState,
     modifier: Modifier = Modifier,
     onDrop: () -> Unit,
@@ -430,12 +442,21 @@ private fun SkyStackGameScene(
         }
     }
 
+    val interactionSource = remember { MutableInteractionSource() }
+
     Canvas(
         modifier = modifier
-            .pointerInput(uiState.view) {
-                detectTapGestures {
-                    if (uiState.view == SkylineResetView.Playing) onDrop()
-                }
+            .clickable(
+                interactionSource = interactionSource,
+                // The scene has never shown a ripple.
+                indication = null,
+                enabled = uiState.view == SkylineResetView.Playing,
+                onClickLabel = "Drop block",
+                role = Role.Button,
+                onClick = onDrop,
+            )
+            .semantics {
+                contentDescription = "Skyline game board"
             },
     ) {
         drawSkyBackground()

@@ -4,6 +4,8 @@ import android.app.backup.BackupManager
 import android.content.Context
 import android.content.Intent
 import com.impulsive.app.backend.data.local.database.AppDatabase
+import com.impulsive.app.backend.data.local.preferences.AdaptiveSupportCyclePreferencesDataSource
+import com.impulsive.app.backend.data.repository.SafeBrowsePassRepository
 import com.impulsive.app.backend.data.restore.RestoreBundleWriter
 import com.impulsive.app.backend.data.restore.AndroidRestoreProvenanceStore
 import com.impulsive.app.backend.data.restore.AndroidPendingRestoredOwnershipClaimStore
@@ -78,6 +80,10 @@ class UserDataManager(
             AndroidPendingCloudRestoreAuthorizationStore(context).clear()
             database.cloudRestoreReceiptDao().clearAll()
             database.clearAllTables()
+            AdaptiveSupportCyclePreferencesDataSource
+                .getInstance(context)
+                .clearAll()
+            SafeBrowsePassRepository(context).clear()
 
             /*
              * DataStore objects can retain in-memory values. Remove their
@@ -191,6 +197,7 @@ class UserDataManager(
 
         val LocalStateSharedPreferences =
             listOf(
+                "website_protection_incidents_v4",
                 "website_protection_incidents_v3",
                 "vpn_diagnostics",
                 "interruption_message_selector",

@@ -11,6 +11,7 @@ import com.impulsive.app.backend.domain.model.adaptive.AdaptiveSourceKind
 import com.impulsive.app.backend.domain.model.adaptive.AssignmentMode
 import com.impulsive.app.backend.domain.model.adaptive.EngagementOutcome
 import com.impulsive.app.backend.domain.model.adaptive.FeedbackCode
+import com.impulsive.app.backend.domain.model.adaptive.FamiliarStepEvidenceRecord
 import com.impulsive.app.backend.domain.model.adaptive.ImpulsiveDestination
 import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
 import com.impulsive.app.backend.domain.model.adaptive.MomentCue
@@ -42,12 +43,14 @@ internal class FakeRandomisationSource(
         (if (ints.isEmpty()) 0 else ints.removeFirst()).coerceIn(0, bound - 1)
 }
 
-internal class FakeDecisionRepository : AdaptiveDecisionRepository {
+internal open class FakeDecisionRepository : AdaptiveDecisionRepository {
     val stored = mutableListOf<AdaptiveDecision>()
     var outcomes: List<AdaptiveOutcomeRecord> = emptyList()
     var insertCalls = 0
     var clearCalls = 0
     var throwOnRead = false
+    var familiarStepEvidence: List<FamiliarStepEvidenceRecord> = emptyList()
+    var familiarStepEvidenceReads = 0
 
     override suspend fun insertOnce(decision: AdaptiveDecision): Boolean {
         insertCalls++
@@ -453,6 +456,13 @@ internal class FakeDecisionRepository : AdaptiveDecisionRepository {
 
     override suspend fun getRecentFinalised(limit: Int): List<AdaptiveOutcomeRecord> =
         outcomes.take(limit)
+
+    override suspend fun getRecentFamiliarStepEvidence(
+        limit: Int,
+    ): List<FamiliarStepEvidenceRecord> {
+        familiarStepEvidenceReads++
+        return familiarStepEvidence.take(limit)
+    }
 
     override suspend fun getFinalisedByActualIntervention(
         intervention: InterventionFamily,

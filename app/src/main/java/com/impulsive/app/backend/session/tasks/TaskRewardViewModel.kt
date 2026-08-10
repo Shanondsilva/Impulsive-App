@@ -60,9 +60,10 @@ class TaskRewardViewModel(
         score: Int? = null,
         durationSec: Int? = null,
         validCompletion: Boolean = true,
+        completionToken: String? = null,
     ) {
         viewModelScope.launch {
-            lastCompletionResult.value = repository.completeTask(
+            completeTaskAndAwait(
                 taskType = taskType,
                 releasePlan = releasePlan,
                 now = now,
@@ -71,8 +72,44 @@ class TaskRewardViewModel(
                 score = score,
                 durationSec = durationSec,
                 validCompletion = validCompletion,
+                completionToken = completionToken,
             )
         }
+    }
+
+    /**
+     * Completes a task and suspends until the repository write returns.
+     *
+     * A caller that must not navigate away before the reward is durable awaits
+     * this instead of [completeTask]: the receipt ledger already makes repeats
+     * idempotent, so the awaited call is safe to retry.
+     */
+    suspend fun completeTaskAndAwait(
+        taskType: PsychologyTaskType,
+        releasePlan: ReleasePlanState,
+        now: LocalDateTime,
+        launchedFrom: String = "TASK_TO_COMPLETE",
+        gameType: String = taskType.id.uppercase(),
+        score: Int? = null,
+        durationSec: Int? = null,
+        validCompletion: Boolean = true,
+        completionToken: String? = null,
+    ): TaskCompletionResult {
+        val result = repository.completeTask(
+            taskType = taskType,
+            releasePlan = releasePlan,
+            now = now,
+            launchedFrom = launchedFrom,
+            gameType = gameType,
+            score = score,
+            durationSec = durationSec,
+            validCompletion = validCompletion,
+            completionToken = completionToken,
+        )
+
+        lastCompletionResult.value = result
+
+        return result
     }
 
     fun clearLastCompletionResult() {

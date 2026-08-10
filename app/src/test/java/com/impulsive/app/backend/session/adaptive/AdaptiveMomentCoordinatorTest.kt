@@ -27,10 +27,11 @@ class AdaptiveMomentCoordinatorTest {
             AdaptiveRecommendationPolicyVersion.Current,
             passport.recommendationPolicyVersion,
         )
-        assertEquals("short_pause", passport.assignedProtocolId)
+        // First-attempt protocol is now the game; Short Pause is retired.
+        assertEquals("pivot_game", passport.assignedProtocolId)
         assertEquals(1, passport.assignedProtocolVersion)
         assertEquals(
-            InterventionFamily.ShortPause.eligibilityBit,
+            InterventionFamily.PivotGame.eligibilityBit,
             passport.assignment.eligibleInterventionsMask,
         )
     }
@@ -80,7 +81,7 @@ class AdaptiveMomentCoordinatorTest {
 
         assertEquals(2, decisions.stored.size)
         assertFalse(decisions.stored[0].decisionId == decisions.stored[1].decisionId)
-        assertEquals("short_pause", decisions.stored[0].assignedProtocolId)
+        assertEquals("pivot_game", decisions.stored[0].assignedProtocolId)
         assertEquals("pivot_game", decisions.stored[1].assignedProtocolId)
     }
 
@@ -163,9 +164,13 @@ class AdaptiveMomentCoordinatorTest {
     }
 
     @Test
-    fun firstAttemptAlwaysSelectsShortPause() = runBlocking {
+    /**
+     * A first attempt used to be answered with a Short Pause. Short Pause is
+     * retired as an active intervention, so minimum friction is now the game.
+     */
+    fun firstAttemptAlwaysSelectsTheGame() = runBlocking {
         val result = coordinatorHarness().coordinate(incident())
-        assertEquals(InterventionFamily.ShortPause, result.presentation.assignedIntervention)
+        assertEquals(InterventionFamily.PivotGame, result.presentation.assignedIntervention)
         assertEquals(AssignmentMode.MinimumFriction, result.presentation.assignmentMode)
     }
 

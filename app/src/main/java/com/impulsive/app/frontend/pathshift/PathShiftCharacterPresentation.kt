@@ -11,7 +11,6 @@ enum class PathShiftCharacterState {
 }
 
 enum class PathShiftExperienceState {
-    Disabled,
     InsufficientHistory,
     ForecastReady,
     Active,

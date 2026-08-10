@@ -15,7 +15,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.impulsive.app.MainActivity
 import com.impulsive.app.R
+import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
+import com.impulsive.app.backend.data.repository.JournalRepository
 import com.impulsive.app.backend.service.protection.ProtectionNotificationGate
+import kotlinx.coroutines.flow.first
 
 class JournalReminderWorker(
     appContext: Context,
@@ -33,12 +36,42 @@ class JournalReminderWorker(
             if (!granted) return Result.success()
         }
 
-        val noteId = inputData.getLong(KeyNoteId, 0L)
+        val noteId =
+            inputData.getLong(
+                KeyNoteId,
+                0L,
+            )
+
+        if (noteId <= 0L) {
+            return Result.success()
+        }
+
+        val currentContent =
+            JournalRepository(
+                applicationContext,
+            ).getReminderContent(
+                noteId,
+            )
+                ?: return Result.success()
+
+        val hideSensitive =
+            AppSettingsPreferencesDataSource(
+                applicationContext,
+            )
+                .hideSensitiveNotifications
+                .first()
+
+        val decision =
+            resolveJournalReminderNotification(
+                hideSensitiveNotifications =
+                    hideSensitive,
+                currentTitle =
+                    currentContent.title,
+                currentPreview =
+                    currentContent.preview,
+            )
+
         val notificationId = notificationId(noteId)
-        val rawTitle = inputData.getString(KeyTitle).orEmpty()
-        val rawPreview = inputData.getString(KeyPreview).orEmpty()
-        val title = rawTitle.ifBlank { "Journal reminder" }
-        val preview = rawPreview.ifBlank { "You asked Impulsive to remind you." }.take(120)
 
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -51,16 +84,99 @@ class JournalReminderWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(applicationContext, ChannelId)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(preview)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
+        val visibility =
+            when (
+                decision.visibility
+            ) {
+                JournalReminderVisibility
+                    .Private ->
+                    NotificationCompat
+                        .VISIBILITY_PRIVATE
+
+                JournalReminderVisibility
+                    .Secret ->
+                    NotificationCompat
+                        .VISIBILITY_SECRET
+            }
+
+        val publicVersion =
+            if (
+                decision.publicTitle !=
+                null &&
+                decision.publicBody !=
+                null
+            ) {
+                NotificationCompat
+                    .Builder(
+                        applicationContext,
+                        ChannelId,
+                    )
+                    .setSmallIcon(
+                        R.drawable
+                            .ic_notification,
+                    )
+                    .setContentTitle(
+                        decision
+                            .publicTitle,
+                    )
+                    .setContentText(
+                        decision
+                            .publicBody,
+                    )
+                    .setVisibility(
+                        NotificationCompat
+                            .VISIBILITY_PUBLIC,
+                    )
+                    .build()
+            } else {
+                null
+            }
+
+        val builder =
+            NotificationCompat
+                .Builder(
+                    applicationContext,
+                    ChannelId,
+                )
+                .setSmallIcon(
+                    R.drawable
+                        .ic_notification,
+                )
+                .setContentTitle(
+                    decision.title,
+                )
+                .setContentText(
+                    decision.body,
+                )
+                .setStyle(
+                    NotificationCompat
+                        .BigTextStyle()
+                        .bigText(
+                            decision.body,
+                        ),
+                )
+                .setContentIntent(
+                    pendingIntent,
+                )
+                .setAutoCancel(
+                    true,
+                )
+                .setVisibility(
+                    visibility,
+                )
+                .setPriority(
+                    NotificationCompat
+                        .PRIORITY_DEFAULT,
+                )
+
+        if (publicVersion != null) {
+            builder.setPublicVersion(
+                publicVersion,
+            )
+        }
+
+        val notification =
+            builder.build()
 
         val notificationContext = applicationContext
         ProtectionNotificationGate.submit(notificationId) {
@@ -91,8 +207,6 @@ class JournalReminderWorker(
 
         const val ChannelId = "journal_reminders"
         const val KeyNoteId = "note_id"
-        const val KeyTitle = "title"
-        const val KeyPreview = "preview"
         const val ExtraOpenJournalNoteId = "open_journal_note_id"
     }
 }

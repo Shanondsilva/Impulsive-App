@@ -13,8 +13,6 @@ import androidx.core.app.ServiceCompat
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.impulsive.app.backend.data.local.device.ForegroundAppReader
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
-import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource
-import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState
 import com.impulsive.app.backend.data.local.preferences.ProtectionSetupPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.VpnDiagnosticPreferencesDataSource
 import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentDataSource
@@ -143,26 +141,10 @@ class ImpulsiveVpnService : VpnService() {
         )
     }
 
-    private val oneMinuteAccessDataSource by lazy {
-        OneMinuteAccessDataSource(
-            applicationContext,
-        )
-    }
-
     private val protectionSetupDataSource by lazy {
         ProtectionSetupPreferencesDataSource(
             applicationContext,
         )
-    }
-
-    private val oneMinuteAccessState by lazy {
-        oneMinuteAccessDataSource
-            .state
-            .stateIn(
-                serviceScope,
-                SharingStarted.Eagerly,
-                OneMinuteAccessState(),
-            )
     }
 
     private val vpnDiagnosticPreferences by lazy {

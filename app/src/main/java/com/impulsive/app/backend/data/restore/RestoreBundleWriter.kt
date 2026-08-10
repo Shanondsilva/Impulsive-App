@@ -154,6 +154,15 @@ class RestoreBundleWriter(context: Context) {
             .put("recoverySessions", sessionsArray)
             .put("blockedDomains", domainsArray)
 
+        payload.put(
+            SafeExitRestorePayloadCodec.JsonKey,
+            SafeExitRestorePayloadCodec.encode(
+                database
+                    .safeExitDao()
+                    .getAllForBackup(),
+            ),
+        )
+
         val coachPreferences = ProtectionCoachPreferencesDataSource(appContext).state.first()
         val protectionSetup = ProtectionSetupPreferencesDataSource(appContext).state.first()
         payload.put(
@@ -231,7 +240,10 @@ class RestoreBundleWriter(context: Context) {
             }
         }
 
-        payload.toString()
+        RestorePayloadSizePolicy
+            .requireWithinLimit(
+                payload.toString(),
+            )
     }
 
     companion object {
@@ -273,10 +285,16 @@ class RestoreBundleWriter(context: Context) {
                 }
             }
 
+            val validatedPayloadJson =
+                RestorePayloadSizePolicy
+                    .requireWithinLimit(
+                        payloadJson,
+                    )
+
             val checksumMaterial = automaticBundleChecksumMaterialV3(
                 ownerUid = normalizedOwnerUid,
                 ownerGoogleSubjectHash = normalizedGoogleSubjectHash,
-                payloadJson = payloadJson,
+                payloadJson = validatedPayloadJson,
             )
 
             return JSONObject()
@@ -289,10 +307,12 @@ class RestoreBundleWriter(context: Context) {
                 .put("schemaVersion", SchemaVersion)
                 .put("createdAtMillis", createdAtMillis)
                 .put("checksumSha256", sha256Hex(checksumMaterial))
-                .put("payloadJson", payloadJson)
+                .put(
+                    "payloadJson",
+                    validatedPayloadJson,
+                )
                 .toString()
         }
-
         internal fun automaticBundleChecksumMaterialV2(
             ownerUid: String,
             payloadJson: String,

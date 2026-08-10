@@ -1,6 +1,7 @@
 package com.impulsive.app.frontend.screens.tasks
 
 import android.net.Uri
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -8,6 +9,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.annotation.RawRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,9 +48,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -77,11 +82,13 @@ import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.airbnb.lottie.compose.rememberLottieComposition
+import com.impulsive.app.R
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
 import com.impulsive.app.backend.domain.model.tasks.RESET_READ_REMOTE_ENABLED
 import com.impulsive.app.backend.domain.model.tasks.ArticleBlock
+import com.impulsive.app.backend.domain.model.tasks.ResetReadAnimation
 import com.impulsive.app.backend.domain.model.tasks.ResetReadArticle
 import com.impulsive.app.backend.domain.model.tasks.TaskCompletionResult
 import com.impulsive.app.backend.domain.model.tasks.calculateRewardedReleasePlan
@@ -465,7 +472,7 @@ private fun NativeArticleView(
                         isScreenResumed = isScreenResumed,
                     )
                     is ArticleBlock.Lottie -> InlineArticleLottie(
-                        rawResName = block.rawResName,
+                        animation = block.animation,
                         title = block.title,
                         caption = block.caption,
                         isScreenResumed = isScreenResumed,
@@ -638,80 +645,128 @@ private fun InlineArticleVideo(
 
 @Composable
 private fun InlineArticleLottie(
-    rawResName: String,
+    animation: ResetReadAnimation,
     title: String,
     caption: String? = null,
     isScreenResumed: Boolean,
 ) {
-    val context = LocalContext.current
-    val safeRawResName = remember(rawResName) {
-        rawResName
-            .substringAfterLast("/")
-            .substringAfterLast("\\")
-            .removeSuffix(".json")
-            .trim()
-    }
-    val rawResId = remember(safeRawResName) {
-        context.resources.getIdentifier(safeRawResName, "raw", context.packageName)
-    }
+    val composition by rememberLottieComposition(
+        spec =
+            LottieCompositionSpec.RawRes(
+                animation.rawResId(),
+            ),
+    )
+
+    val progress by animateLottieCompositionAsState(
+        composition = composition,
+        isPlaying = isScreenResumed,
+        restartOnPlay = false,
+        iterations = LottieConstants.IterateForever,
+    )
 
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(22.dp),
-        border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-        } else {
-            null
-        },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = title,
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (rawResId == 0) {
-                Text(
-                    text = "Animation unavailable",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
+        border =
+            if (
+                MaterialTheme.colorScheme.background
+                    .luminance() < 0.5f
+            ) {
+                BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.onSurface
+                        .copy(
+                            alpha = 0.05f,
+                        ),
                 )
             } else {
-                val composition by rememberLottieComposition(
-                    spec = LottieCompositionSpec.RawRes(rawResId),
-                )
-                val progress by animateLottieCompositionAsState(
-                    composition = composition,
-                    isPlaying = isScreenResumed,
-                    restartOnPlay = false,
-                    iterations = LottieConstants.IterateForever,
-                )
+                null
+            },
+        modifier =
+            Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    12.dp,
+                ),
+        ) {
+            Text(
+                text = title,
+                color =
+                    MaterialTheme.colorScheme.onSurface,
+                style =
+                    MaterialTheme.typography.titleSmall,
+                fontWeight =
+                    FontWeight.Bold,
+            )
 
-                LottieAnimation(
-                    composition = composition,
-                    progress = { progress },
-                    modifier = Modifier
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        10.dp,
+                    ),
+            )
+
+            LottieAnimation(
+                composition = composition,
+                progress = {
+                    progress
+                },
+                modifier =
+                    Modifier
                         .fillMaxWidth()
-                        .height(180.dp),
-                )
-            }
+                        .height(
+                            180.dp,
+                        ),
+            )
 
             if (caption != null) {
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            10.dp,
+                        ),
+                )
+
                 Text(
                     text = caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
+                    color =
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant,
+                    style =
+                        MaterialTheme.typography
+                            .labelMedium,
                 )
             }
         }
     }
 }
+
+@RawRes
+private fun ResetReadAnimation.rawResId(): Int =
+    when (this) {
+        ResetReadAnimation.UrgeWaveRiseFall ->
+            R.raw.surf_urge_wave_rise_fall
+
+        ResetReadAnimation.NinetySecondPeakSettle ->
+            R.raw.ninety_second_rule_peak_settle
+
+        ResetReadAnimation.DopaminePromisePath ->
+            R.raw.dopamine_promise_path
+
+        ResetReadAnimation.SlowerBreathing ->
+            R.raw.breathe_slower_inhale_exhale
+
+        ResetReadAnimation.WaitingChoiceClock ->
+            R.raw.marshmallow_waiting_choice_clock
+
+        ResetReadAnimation.HabitLoop ->
+            R.raw.habit_loop_cue_routine_reward
+
+        ResetReadAnimation.WillpowerBattery ->
+            R.raw.willpower_battery_recharge
+    }
 
 private fun DrawScope.drawAbstractIllustration(key: String) {
     val center = Offset(size.width / 2f, size.height / 2f)
@@ -1040,19 +1095,34 @@ private fun RemoteArticleView(
                 }
             }
         } else {
-            AndroidView(
-                factory = { context ->
-                    WebView(context).apply {
-                        configureResetReadWebView()
-                        webViewClient = ResetReadWebViewClient()
-                        loadUrl(trustedArticleUri.toString())
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .clip(RoundedCornerShape(28.dp)),
-            )
+            /*
+             * Renderer processes can be shared across the app's WebViews, so a
+             * crash elsewhere can kill this one too. A dead WebView must never
+             * be reused: bumping the generation drops this instance out of
+             * composition, onRelease destroys it, and a fresh one is created.
+             */
+            var rendererGeneration by rememberSaveable { mutableIntStateOf(0) }
+
+            key(rendererGeneration) {
+                AndroidView(
+                    factory = { context ->
+                        WebView(context).apply {
+                            configureResetReadWebView()
+                            webViewClient = ResetReadWebViewClient(
+                                onRendererGone = { rendererGeneration += 1 },
+                            )
+                            loadUrl(trustedArticleUri.toString())
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(28.dp)),
+                    // Runs exactly once when this instance leaves composition,
+                    // whether through renderer replacement or screen exit.
+                    onRelease = { released -> released.destroyResetReadSession() },
+                )
+            }
         }
 
         Button(
@@ -1090,7 +1160,22 @@ private fun WebView.configureResetReadWebView() {
     isHapticFeedbackEnabled = false
 }
 
-private class ResetReadWebViewClient : WebViewClient() {
+private class ResetReadWebViewClient(
+    private val onRendererGone: () -> Unit,
+) : WebViewClient() {
+    /**
+     * Signals that this renderer is gone so the owner can replace the WebView.
+     * Deliberately performs no operation on [view]: it is already dead, and
+     * touching it can crash the process.
+     */
+    override fun onRenderProcessGone(
+        view: WebView,
+        detail: RenderProcessGoneDetail,
+    ): Boolean {
+        onRendererGone()
+        return true
+    }
+
     override fun shouldOverrideUrlLoading(
         view: WebView,
         request: WebResourceRequest,
@@ -1108,6 +1193,18 @@ private class ResetReadWebViewClient : WebViewClient() {
             emptyBlockedWebResponse()
         }
     }
+}
+
+/**
+ * Permanently releases this WebView once it has left composition.
+ *
+ * `destroy()` is the terminal operation and nothing precedes it: the renderer
+ * may already be gone, in which case a navigation, loading or history call
+ * would be operating on a dead view. It never touches global browser storage,
+ * whose cache and cookie APIs are shared with every other WebView in the app.
+ */
+private fun WebView.destroyResetReadSession() {
+    destroy()
 }
 
 private fun isTrustedResetReadArticleUri(uri: Uri): Boolean {

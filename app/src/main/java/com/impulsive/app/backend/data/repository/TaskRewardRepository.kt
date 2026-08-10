@@ -26,6 +26,7 @@ class TaskRewardRepository(
         score: Int? = null,
         durationSec: Int? = null,
         validCompletion: Boolean = true,
+        completionToken: String? = null,
     ): TaskCompletionResult = dataSource.completeTask(
         taskType = taskType,
         releasePlan = releasePlan,
@@ -35,6 +36,7 @@ class TaskRewardRepository(
         score = score,
         durationSec = durationSec,
         validCompletion = validCompletion,
+        completionToken = completionToken,
     )
 
     suspend fun awardLevelPoints(points: Int) {

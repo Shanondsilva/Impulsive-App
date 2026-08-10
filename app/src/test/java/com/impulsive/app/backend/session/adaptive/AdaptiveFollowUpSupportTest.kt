@@ -142,6 +142,89 @@ class AdaptiveFollowUpSupportTest {
         assertTrue(first.startsWith("afu1_"))
     }
 
+    /**
+     * A deterministic attempt identity makes follow-up creation idempotent: the
+     * identity is hashed into the incident token, and a duplicate token is
+     * recognised rather than creating a second decision. This is what makes a
+     * cross-store retry safe after process death.
+     */
+    @Test
+    fun sameAttemptIdentityReturnsTheSameFollowUpWithoutCreatingASecond() = runBlocking {
+        val harness = harness()
+        val original = harness.decisions.stored.single()
+        val request = AdaptiveFollowUpRequest(
+            previousDecisionId = original.decisionId,
+            intervention = InterventionFamily.PivotReading,
+        )
+
+        val first = harness.support.chooseAnotherWithAttemptIdentity(
+            request = request,
+            attemptIdentity = "deterministic-attempt",
+        ) as AdaptiveFollowUpResult.Ready
+        val retry = harness.support.chooseAnotherWithAttemptIdentity(
+            request = request,
+            attemptIdentity = "deterministic-attempt",
+        ) as AdaptiveFollowUpResult.Ready
+
+        assertEquals(first.decisionId, retry.decisionId)
+        assertEquals(2, harness.decisions.stored.size)
+        assertEquals(
+            InterventionFamily.PivotReading,
+            harness.decisions.getById(first.decisionId)?.assignment?.actualIntervention,
+        )
+    }
+
+    /**
+     * The public entry point must keep minting a fresh attempt identity, so two
+     * separate explicit user requests still produce two separate follow-ups.
+     */
+    @Test
+    fun publicChooseAnotherStillCreatesADistinctFollowUpPerExplicitRequest() = runBlocking {
+        val harness = harness()
+        val originalId = harness.decisions.stored.single().decisionId
+
+        val first = harness.support.chooseAnother(
+            AdaptiveFollowUpRequest(
+                previousDecisionId = originalId,
+                intervention = InterventionFamily.PivotReading,
+            ),
+        ) as AdaptiveFollowUpResult.Ready
+        val second = harness.support.chooseAnother(
+            AdaptiveFollowUpRequest(
+                previousDecisionId = originalId,
+                intervention = InterventionFamily.PivotReading,
+            ),
+        )
+
+        assertNotEquals(originalId, first.decisionId)
+        assertTrue(second is AdaptiveFollowUpResult.Ready)
+        assertNotEquals(
+            first.decisionId,
+            (second as AdaptiveFollowUpResult.Ready).decisionId,
+        )
+        assertEquals(3, harness.decisions.stored.size)
+    }
+
+    @Test
+    fun blankAttemptIdentityIsRejected() = runBlocking {
+        val harness = harness()
+        val original = harness.decisions.stored.single()
+
+        try {
+            harness.support.chooseAnotherWithAttemptIdentity(
+                request = AdaptiveFollowUpRequest(
+                    previousDecisionId = original.decisionId,
+                    intervention = InterventionFamily.PivotReading,
+                ),
+                attemptIdentity = " ",
+            )
+            error("Expected a blank attempt identity to be rejected.")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message?.isNotBlank() == true)
+        }
+        assertEquals(1, harness.decisions.stored.size)
+    }
+
     private fun harness(
         started: Boolean = true,
         enabledPlans: List<com.impulsive.app.backend.domain.model.adaptive.MomentPlan> =

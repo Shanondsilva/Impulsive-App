@@ -12,6 +12,9 @@ import com.impulsive.app.backend.domain.model.tasks.ResetReadSessionRecord
 import com.impulsive.app.backend.domain.model.tasks.cooldownExcludedResetReadArticleIds
 import com.impulsive.app.backend.domain.model.tasks.fallbackResetReadArticleForDay
 import com.impulsive.app.backend.domain.model.tasks.recommendedResetReadArticleForDay
+import com.impulsive.app.backend.session.progress.SafeExitRecordingCoordinator
+import com.impulsive.app.backend.session.progress.SafeExitRecordingResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -45,6 +48,9 @@ data class ResetReadUiState(
     val completedSessionCount: Int = 0,
     val askHelpfulnessRating: Boolean = false,
     val helpfulnessRating: Int? = null,
+    val safeExitRequestStatus:
+        ResetReadSafeExitRequestStatus =
+        ResetReadSafeExitRequestStatus.Idle,
 ) {
     val requiredReadSeconds: Int
         get() = article?.minimumReadSeconds ?: RESET_READ_MINIMUM_SECONDS
@@ -70,6 +76,18 @@ data class ResetReadUiState(
 class ResetReadViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ResetReadRepository(application)
 
+    private val safeExitRecorder =
+        ResetReadSafeExitRecorder(
+            SafeExitRecordingCoordinator(
+                application,
+            ),
+        )
+
+    private val safeExitReconciliationScheduler =
+        WorkManagerResetReadSafeExitReconciliationScheduler(
+            application,
+        )
+
     private val _uiState = MutableStateFlow(ResetReadUiState())
     val uiState: StateFlow<ResetReadUiState> = _uiState
 
@@ -80,6 +98,9 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
     private var latestDataLoaded = false
     private var latestReadIds: Set<String> = emptySet()
     private var latestSessions: List<ResetReadSessionRecord> = emptyList()
+    private var latestCompletedSession:
+        ResetReadSessionRecord? =
+        null
     private var latestExposures: List<ResetReadArticleExposureRecord> = emptyList()
 
     init {
@@ -147,6 +168,8 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
 
         launchModeConfigured = true
         recordedShownArticleId = null
+        latestCompletedSession =
+            null
 
         _uiState.update {
             it.copy(
@@ -162,6 +185,8 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
                 recordedSessionId = null,
                 askHelpfulnessRating = false,
                 helpfulnessRating = null,
+                safeExitRequestStatus =
+                    ResetReadSafeExitRequestStatus.Idle,
             )
         }
 
@@ -262,6 +287,152 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun requestExplicitWalkAway() {
+        val state =
+            _uiState.value
+
+        if (
+            state.safeExitRequestStatus ==
+                ResetReadSafeExitRequestStatus
+                    .Recording ||
+            state.safeExitRequestStatus ==
+                ResetReadSafeExitRequestStatus
+                    .Durable
+        ) {
+            return
+        }
+
+        val sessionId =
+            state.recordedSessionId
+
+        val session =
+            sessionId?.let { id ->
+                latestCompletedSession
+                    ?.takeIf {
+                        it.id ==
+                            id
+                    }
+                    ?: latestSessions
+                        .firstOrNull {
+                            it.id ==
+                                id
+                        }
+            }
+
+        if (
+            !state.validCompletion ||
+            session == null ||
+            !session.validCompletion
+        ) {
+            _uiState.update {
+                it.copy(
+                    safeExitRequestStatus =
+                        ResetReadSafeExitRequestStatus
+                            .Failed,
+                )
+            }
+
+            return
+        }
+
+        /*
+         * The complete privacy-safe request is submitted before entering
+         * viewModelScope. Worker reconstruction does not depend on the
+         * Reset Reading history write completing.
+         */
+        val enqueueReceipt =
+            safeExitReconciliationScheduler
+                .request(
+                    session,
+                )
+
+        _uiState.update {
+            it.copy(
+                safeExitRequestStatus =
+                    ResetReadSafeExitRequestStatus
+                        .Recording,
+            )
+        }
+
+        viewModelScope.launch {
+            val enqueueAccepted =
+                enqueueReceipt
+                    ?.awaitAccepted()
+                    ?: false
+
+            /*
+             * Reset Reading history is separate from Safe Exit durability.
+             * Preserve it where possible, but an ordinary history failure
+             * must not prevent the immediate Room attempt or invalidate an
+             * accepted WorkManager request.
+             */
+            try {
+                repository.recordSession(
+                    session,
+                )
+            } catch (
+                cancellation:
+                    CancellationException,
+            ) {
+                throw cancellation
+            } catch (
+                _: Exception,
+            ) {
+                // The explicit Safe Exit request remains independently durable.
+            }
+
+            val immediateResult =
+                try {
+                    safeExitRecorder
+                        .recordExplicitWalkAway(
+                            session,
+                        )
+                } catch (
+                    cancellation:
+                        CancellationException,
+                ) {
+                    throw cancellation
+                } catch (
+                    _: Exception,
+                ) {
+                    SafeExitRecordingResult
+                        .RetryableFailure
+                }
+
+            val finalStatus =
+                when (
+                    immediateResult
+                ) {
+                    is SafeExitRecordingResult.Recorded,
+                    is SafeExitRecordingResult.Duplicate,
+                    ->
+                        ResetReadSafeExitRequestStatus
+                            .Durable
+
+                    is SafeExitRecordingResult.Rejected ->
+                        ResetReadSafeExitRequestStatus
+                            .Failed
+
+                    SafeExitRecordingResult.RetryableFailure ->
+                        if (
+                            enqueueAccepted
+                        ) {
+                            ResetReadSafeExitRequestStatus
+                                .Durable
+                        } else {
+                            ResetReadSafeExitRequestStatus
+                                .Failed
+                        }
+                }
+
+            _uiState.update {
+                it.copy(
+                    safeExitRequestStatus =
+                        finalStatus,
+                )
+            }
+        }
+    }
     fun rateHelpfulness(rating: Int) {
         val state = _uiState.value
         val article = state.article ?: return
@@ -293,6 +464,9 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
             waitCutMinutes = null,
             helpfulnessRating = safeRating,
         )
+
+        latestCompletedSession =
+            session
 
         viewModelScope.launch {
             repository.recordSession(session)
@@ -367,6 +541,9 @@ class ResetReadViewModel(application: Application) : AndroidViewModel(applicatio
             waitCutMinutes = null,
             helpfulnessRating = null,
         )
+
+        latestCompletedSession =
+            session
 
         viewModelScope.launch {
             repository.recordSession(session)

@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -23,8 +22,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.impulsive.app.MainActivity
 import com.impulsive.app.backend.data.local.preferences.AppSettingsPreferencesDataSource
-import com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource
-import com.impulsive.app.backend.data.local.preferences.TemporaryAccessGrantResult
 import com.impulsive.app.backend.domain.model.protection.BlockLaunchTarget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +40,6 @@ object ProtectionInterruptionOverlay {
 
     private enum class OverlayDismissReason {
         Normal,
-        Skipped,
         Unavailable,
     }
 
@@ -53,7 +49,6 @@ object ProtectionInterruptionOverlay {
         val sourceLabel: String,
         val message: String,
         val isFocusSession: Boolean,
-        val resetAtEpochMillis: Long? = null,
         val incidentStartedAtMillis: Long,
         val adaptiveDecisionId: String? = null,
     )
@@ -151,7 +146,6 @@ object ProtectionInterruptionOverlay {
         sourceLabel: String,
         message: String,
         isFocusSession: Boolean,
-        resetAtEpochMillis: Long? = null,
         incidentStartedAtMillis: Long = System.currentTimeMillis(),
         adaptiveDecisionId: String? = null,
         onShown: () -> Unit = {},
@@ -199,7 +193,6 @@ object ProtectionInterruptionOverlay {
                     sourceLabel = sourceLabel,
                     message = message,
                     isFocusSession = isFocusSession,
-                    resetAtEpochMillis = resetAtEpochMillis,
                     incidentStartedAtMillis = incidentStartedAtMillis,
                     adaptiveDecisionId = adaptiveDecisionId,
                 )
@@ -236,7 +229,6 @@ object ProtectionInterruptionOverlay {
                 sourceLabel = sourceLabel,
                 message = message,
                 isFocusSession = isFocusSession,
-                resetAtEpochMillis = resetAtEpochMillis,
                 incidentStartedAtMillis = incidentStartedAtMillis,
                 adaptiveDecisionId = adaptiveDecisionId,
             )
@@ -421,10 +413,26 @@ object ProtectionInterruptionOverlay {
         sourceLabel: String,
         message: String,
         isFocusSession: Boolean,
-        resetAtEpochMillis: Long? = null,
         incidentStartedAtMillis: Long,
         adaptiveDecisionId: String?,
     ): View {
+        /*
+         * An ordinary protected app/site interruption no longer asks the user to
+         * choose. It shows a brief decorative bridge and enters the
+         * authoritative game-only Support Cycle automatically. Focus keeps its
+         * own presentation below.
+         */
+        if (!isFocusSession && adaptiveDecisionId != null) {
+            return createProtectedMomentBridge(
+                context = context,
+                owner = owner,
+                sourcePackageName = sourcePackageName,
+                sourceLabel = sourceLabel,
+                incidentStartedAtMillis = incidentStartedAtMillis,
+                adaptiveDecisionId = adaptiveDecisionId,
+            )
+        }
+
         val root = FrameLayout(context).apply {
             visibility = View.VISIBLE
             alpha = 1f
@@ -516,26 +524,6 @@ object ProtectionInterruptionOverlay {
                 setPadding(0, 0, 0, 24.dp(context))
             })
         }
-        val resetText = TextView(context).apply {
-            textSize = 14f
-            setTextColor(MutedTextColor)
-            gravity = Gravity.CENTER
-            visibility = View.GONE
-            setPadding(0, 0, 0, 14.dp(context))
-            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
-        }
-        card.addView(resetText)
-
-        val errorText = TextView(context).apply {
-            textSize = 14f
-            setTextColor(MainTextColor)
-            gravity = Gravity.CENTER
-            visibility = View.GONE
-            setPadding(0, 0, 0, 10.dp(context))
-            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
-        }
-        card.addView(errorText)
-
         val resetChoices = LinearLayout(context).apply {
             orientation = if (context.resources.configuration.screenWidthDp >= 360) {
                 LinearLayout.HORIZONTAL
@@ -551,7 +539,6 @@ object ProtectionInterruptionOverlay {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
-        val horizontalChoices = resetChoices.orientation == LinearLayout.HORIZONTAL
         var resetLaunchInFlight = false
 
         fun launchResetOnce(launchTarget: BlockLaunchTarget) {
@@ -583,26 +570,21 @@ object ProtectionInterruptionOverlay {
                     resetChoiceLayoutParams(context, horizontal = false, isFirst = true),
                 )
             }
-            adaptiveDecisionId != null -> {
-                resetChoices.addView(
-                    resetChoice(context, "Choose a different direction", LavenderColor) {
-                        launchResetOnce(BlockLaunchTarget.AdaptiveMoment)
-                    },
-                    resetChoiceLayoutParams(context, horizontal = false, isFirst = true),
-                )
-            }
+            /*
+             * A protected interruption carrying an adaptive decision is handled
+             * by the automatic bridge before this card is ever built, so no
+             * "choose a different direction" option exists any more.
+             *
+             * This remaining branch covers an interruption with no adaptive
+             * decision, where a game is still offered directly; protected entry
+             * no longer routes to Reading.
+             */
             else -> {
                 resetChoices.addView(
                     resetChoice(context, "Pivot by Game", LavenderColor) {
                         launchResetOnce(BlockLaunchTarget.RandomRecoveryGame)
                     },
-                    resetChoiceLayoutParams(context, horizontalChoices, isFirst = true),
-                )
-                resetChoices.addView(
-                    resetChoice(context, "Pivot by Reading", SkyColor) {
-                        launchResetOnce(BlockLaunchTarget.ReadingReset)
-                    },
-                    resetChoiceLayoutParams(context, horizontalChoices, isFirst = false),
+                    resetChoiceLayoutParams(context, horizontal = false, isFirst = true),
                 )
             }
         }
@@ -625,45 +607,6 @@ object ProtectionInterruptionOverlay {
         footer.addView(softAction(context, "Leave this app") {
             leaveProtectedApp(context, owner, root)
         })
-        when {
-            !isFocusSession && owner == Owner.AppMonitor -> {
-                lateinit var continueAction: TextView
-                continueAction = textAction(context, "Continue deliberately") {
-                    grantTemporaryAccessSafely(
-                        context = context,
-                        owner = owner,
-                        sourcePackageName = sourcePackageName,
-                        errorText = errorText,
-                        expectedView = root,
-                        continueAction = continueAction,
-                    )
-                }
-                footer.addView(continueAction)
-                configureResetStatus(
-                    context = context,
-                    owner = owner,
-                    expectedView = root,
-                    resetText = resetText,
-                    resetAtEpochMillis = resetAtEpochMillis,
-                    continueAction = continueAction,
-                )
-            }
-            isFocusSession -> {
-                // Focus has no temporary-access cooldown to report here; the
-                // countdown to the end of the session lives in the persistent
-                // Focus notification, not this overlay.
-            }
-            else -> {
-                configureResetStatus(
-                    context = context,
-                    owner = owner,
-                    expectedView = root,
-                    resetText = resetText,
-                    resetAtEpochMillis = resetAtEpochMillis,
-                    continueAction = null,
-                )
-            }
-        }
         card.addView(
             footer,
             LinearLayout.LayoutParams(
@@ -679,90 +622,6 @@ object ProtectionInterruptionOverlay {
         return root
     }
 
-    private fun configureResetStatus(
-        context: Context,
-        owner: Owner,
-        expectedView: View,
-        resetText: TextView,
-        resetAtEpochMillis: Long?,
-        continueAction: TextView?,
-    ) {
-        if (resetAtEpochMillis == null) {
-            return
-        }
-
-        lateinit var tick: Runnable
-        tick = object : Runnable {
-            override fun run() {
-                if (currentView !== expectedView) {
-                    return
-                }
-
-                val now = System.currentTimeMillis()
-                val remainingMillis = resetAtEpochMillis - now
-
-                if (remainingMillis <= 0L) {
-                    resetText.visibility = View.GONE
-                    continueAction?.let(::restoreContinueAction)
-                    if (owner == Owner.Vpn) {
-                        removeIfCurrent(
-                            owner = owner,
-                            expectedView = expectedView,
-                        )
-                    }
-                    return
-                }
-
-                resetText.visibility = View.VISIBLE
-                resetText.text = resetStatusText(
-                    context = context,
-                    owner = owner,
-                    resetAtEpochMillis = resetAtEpochMillis,
-                    remainingMillis = remainingMillis,
-                )
-
-                if (continueAction != null) {
-                    continueAction.isEnabled = false
-                    continueAction.isClickable = false
-                    continueAction.alpha = 0.48f
-                }
-
-                mainHandler.postDelayed(this, 1_000L)
-            }
-        }
-
-        expectedView.addOnAttachStateChangeListener(
-            object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) = Unit
-                override fun onViewDetachedFromWindow(v: View) {
-                    mainHandler.removeCallbacks(tick)
-                }
-            },
-        )
-
-        tick.run()
-    }
-
-    private fun resetStatusText(
-        context: Context,
-        owner: Owner,
-        resetAtEpochMillis: Long,
-        remainingMillis: Long,
-    ): String {
-        val resetAtText = DateFormat
-            .getTimeFormat(context)
-            .format(java.util.Date(resetAtEpochMillis))
-        val remainingSeconds = (remainingMillis / 1_000L).coerceAtLeast(0L)
-        val minutes = remainingSeconds / 60L
-        val seconds = remainingSeconds % 60L
-        val remainingText = minutes.toString() + ":" + seconds.toString().padStart(2, '0') + " remaining"
-
-        return if (owner == Owner.Vpn) {
-            "Browser available again at " + resetAtText + "\n" + remainingText
-        } else {
-            "Continue deliberately available again at " + resetAtText
-        }
-    }
     private fun resetChoice(
         context: Context,
         label: String,
@@ -855,83 +714,111 @@ object ProtectionInterruptionOverlay {
         )
         animator.start()
     }
-    private fun textAction(context: Context, label: String, action: () -> Unit): TextView =
-        TextView(context).apply {
-            text = label
-            textSize = 15f
-            gravity = Gravity.CENTER
-            setTextColor(MutedTextColor)
-            setOnClickListener { action() }
-            isClickable = true
-            isFocusable = true
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                48.dp(context),
-            ).apply { topMargin = 4.dp(context) }
-        }
 
-    private fun grantTemporaryAccessSafely(
+    /**
+     * Brief automatic bridge for a protected app/site interruption.
+     *
+     * Deliberately contains no logo, wordmark, message, card, button or timer:
+     * there is nothing to decide, so presenting choices would be misleading. The
+     * orb is decorative and non-interactive, and the protected Moment launches
+     * on its own without waiting for input.
+     */
+    private fun createProtectedMomentBridge(
         context: Context,
         owner: Owner,
         sourcePackageName: String,
-        errorText: TextView,
-        expectedView: View,
-        continueAction: TextView,
-    ) {
-        continueAction.isEnabled = false
-        continueAction.isClickable = false
-        continueAction.text = "Opening…"
-        errorText.visibility = View.GONE
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                OneMinuteAccessDataSource(context).grantIfAvailable(
-                    key = sourcePackageName,
-                    nowEpochMillis = System.currentTimeMillis(),
-                )
-            }
-            when (result) {
-                is TemporaryAccessGrantResult.Granted ->
-                    removeIfCurrent(
-                        owner = owner,
-                        expectedView = expectedView,
-                        reason = OverlayDismissReason.Skipped,
-                    )
-                is TemporaryAccessGrantResult.OnCooldown -> {
-                    restoreContinueAction(continueAction)
-                    errorText.text = cooldownMessage(result.remainingMillis)
-                    showTemporaryError(errorText)
-                }
-                TemporaryAccessGrantResult.Disabled -> {
-                    restoreContinueAction(continueAction)
-                    errorText.text = "Temporary access is turned off in Settings."
-                    showTemporaryError(errorText)
-                }
-                is TemporaryAccessGrantResult.Failed -> {
-                    restoreContinueAction(continueAction)
-                    errorText.text = "Temporary access couldn't be saved. Please try again."
-                    showTemporaryError(errorText)
+        sourceLabel: String,
+        incidentStartedAtMillis: Long,
+        adaptiveDecisionId: String,
+    ): View {
+        val root = FrameLayout(context).apply {
+            visibility = View.VISIBLE
+            alpha = 1f
+            setBackgroundColor(ProtectedBridgeBackgroundColor)
+            // Back still leaves, exactly as before: this is not a trap.
+            isFocusable = true
+            setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                    leaveProtectedApp(context, owner, this)
+                    true
+                } else {
+                    false
                 }
             }
         }
+
+        val orb = View(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(LavenderColor)
+            }
+            // Decorative only: never an actionable element for TalkBack.
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isClickable = false
+            isFocusable = false
+        }
+        root.addView(
+            orb,
+            FrameLayout.LayoutParams(
+                ProtectedBridgeOrbDiameterDp.dp(context),
+                ProtectedBridgeOrbDiameterDp.dp(context),
+                Gravity.CENTER,
+            ),
+        )
+
+        var launched = false
+        fun launchProtectedMomentOnce() {
+            if (launched) return
+            launched = true
+            launchReset(
+                context = context,
+                owner = owner,
+                expectedView = root,
+                sourcePackageName = sourcePackageName,
+                sourceLabel = sourceLabel,
+                launchTarget = BlockLaunchTarget.ProtectedMoment,
+                incidentStartedAtMillis = incidentStartedAtMillis,
+                adaptiveDecisionId = adaptiveDecisionId,
+                onLaunchFailure = { launched = false },
+            )
+        }
+
+        if (animationsEnabled()) {
+            orb.alpha = 0f
+            orb.scaleX = ProtectedBridgeOrbStartScale
+            orb.scaleY = ProtectedBridgeOrbStartScale
+            orb.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(ProtectedBridgeDurationMillis)
+                .withEndAction { launchProtectedMomentOnce() }
+                .start()
+        } else {
+            /*
+             * Animations disabled system-wide: show the orb statically and
+             * continue promptly rather than animating anyway.
+             */
+            orb.alpha = 1f
+            mainHandler.postDelayed(
+                { launchProtectedMomentOnce() },
+                ProtectedBridgeReducedMotionDelayMillis,
+            )
+        }
+
+        return root
     }
 
-    private fun restoreContinueAction(continueAction: TextView) {
-        continueAction.text = "Continue deliberately"
-        continueAction.isEnabled = true
-        continueAction.isClickable = true
-        continueAction.alpha = 1f
-    }
-
-    private fun cooldownMessage(remainingMillis: Long): String {
-        if (remainingMillis < 60_000L) return "Continue is available again in less than a minute."
-        val minutes = (remainingMillis + 59_999L) / 60_000L
-        return "Continue is available again in $minutes minute${if (minutes == 1L) "" else "s"}."
-    }
-
-    private fun showTemporaryError(errorText: TextView) {
-        errorText.visibility = View.VISIBLE
-        mainHandler.postDelayed({ errorText.visibility = View.GONE }, ErrorVisibleMillis)
-    }
+    /**
+     * Whether the platform currently has animations enabled. Respects the
+     * system-wide setting instead of introducing a separate stored preference.
+     */
+    private fun animationsEnabled(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching { ValueAnimator.areAnimatorsEnabled() }.getOrDefault(true)
+        } else {
+            true
+        }
 
     private fun launchReset(
         context: Context,
@@ -1148,13 +1035,6 @@ object ProtectionInterruptionOverlay {
                     owner?.toNotificationOwner(),
                 )
 
-            OverlayDismissReason.Skipped ->
-                owner?.let { current ->
-                    ProtectionNotificationGate.onProtectionScreenSkipped(
-                        current.toNotificationOwner(),
-                    )
-                }
-
             OverlayDismissReason.Unavailable ->
                 owner?.let { current ->
                     ProtectionNotificationGate.onProtectionScreenUnavailable(
@@ -1232,7 +1112,6 @@ object ProtectionInterruptionOverlay {
         }
 
     private const val AttachTimeoutMillis = 1_500L
-    private const val ErrorVisibleMillis = 3_000L
     private const val FailsafeTimeoutMillis = 10L * 60L * 1000L
     private val MainTextColor = Color.parseColor("#2F2637")
     private val MutedTextColor = Color.parseColor("#706777")
@@ -1241,6 +1120,13 @@ object ProtectionInterruptionOverlay {
     private val SoftNeutralColor = Color.argb(150, 255, 255, 255)
     private val DividerColor = Color.argb(34, 47, 38, 55)
     private const val BreathCycleMillis = 2_400L
+
+    // Automatic protected bridge: brief, restrained, and never a product timer.
+    private const val ProtectedBridgeDurationMillis = 550L
+    private const val ProtectedBridgeReducedMotionDelayMillis = 120L
+    private const val ProtectedBridgeOrbDiameterDp = 132
+    private const val ProtectedBridgeOrbStartScale = 0.86f
+    private val ProtectedBridgeBackgroundColor = Color.argb(235, 18, 14, 24)
 
     // Active Focus interruption identity: the approved Focus coral, kept
     // distinct from the ordinary lavender/sky choices so the overlay never

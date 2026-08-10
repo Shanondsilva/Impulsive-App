@@ -69,6 +69,8 @@ import androidx.compose.ui.platform.LocalContext
 import com.impulsive.app.backend.domain.model.onboarding.OnboardingQuestionId
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
+import com.impulsive.app.backend.domain.model.adaptive.AdaptiveSupportStepOutcome
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.data.local.device.UsageAccessPermissionChecker
 import com.impulsive.app.backend.data.local.device.OverlayPermissionSettingsLaunchResult
@@ -104,6 +106,7 @@ import com.impulsive.app.frontend.privacy.rememberRouteSensitiveScreenPrivacyRea
 import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
 import com.impulsive.app.frontend.screens.games.ReflexGameScreen
 import com.impulsive.app.frontend.screens.games.RecoveryGamesScreen
+import com.impulsive.app.frontend.screens.games.SnakeGameScreen
 import com.impulsive.app.frontend.screens.games.RhythmTilesScreen
 import com.impulsive.app.frontend.screens.games.SkylineResetScreen
 import com.impulsive.app.frontend.screens.intro.IntroScreen
@@ -129,6 +132,8 @@ import com.impulsive.app.backend.service.protection.ProtectionLog
 import com.impulsive.app.backend.service.protection.shouldRecoverProtectionService
 import com.impulsive.app.backend.session.protection.ProtectionSetupViewModel
 import com.impulsive.app.backend.session.protection.DnsFilterGateViewModel
+import com.impulsive.app.backend.session.protection.WebsiteProtectionNextAction
+import com.impulsive.app.backend.session.adaptive.FamiliarStepHistoryViewModel
 import com.impulsive.app.backend.session.premium.PremiumViewModel
 import com.impulsive.app.backend.domain.model.premium.PremiumFeature
 import com.impulsive.app.backend.service.billing.BillingManager
@@ -160,6 +165,13 @@ import com.impulsive.app.backend.domain.tips.ImpulsiveTipId
 import com.impulsive.app.backend.domain.tips.TipAction
 import com.impulsive.app.backend.domain.tips.TipFeature
 import com.impulsive.app.frontend.screens.protection.DnsFilterGateScreen
+import com.impulsive.app.backend.session.safebrowse.SafeBrowseAccessViewModel
+import com.impulsive.app.backend.session.safebrowse.SafeBrowseAccessViewModelFactory
+import com.impulsive.app.backend.session.safebrowse.SafeBrowsePassViewModel
+import com.impulsive.app.backend.session.safebrowse.SafeBrowsePassViewModelFactory
+import com.impulsive.app.frontend.screens.safebrowse.SafeBrowseBrowserRoute
+import com.impulsive.app.frontend.screens.safebrowse.SafeBrowsePassRoute
+import com.impulsive.app.frontend.screens.safebrowse.SafeBrowseRoute
 import com.impulsive.app.frontend.screens.settings.HelpFaqScreen
 import com.impulsive.app.frontend.screens.settings.PersonalSupportPrivacyAndDataScreen
 import com.impulsive.app.frontend.screens.settings.PersonalSupportSuggestionPreferencesScreen
@@ -173,6 +185,7 @@ import com.impulsive.app.backend.session.adaptive.AdaptiveLifecycleResult
 import com.impulsive.app.backend.session.adaptive.AdaptivePhase4Dependencies
 import com.impulsive.app.backend.session.adaptive.AdaptiveRouteKind
 import com.impulsive.app.backend.session.adaptive.AdaptiveRouteRequest
+import com.impulsive.app.backend.session.adaptive.toRouteRequest
 import com.impulsive.app.backend.session.protectioncoach.ProtectionCoachViewModel
 import java.time.LocalDateTime
 import kotlinx.coroutines.CancellationException
@@ -208,8 +221,16 @@ object AppRoutes {
     const val FocusRecovery = "focus_recovery"
     const val RecoveryGames = "recovery_games"
     const val RandomRecoveryGame = "random_recovery_game/{sourcePackageName}"
-    const val ReflexGame = "reflex_game"
-    const val ReflexGameTask = "reflex_game_task"
+    const val SnakeGame = "snake_game"
+    const val SnakeGameTask = "snake_game_task"
+
+    /*
+     * Legacy upgrade compatibility only. These strings must keep their original
+     * values so a restored pre-cutover back stack or an already-running Reflex
+     * support step can still finish truthfully. Nothing active navigates here.
+     */
+    const val LegacyReflexGame = "reflex_game"
+    const val LegacyReflexGameTask = "reflex_game_task"
     const val BlockCascadeGame = "block_cascade_game"
     const val BlockCascadeTask = "block_cascade_task"
     const val SkylineResetGame = "skyline_reset_game"
@@ -221,6 +242,9 @@ object AppRoutes {
     const val TaskToComplete = "task_to_complete"
     const val WebsiteProtectionPlus = "website_protection_plus"
     const val WebsiteProtectionApps = "website_protection_apps"
+    const val SafeBrowse = "safe_browse"
+    const val SafeBrowseBrowser = "safe_browse/browser"
+    const val SafeBrowsePass = "safe_browse/pass"
     const val ProtectionSetupGuide = "protection_setup_guide"
     const val ProtectionSetupGuideBlockedApps = "protection_setup_guide_blocked_apps"
     const val DnsFilterGate = "dns_filter_gate"
@@ -246,7 +270,17 @@ object AppRoutes {
     const val Tips = "tips"
     const val TipDetail = "tip/{tipId}"
     const val ImpulsiveBlock = "impulsive_block/{sourcePackageName}/{sourceLabel}"
-    const val AdaptiveMoment = "adaptive_moment/{decisionId}"
+    const val AdaptiveMoment =
+        "adaptive_moment/{decisionId}?triggeringPackageName={triggeringPackageName}"
+
+    /**
+     * Automatic game-only entry for a protected app/site interruption.
+     *
+     * Deliberately separate from [AdaptiveMoment] so protected routing is
+     * auditable and process recovery can never land back on the questionnaire.
+     */
+    const val ProtectedMoment =
+        "protected_moment/{decisionId}?triggeringPackageName={triggeringPackageName}"
     const val AdaptiveExplanation = "adaptive_explanation/{decisionId}"
     const val AdaptiveGame = "adaptive_game/{decisionId}"
     const val AdaptiveReading = "adaptive_reading/{decisionId}"
@@ -265,8 +299,28 @@ object AppRoutes {
         "impulsive_block/${Uri.encode(sourcePackageName)}/${Uri.encode(sourceLabel)}"
     fun randomRecoveryGame(sourcePackageName: String): String =
         "random_recovery_game/${Uri.encode(sourcePackageName)}"
-    fun adaptiveMoment(decisionId: String): String =
-        "adaptive_moment/${Uri.encode(decisionId)}"
+    fun adaptiveMoment(
+        decisionId: String,
+        triggeringPackageName: String? = null,
+    ): String = buildString {
+        append("adaptive_moment/")
+        append(Uri.encode(decisionId))
+        triggeringPackageName?.takeIf(String::isNotBlank)?.let {
+            append("?triggeringPackageName=")
+            append(Uri.encode(it))
+        }
+    }
+    fun protectedMoment(
+        decisionId: String,
+        triggeringPackageName: String? = null,
+    ): String = buildString {
+        append("protected_moment/")
+        append(Uri.encode(decisionId))
+        triggeringPackageName?.takeIf(String::isNotBlank)?.let {
+            append("?triggeringPackageName=")
+            append(Uri.encode(it))
+        }
+    }
     fun adaptiveExplanation(decisionId: String): String =
         "adaptive_explanation/${Uri.encode(decisionId)}"
     fun adaptiveGame(decisionId: String): String =
@@ -316,6 +370,21 @@ fun AppNavHost(
     val context = LocalContext.current
     val adaptiveScope = rememberCoroutineScope()
     val rehearsalLauncher: MomentPlanRehearsalLauncherViewModel = viewModel()
+    // Shared between the Safe Browse unlock screen and the secured browser destination --
+    // never a second, independent access ledger.
+    val safeBrowseAccessViewModel: SafeBrowseAccessViewModel = viewModel(
+        factory = SafeBrowseAccessViewModelFactory(context.applicationContext),
+    )
+    // One app-wide UMP consent manager, provided below to every destination in this NavHost
+    // -- never a second, independent instance racing the same ConsentInformation singleton.
+    val applicationContext = context.applicationContext
+    val safeBrowseConsentManager = remember(applicationContext) {
+        com.impulsive.app.frontend.ads.SafeBrowseConsentManagerProvider.get(applicationContext)
+    }
+    val safeBrowseConsentActivity = context as? Activity
+    LaunchedEffect(safeBrowseConsentManager, safeBrowseConsentActivity) {
+        safeBrowseConsentActivity?.let(safeBrowseConsentManager::requestConsentInfoUpdate)
+    }
     val adaptiveOutcomeCoordinator = remember(context) {
         AdaptivePhase4Dependencies.outcomeCoordinator(context)
     }
@@ -617,7 +686,7 @@ fun AppNavHost(
             appProtectionEnabled = setup.appProtectionMonitorEnabled,
             selectedPackages = setup.selectedBlockedAppPackageNames,
             usageAccessGranted = usageAccessGranted,
-            websiteProtectionEnabled = setup.websiteProtectionEnabled,
+            websiteProtectionEnabled = setup.websiteProtectionRuntimeEnabled,
             transitionCompleted = setup.protectionMonitorTransitionCompleted,
         )
         ProtectionLog.debug(
@@ -672,6 +741,8 @@ fun AppNavHost(
         protectionSetupState.usageAccessEnabled,
         protectionSetupState.interruptionPermissionEnabled,
         protectionSetupState.websiteProtectionEnabled,
+        protectionSetupState
+            .websiteProtectionDisclosureConsentVersion,
     ) {
         // Website protection depends on the monitor too: the DNS filter tunnel
         // is only synced from inside AppMonitorService. Gating this start on
@@ -681,7 +752,7 @@ fun AppNavHost(
             appProtectionEnabled = protectionSetupState.appProtectionMonitorEnabled,
             selectedPackages = protectionSetupState.selectedBlockedAppPackageNames,
             usageAccessGranted = protectionSetupState.usageAccessEnabled,
-            websiteProtectionEnabled = protectionSetupState.websiteProtectionEnabled,
+            websiteProtectionEnabled = protectionSetupState.websiteProtectionRuntimeEnabled,
             transitionCompleted = protectionSetupState.protectionMonitorTransitionCompleted,
         )
         if (protectionConfigured) {
@@ -819,18 +890,113 @@ fun AppNavHost(
         }
     }
 
-    fun routeAdaptive(request: AdaptiveRouteRequest): Boolean = when (request.kind) {
-        AdaptiveRouteKind.Game -> {
-            AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
-            navController.navigate(AppRoutes.adaptiveGame(request.decisionId)) {
-                launchSingleTop = true
+    /**
+     * Resumes an existing protected support step.
+     *
+     * Only a game may be resumed inside a protected Moment. A legacy cycle whose
+     * step is a Short Pause, Reading or Moment Plan is deliberately refused here
+     * so the obsolete intervention is never restarted; the caller then exits
+     * safely instead.
+     */
+    fun routeProtectedMomentInternal(request: AdaptiveRouteRequest): Boolean {
+        val supportLaunch = request.gameLaunchContext as?
+            RecoveryGameLaunchContext.SupportCycle
+        if (request.kind != AdaptiveRouteKind.Game || supportLaunch == null) return false
+        if (
+            request.decisionId != supportLaunch.decisionId ||
+            supportLaunch.cycleId.isBlank() ||
+            supportLaunch.decisionId.isBlank() ||
+            supportLaunch.maxDurationMillis <= 0L
+        ) {
+            return false
+        }
+
+        AdaptiveRetentionRuntimeState.markPendingNavigation(supportLaunch.decisionId)
+        navController.navigate(recoveryGameRoute(supportLaunch.gameType, asTask = true)) {
+            launchSingleTop = true
+            popUpTo(AppRoutes.ProtectedMoment) { inclusive = true }
+        }
+        navController.currentBackStackEntry
+            ?.savedStateHandle
+            ?.apply {
+                set(AdaptiveDecisionIdStateKey, supportLaunch.decisionId)
+                set(AdaptiveSupportCycleIdStateKey, supportLaunch.cycleId)
+                set(AdaptiveSupportCycleMaxDurationStateKey, supportLaunch.maxDurationMillis)
             }
-            true
+        return true
+    }
+
+    fun routeAdaptiveInternal(
+        request: AdaptiveRouteRequest,
+        replaceAdaptiveGame: Boolean,
+    ): Boolean = when (request.kind) {
+        AdaptiveRouteKind.AdaptiveMoment -> {
+            if (request.decisionId.isBlank()) {
+                false
+            } else {
+                AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+                navController.navigate(AppRoutes.adaptiveMoment(request.decisionId)) {
+                    launchSingleTop = true
+                    if (replaceAdaptiveGame) {
+                        popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
+                    }
+                }
+                true
+            }
+        }
+        AdaptiveRouteKind.Game -> {
+            val supportLaunch = request.gameLaunchContext as?
+                RecoveryGameLaunchContext.SupportCycle
+
+            if (supportLaunch != null) {
+                if (
+                    request.decisionId != supportLaunch.decisionId ||
+                    supportLaunch.cycleId.isBlank() ||
+                    supportLaunch.decisionId.isBlank() ||
+                    supportLaunch.maxDurationMillis <= 0L
+                ) {
+                    false
+                } else {
+                    AdaptiveRetentionRuntimeState.markPendingNavigation(supportLaunch.decisionId)
+
+                    navController.navigate(recoveryGameRoute(supportLaunch.gameType, asTask = true)) {
+                        launchSingleTop = true
+                        if (replaceAdaptiveGame) {
+                            popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
+                        }
+                    }
+
+                    navController.currentBackStackEntry
+                        ?.savedStateHandle
+                        ?.apply {
+                            set(AdaptiveDecisionIdStateKey, supportLaunch.decisionId)
+                            set(AdaptiveSupportCycleIdStateKey, supportLaunch.cycleId)
+                            set(
+                                AdaptiveSupportCycleMaxDurationStateKey,
+                                supportLaunch.maxDurationMillis,
+                            )
+                        }
+
+                    true
+                }
+            } else {
+                AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
+                navController.navigate(AppRoutes.adaptiveGame(request.decisionId)) {
+                    launchSingleTop = true
+                    if (replaceAdaptiveGame) {
+                        popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
+                    }
+                }
+                true
+            }
         }
         AdaptiveRouteKind.Reading -> {
             AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
             navController.navigate(AppRoutes.adaptiveReading(request.decisionId)) {
                 launchSingleTop = true
+                if (replaceAdaptiveGame) {
+                    popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
+                }
             }
             true
         }
@@ -838,6 +1004,9 @@ fun AppNavHost(
             AdaptiveRetentionRuntimeState.markPendingNavigation(request.decisionId)
             navController.navigate(AppRoutes.momentPlanRun(request.decisionId)) {
                 launchSingleTop = true
+                if (replaceAdaptiveGame) {
+                    popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
+                }
             }
             true
         }
@@ -878,6 +1047,14 @@ fun AppNavHost(
         }
     }
 
+    fun routeAdaptive(request: AdaptiveRouteRequest): Boolean = routeAdaptiveInternal(
+        request = request,
+        replaceAdaptiveGame = false,
+    )
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.impulsive.app.frontend.ads.LocalSafeBrowseConsentManager provides safeBrowseConsentManager,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
@@ -1301,8 +1478,8 @@ fun AppNavHost(
                     onOpenJournal = dropUnlessResumed {
                         navController.navigateMainTop(AppRoutes.JournalList)
                     },
-                    onOpenReflexOverrideTask = dropUnlessResumed {
-                        navController.navigate(AppRoutes.ReflexGameTask)
+                    onOpenSnakeTask = dropUnlessResumed {
+                        navController.navigate(AppRoutes.SnakeGameTask)
                     },
                     onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
@@ -1327,6 +1504,11 @@ fun AppNavHost(
                     },
                     onOpenWebsiteProtectionPlus = dropUnlessResumed {
                         navController.navigate(AppRoutes.WebsiteProtectionPlus) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenSafeBrowse = dropUnlessResumed {
+                        navController.navigate(AppRoutes.SafeBrowse) {
                             launchSingleTop = true
                         }
                     },
@@ -1513,8 +1695,8 @@ fun AppNavHost(
                     onOpenFocus = {
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
-                    onOpenReflexOverrideTask = dropUnlessResumed {
-                        navController.navigate(AppRoutes.ReflexGameTask)
+                    onOpenSnakeTask = dropUnlessResumed {
+                        navController.navigate(AppRoutes.SnakeGameTask)
                     },
                     onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
@@ -1551,8 +1733,8 @@ fun AppNavHost(
                     onOpenFocus = {
                         navController.navigateMainTop(AppRoutes.Focus)
                     },
-                    onOpenReflexOverrideTask = dropUnlessResumed {
-                        navController.navigate(AppRoutes.ReflexGameTask)
+                    onOpenSnakeTask = dropUnlessResumed {
+                        navController.navigate(AppRoutes.SnakeGameTask)
                     },
                     onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
@@ -1576,33 +1758,13 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
-                    onOpenMomentPlans = {
-                        navController.navigate(AppRoutes.MomentPlanList) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenTips = {
-                        navController.navigate(AppRoutes.Tips) {
-                            launchSingleTop = true
-                        }
-                    },
                     onOpenWhatWorksForMe = {
                         navController.navigate(AppRoutes.WhatWorksForMe) {
                             launchSingleTop = true
                         }
                     },
-                    onOpenSuggestionPreferences = {
-                        navController.navigate(AppRoutes.PersonalSupportSuggestions) {
-                            launchSingleTop = true
-                        }
-                    },
                     onOpenPrivacyAndData = {
                         navController.navigate(AppRoutes.PersonalSupportPrivacy) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenProtectionCoach = {
-                        navController.navigate(AppRoutes.ProtectionCoach) {
                             launchSingleTop = true
                         }
                     },
@@ -1761,8 +1923,11 @@ fun AppNavHost(
             }
 
             composable(AppRoutes.PersonalSupportPrivacy) {
+                val familiarStepHistoryViewModel: FamiliarStepHistoryViewModel = viewModel()
+
                 PersonalSupportPrivacyAndDataScreen(
                     onBack = { navController.safePopBackStack() },
+                    familiarStepHistoryViewModel = familiarStepHistoryViewModel,
                 )
             }
 
@@ -2025,6 +2190,11 @@ fun AppNavHost(
             composable(AppRoutes.WebsiteProtectionPlus) {
                 val premiumViewModel: PremiumViewModel = viewModel()
                 val taskRewardViewModel: TaskRewardViewModel = viewModel()
+                val dnsFilterGateViewModel: DnsFilterGateViewModel = viewModel()
+                val websiteSetupState by
+                    protectionSetupViewModel
+                        .websiteSetupState
+                        .collectAsStateWithLifecycle()
                 val isPlus by premiumViewModel
                     .hasFeature(PremiumFeature.VpnWebsiteBlocker)
                     .collectAsStateWithLifecycle()
@@ -2070,6 +2240,67 @@ fun AppNavHost(
                     onChooseWebsiteProtectionApps = {
                         navController.navigate(AppRoutes.WebsiteProtectionApps) {
                             launchSingleTop = true
+                        }
+                    },
+                    websiteSetupState = websiteSetupState,
+                    onRefreshWebsiteSetup =
+                        protectionSetupViewModel::refreshWebsiteProtectionSetupState,
+                    onWebsiteSetupAction = { action ->
+                        when (action) {
+                            WebsiteProtectionNextAction.SelectBrowser,
+                            WebsiteProtectionNextAction.ChooseSupportedBrowser,
+                            -> {
+                                navController.navigate(AppRoutes.WebsiteProtectionApps) {
+                                    launchSingleTop = true
+                                }
+                            }
+
+                            /*
+                             * DnsFilterGate remains the sole user-facing
+                             * affirmative consent flow: the card never sets
+                             * disclosure acceptance directly.
+                             */
+                            WebsiteProtectionNextAction.ReviewDisclosure,
+                            WebsiteProtectionNextAction.RequestVpnPermission,
+                            -> {
+                                navController.navigate(AppRoutes.DnsFilterGate) {
+                                    launchSingleTop = true
+                                }
+                            }
+
+                            WebsiteProtectionNextAction.OpenVpnSettings -> {
+                                runCatching {
+                                    context.startActivity(
+                                        dnsFilterGateViewModel.vpnSettingsIntent(),
+                                    )
+                                }.onFailure {
+                                    Toast.makeText(
+                                        context,
+                                        "VPN settings could not be opened.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+
+                            WebsiteProtectionNextAction.OpenPrivateDnsSettings -> {
+                                runCatching {
+                                    context.startActivity(
+                                        dnsFilterGateViewModel.privateDnsSettingsIntent(),
+                                    )
+                                }.onFailure {
+                                    Toast.makeText(
+                                        context,
+                                        "Private DNS settings could not be opened.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+
+                            WebsiteProtectionNextAction.RetryCapabilityCheck -> {
+                                protectionSetupViewModel.refreshWebsiteProtectionSetupState()
+                            }
+
+                            WebsiteProtectionNextAction.None -> Unit
                         }
                     },
                     isPlus = isPlus,
@@ -2126,7 +2357,10 @@ fun AppNavHost(
                     onRestorePurchases = {
                         billingManager.restorePurchases()
                     },
-                    isWebsiteProtectionEnabled = protectionSetupState.websiteProtectionEnabled,
+                    websiteProtectionEnableIntent =
+                        protectionSetupState.websiteProtectionEnabled,
+                    websiteProtectionRuntimeEnabled =
+                        protectionSetupState.websiteProtectionRuntimeEnabled,
                     isWebsiteProtectionAlwaysOn = protectionSetupState.websiteProtectionAlwaysOn,
                     isReleaseWindowActive = windowSnapshot.isProtectionPaused,
                     releaseWindowEndsAt = windowSnapshot.pausedWindowEnd?.toImpulsiveCompactTime(),
@@ -2151,33 +2385,201 @@ fun AppNavHost(
                 )
             }
 
+            composable(AppRoutes.SafeBrowse) {
+                SafeBrowseRoute(
+                    accessViewModel = safeBrowseAccessViewModel,
+                    billingManager = billingManager,
+                    onBack = { navController.safePopBackStack() },
+                    onOpenBrowser = {
+                        navController.navigate(AppRoutes.SafeBrowseBrowser) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onOpenSafeBrowsePass = {
+                        navController.navigate(AppRoutes.SafeBrowsePass) {
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+
+            composable(AppRoutes.SafeBrowseBrowser) {
+                SafeBrowseBrowserRoute(
+                    accessViewModel = safeBrowseAccessViewModel,
+                    onExit = { navController.safePopBackStack() },
+                )
+            }
+
+            composable(AppRoutes.SafeBrowsePass) {
+                val context = LocalContext.current
+                val safeBrowsePassViewModel: SafeBrowsePassViewModel = viewModel(
+                    factory = SafeBrowsePassViewModelFactory(
+                        billingManager,
+                    ),
+                )
+                val purchaseAccountGatePhase = resolvePurchaseAccountGatePhase(
+                    user = authState.user,
+                    inFlightProvider = authState.inFlightProvider,
+                    pendingEmailVerificationAddress =
+                        authState.pendingEmailVerificationAddress,
+                    hasAccountConflict = authState.pendingAccountConflict != null,
+                )
+
+                SafeBrowsePassRoute(
+                    passViewModel = safeBrowsePassViewModel,
+                    purchaseAccountGatePhase = purchaseAccountGatePhase,
+                    pendingAccountConflict = authState.pendingAccountConflict,
+                    authErrorMessage = authState.errorMessage,
+                    onLinkGoogleForPurchase = {
+                        (context as? Activity)?.let { authViewModel.linkGoogleAccount(it) }
+                    },
+                    onLinkFacebookForPurchase = {
+                        (context as? Activity)?.let { authViewModel.linkFacebookAccount(it) }
+                    },
+                    onLinkEmailForPurchase = { email, password ->
+                        authViewModel.linkEmailAccount(
+                            email = email,
+                            password = password,
+                        )
+                    },
+                    onConfirmAccountSwitchForPurchase = {
+                        authViewModel.confirmAccountSwitchForPurchase()
+                    },
+                    onDismissAccountSwitch = {
+                        authViewModel.dismissAccountSwitch()
+                    },
+                    onDismissAuthError = {
+                        authViewModel.consumeError()
+                    },
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
             composable(AppRoutes.DnsFilterGate) {
                 val dnsFilterGateViewModel: DnsFilterGateViewModel = viewModel()
                 val dnsFilterGateState by dnsFilterGateViewModel.state.collectAsStateWithLifecycle()
                 val context = LocalContext.current
+                val dnsGateScope =
+                    rememberCoroutineScope()
+                var dnsGateContinueInProgress by
+                    remember {
+                        mutableStateOf(
+                            false,
+                        )
+                    }
+                var dnsGateDisclosureSaveFailed by
+                    remember {
+                        mutableStateOf(
+                            false,
+                        )
+                    }
+
+                suspend fun enableAndStartWebsiteProtection() {
+                    val enabled =
+                        protectionSetupViewModel
+                            .enableWebsiteProtectionAfterDisclosure()
+
+                    if (!enabled) {
+                        dnsGateDisclosureSaveFailed =
+                            true
+
+                        dnsGateContinueInProgress =
+                            false
+
+                        return
+                    }
+
+                    ImpulsiveVpnController
+                        .start(
+                            context,
+                        )
+
+                    dnsGateContinueInProgress =
+                        false
+
+                    navController
+                        .safePopBackStack()
+                }
+
                 val vpnConsentLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartActivityForResult(),
                 ) { result ->
                     if (result.resultCode == Activity.RESULT_OK) {
-                        ImpulsiveVpnController.start(context)
-                        protectionSetupViewModel.setWebsiteProtectionEnabled(true)
-                        navController.safePopBackStack()
+                        dnsGateScope.launch {
+                            enableAndStartWebsiteProtection()
+                        }
+                    } else {
+                        dnsGateContinueInProgress =
+                            false
                     }
                 }
                 DnsFilterGateScreen(
-                    state = dnsFilterGateState,
+                    state =
+                        dnsFilterGateState,
+                    protectedBrowserPackageNames =
+                        protectionSetupState
+                            .websiteProtectedAppPackageNames,
+                    websiteProtectionDisclosureAccepted =
+                        protectionSetupState
+                            .websiteProtectionDisclosureAccepted,
+                    continueInProgress =
+                        dnsGateContinueInProgress,
+                    disclosureSaveFailed =
+                        dnsGateDisclosureSaveFailed,
                     onOpenPrivateDnsSettings = {
                         context.startActivity(dnsFilterGateViewModel.privateDnsSettingsIntent())
                     },
-                    onRefresh = { dnsFilterGateViewModel.refresh() },
-                    onContinue = {
-                        val consent = ImpulsiveVpnController.consentIntent(context)
-                        if (consent != null) {
-                            vpnConsentLauncher.launch(consent)
-                        } else {
-                            ImpulsiveVpnController.start(context)
-                            protectionSetupViewModel.setWebsiteProtectionEnabled(true)
-                            navController.safePopBackStack()
+                    onRefresh = {
+                        dnsFilterGateViewModel.refresh()
+                        protectionSetupViewModel.refreshWebsiteProtectionSetupState()
+                    },
+                    onContinue = { needsDisclosurePersistence ->
+                        if (
+                            dnsGateContinueInProgress
+                        ) {
+                            return@DnsFilterGateScreen
+                        }
+
+                        dnsGateContinueInProgress =
+                            true
+
+                        dnsGateDisclosureSaveFailed =
+                            false
+
+                        dnsGateScope.launch {
+                            if (
+                                needsDisclosurePersistence
+                            ) {
+                                val accepted =
+                                    protectionSetupViewModel
+                                        .acceptCurrentWebsiteProtectionDisclosure()
+
+                                if (!accepted) {
+                                    dnsGateDisclosureSaveFailed =
+                                        true
+
+                                    dnsGateContinueInProgress =
+                                        false
+
+                                    return@launch
+                                }
+                            }
+
+                            val systemConsent =
+                                ImpulsiveVpnController
+                                    .consentIntent(
+                                        context,
+                                    )
+
+                            if (
+                                systemConsent != null
+                            ) {
+                                vpnConsentLauncher
+                                    .launch(
+                                        systemConsent,
+                                    )
+                            } else {
+                                enableAndStartWebsiteProtection()
+                            }
                         }
                     },
                     onTurnOff = {
@@ -2192,14 +2594,54 @@ fun AppNavHost(
             composable(AppRoutes.RecoveryGames) {
                 RecoveryGamesScreen(
                     onBack = { navController.safePopBackStack() },
-                    onOpenReflexOverride = dropUnlessResumed { navController.navigate(AppRoutes.ReflexGame) },
+                    onOpenSnake = dropUnlessResumed { navController.navigate(AppRoutes.SnakeGame) },
                     onOpenBlockCascade = dropUnlessResumed { navController.navigate(AppRoutes.BlockCascadeGame) },
                     onOpenSkylineReset = dropUnlessResumed { navController.navigate(AppRoutes.SkylineResetGame) },
                     onOpenRhythmTiles = dropUnlessResumed { navController.navigate(AppRoutes.RhythmTilesGame) },
                 )
             }
 
-            composable(AppRoutes.ReflexGame) {
+            composable(AppRoutes.SnakeGame) {
+                SnakeGameScreen(
+                    onExit = { navController.exitRecoveryFlowSafely() },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.Snake,
+                        asTask = false,
+                    ),
+                    launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
+                )
+            }
+
+            composable(AppRoutes.SnakeGameTask) { backStackEntry ->
+                val adaptiveDecisionId by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
+                    .collectAsStateWithLifecycle()
+                AdaptiveStartedEffect(
+                    adaptiveDecisionId,
+                )
+                SnakeGameScreen(
+                    onExit = { navController.exitRecoveryFlowSafely() },
+                    onAdaptiveExit = adaptiveDecisionId?.let { id ->
+                        { completed ->
+                            persistAdaptiveOutcome(id, completed, openFeedback = true)
+                        }
+                    },
+                    onPlayAnother = rememberPlayAnotherGame(
+                        navController = navController,
+                        current = com.impulsive.app.backend.domain.model.score.ScoreGameType.Snake,
+                        asTask = true,
+                    ),
+                    launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+                    gameLaunchContext = supportCycleGameLaunchContext(
+                        backStackEntry,
+                        com.impulsive.app.backend.domain.model.score.ScoreGameType.Snake,
+                    ),
+                )
+            }
+
+            // LEGACY UPGRADE COMPATIBILITY ONLY - not reachable from active UI.
+            composable(AppRoutes.LegacyReflexGame) {
                 ReflexGameScreen(
                     onExit = { navController.exitRecoveryFlowSafely() },
                     onPlayAnother = rememberPlayAnotherGame(
@@ -2211,7 +2653,8 @@ fun AppNavHost(
                 )
             }
 
-            composable(AppRoutes.ReflexGameTask) { backStackEntry ->
+            // LEGACY UPGRADE COMPATIBILITY ONLY - not reachable from active UI.
+            composable(AppRoutes.LegacyReflexGameTask) { backStackEntry ->
                 val adaptiveDecisionId by backStackEntry.savedStateHandle
                     .getStateFlow<String?>(AdaptiveDecisionIdStateKey, null)
                     .collectAsStateWithLifecycle()
@@ -2236,6 +2679,10 @@ fun AppNavHost(
                         asTask = true,
                     ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+                    gameLaunchContext = supportCycleGameLaunchContext(
+                        backStackEntry,
+                        com.impulsive.app.backend.domain.model.score.ScoreGameType.ReflexOverride,
+                    ),
                 )
             }
 
@@ -2276,6 +2723,10 @@ fun AppNavHost(
                         asTask = true,
                     ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+                    gameLaunchContext = supportCycleGameLaunchContext(
+                        backStackEntry,
+                        com.impulsive.app.backend.domain.model.score.ScoreGameType.BlockCascade,
+                    ),
                 )
             }
 
@@ -2316,6 +2767,10 @@ fun AppNavHost(
                         asTask = true,
                     ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+                    gameLaunchContext = supportCycleGameLaunchContext(
+                        backStackEntry,
+                        com.impulsive.app.backend.domain.model.score.ScoreGameType.SkylineReset,
+                    ),
                 )
             }
 
@@ -2356,6 +2811,10 @@ fun AppNavHost(
                         asTask = true,
                     ),
                     launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+                    gameLaunchContext = supportCycleGameLaunchContext(
+                        backStackEntry,
+                        com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles,
+                    ),
                 )
             }
 
@@ -2518,7 +2977,14 @@ fun AppNavHost(
 
             composable(
                 route = AppRoutes.AdaptiveMoment,
-                arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
+                arguments = listOf(
+                    navArgument("decisionId") { type = NavType.StringType },
+                    navArgument("triggeringPackageName") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
             ) { backStackEntry ->
                 val decisionId = Uri.decode(
                     backStackEntry.arguments?.getString("decisionId").orEmpty(),
@@ -2540,6 +3006,130 @@ fun AppNavHost(
                 )
             }
 
+            /*
+             * Automatic game-only entry for a protected app/site.
+             *
+             * This is a bootstrap, not a screen: it resolves the authoritative
+             * decision and Support Cycle, resumes an existing game step or starts
+             * one, and navigates on. It renders only a matching dark background so
+             * the hand-off from the protection bridge does not flash, and it never
+             * presents a questionnaire, a picker or a choice. Any failure exits
+             * safely rather than falling back to the old menus.
+             */
+            composable(
+                route = AppRoutes.ProtectedMoment,
+                arguments = listOf(
+                    navArgument("decisionId") { type = NavType.StringType },
+                    navArgument("triggeringPackageName") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { backStackEntry ->
+                val decisionId = Uri.decode(
+                    backStackEntry.arguments?.getString("decisionId").orEmpty(),
+                )
+                BlockRequestDestinationReadyEffect(
+                    pendingRequest = initialBlockRequest,
+                    expectedTarget = BlockLaunchTarget.ProtectedMoment,
+                    expectedRoutePattern = AppRoutes.ProtectedMoment,
+                    currentRoutePattern = backStackEntry.destination.route,
+                    adaptiveDecisionId = decisionId,
+                    onBlockRequestConsumed = onBlockRequestConsumed,
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(ProtectedMomentBootstrapBackground),
+                )
+                LaunchedEffect(decisionId) {
+                    try {
+                        val decision = AdaptivePhase4Dependencies.decisions(context)
+                            .getById(decisionId)
+                            ?: error("Adaptive decision is unavailable")
+                        val coordinator =
+                            com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleDependencies
+                                .coordinator(context)
+                        val activeResult = coordinator.createOrRecover(decision)
+
+                        val activeState = when (activeResult) {
+                            is com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleCommandResult.Active ->
+                                activeResult.state
+                            is com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleCommandResult.ExistingActive ->
+                                activeResult.state
+                            /*
+                             * Another decision already owns the single active cycle.
+                             * Resume that authoritative lifecycle instead of opening a
+                             * second one.
+                             */
+                            is com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleCommandResult.ActiveDecisionConflict ->
+                                activeResult.state
+                            else -> error("Support cycle is unavailable")
+                        }
+
+                        /*
+                         * An existing step -- in progress, or a game result awaiting
+                         * its presentation -- is authoritative. Resume it rather than
+                         * selecting or starting anything new.
+                         */
+                        if (
+                            com.impulsive.app.backend.session.adaptive
+                                .AdaptiveSupportCycleResumePolicy
+                                .requiresResumeBeforeStartingGame(activeState)
+                        ) {
+                            val resumeRequest =
+                                com.impulsive.app.backend.session.adaptive
+                                    .AdaptiveSupportCycleResumePolicy
+                                    .target(activeState)
+                                    .toRouteRequest()
+
+                            check(
+                                routeProtectedMomentInternal(resumeRequest),
+                            ) {
+                                "Existing support-cycle step could not be resumed"
+                            }
+
+                            return@LaunchedEffect
+                        }
+
+                        val chosenGame = selectAndRecordGuidedGame(
+                            context = context,
+                            sourcePackageName = "protected_moment",
+                        )
+                        val started = coordinator.startGame(
+                            cycleId = activeState.cycle.cycleId,
+                            gameType = chosenGame,
+                            requestedDurationMillis =
+                                com.impulsive.app.backend.domain.model.adaptive
+                                    .AdaptiveSupportCycleTiming.TotalDurationMillis,
+                            minimumUsefulDurationMillis = 10_000L,
+                        ) as? com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleGameLaunchResult.Ready
+                            ?: error("Support game could not start")
+                        val launch = started.launch
+                        navController.navigate(recoveryGameRoute(chosenGame, asTask = true)) {
+                            launchSingleTop = true
+                            popUpTo(AppRoutes.ProtectedMoment) { inclusive = true }
+                        }
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.apply {
+                                set(AdaptiveDecisionIdStateKey, launch.decisionId)
+                                set(AdaptiveSupportCycleIdStateKey, launch.cycleId)
+                                set(
+                                    AdaptiveSupportCycleMaxDurationStateKey,
+                                    launch.maxDurationMillis,
+                                )
+                            }
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        // Never fall back to the questionnaire, Reading or a picker.
+                        navController.navigateBackToHome()
+                    }
+                }
+            }
+
             composable(
                 route = AppRoutes.AdaptiveExplanation,
                 arguments = listOf(navArgument("decisionId") { type = NavType.StringType }),
@@ -2558,17 +3148,102 @@ fun AppNavHost(
                 )
                 LaunchedEffect(decisionId) {
                     try {
+                        val decision = AdaptivePhase4Dependencies.decisions(context)
+                            .getById(decisionId)
+                            ?: error("Adaptive decision is unavailable")
+                        val coordinator =
+                            com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleDependencies
+                                .coordinator(context)
+                        val activeResult = coordinator.createOrRecover(decision)
+
+                        if (
+                            activeResult is
+                            com.impulsive.app.backend.session.adaptive
+                                .AdaptiveSupportCycleCommandResult
+                                .ActiveDecisionConflict
+                        ) {
+                            val resumeRequest =
+                                com.impulsive.app.backend.session.adaptive
+                                    .AdaptiveSupportCycleResumePolicy
+                                    .target(activeResult.state)
+                                    .toRouteRequest()
+
+                            check(
+                                routeAdaptiveInternal(
+                                    request = resumeRequest,
+                                    replaceAdaptiveGame = true,
+                                ),
+                            ) {
+                                "Existing support cycle could not be resumed"
+                            }
+
+                            return@LaunchedEffect
+                        }
+
+                        val activeState = when (activeResult) {
+                            is com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleCommandResult.Active ->
+                                activeResult.state
+                            is com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleCommandResult.ExistingActive ->
+                                activeResult.state
+                            else -> error("Support cycle is unavailable")
+                        }
+                        check(activeState.cycle.decisionId == decisionId) {
+                            "Support cycle belongs to another adaptive decision"
+                        }
+
+                        /*
+                         * Any existing current step must resume through the authoritative shared
+                         * policy. This includes terminal game steps whose result presentation
+                         * needs restoration.
+                         */
+                        if (
+                            com.impulsive.app.backend.session.adaptive
+                                .AdaptiveSupportCycleResumePolicy
+                                .requiresResumeBeforeStartingGame(activeState)
+                        ) {
+                            val resumeRequest =
+                                com.impulsive.app.backend.session.adaptive
+                                    .AdaptiveSupportCycleResumePolicy
+                                    .target(activeState)
+                                    .toRouteRequest()
+
+                            check(
+                                routeAdaptiveInternal(
+                                    request = resumeRequest,
+                                    replaceAdaptiveGame = true,
+                                ),
+                            ) {
+                                "Existing support-cycle step could not be resumed"
+                            }
+
+                            return@LaunchedEffect
+                        }
+
                         val chosenGame = selectAndRecordGuidedGame(
                             context = context,
                             sourcePackageName = "adaptive",
                         )
+                        val started = coordinator.startGame(
+                            cycleId = activeState.cycle.cycleId,
+                            gameType = chosenGame,
+                            requestedDurationMillis = 90_000L,
+                            minimumUsefulDurationMillis = 10_000L,
+                        ) as? com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleGameLaunchResult.Ready
+                            ?: error("Support game could not start")
+                        val launch = started.launch
                         navController.navigate(recoveryGameRoute(chosenGame, asTask = true)) {
                             launchSingleTop = true
                             popUpTo(AppRoutes.AdaptiveGame) { inclusive = true }
                         }
                         navController.currentBackStackEntry
                             ?.savedStateHandle
-                            ?.set(AdaptiveDecisionIdStateKey, decisionId)
+                            ?.set(AdaptiveDecisionIdStateKey, launch.decisionId)
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveSupportCycleIdStateKey, launch.cycleId)
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(AdaptiveSupportCycleMaxDurationStateKey, launch.maxDurationMillis)
                     } catch (cancellation: CancellationException) {
                         throw cancellation
                     } catch (_: Throwable) {
@@ -2680,19 +3355,6 @@ fun AppNavHost(
                     com.impulsive.app.backend.data.repository.UrgeEventRepository(context)
                 }
                 val blockGuard = rememberAppLockGuardController()
-                val oneMinuteAccessDataSource = remember {
-                    com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource(context)
-                }
-                val oneMinuteAccessState by oneMinuteAccessDataSource.state
-                    .collectAsStateWithLifecycle(
-                        initialValue = com.impulsive.app.backend.data.local.preferences.OneMinuteAccessState(),
-                    )
-                val oneMinuteAccessAvailable = oneMinuteAccessState.enabled &&
-                    !oneMinuteAccessState.isOnCooldown(
-                        sourcePackageName,
-                        System.currentTimeMillis(),
-                        com.impulsive.app.backend.data.local.preferences.OneMinuteAccessDataSource.OneMinuteAccessCooldownMillis,
-                    )
                 BackHandler {
                     val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
                         addCategory(android.content.Intent.CATEGORY_HOME)
@@ -2729,22 +3391,6 @@ fun AppNavHost(
                             navController.navigateBackToHome()
                         }
                     },
-                    oneMinuteAccessAvailable = oneMinuteAccessAvailable,
-                    onOpenForOneMinute = {
-                        blockGuard.run(appLockEnabled) {
-                            urgeEventScope.launch {
-                                oneMinuteAccessDataSource.grant(
-                                    sourcePackageName,
-                                    System.currentTimeMillis(),
-                                )
-                                val launchIntent = context.packageManager
-                                    .getLaunchIntentForPackage(sourcePackageName)
-                                if (launchIntent != null) {
-                                    context.startActivity(launchIntent)
-                                }
-                            }
-                        }
-                    },
                 )
                 AppLockGuardHost(
                     controller = blockGuard,
@@ -2756,8 +3402,8 @@ fun AppNavHost(
             composable(AppRoutes.TaskToComplete) {
                 TaskToCompleteScreen(
                     onBack = { navController.safePopBackStack() },
-                    onOpenReflexOverrideTask = dropUnlessResumed {
-                        navController.navigate(AppRoutes.ReflexGameTask)
+                    onOpenSnakeTask = dropUnlessResumed {
+                        navController.navigate(AppRoutes.SnakeGameTask)
                     },
                     onOpenBlockCascadeTask = dropUnlessResumed {
                         navController.navigate(AppRoutes.BlockCascadeTask)
@@ -2782,9 +3428,52 @@ fun AppNavHost(
             )
         }
     }
+    }
 }
 
 private const val AdaptiveDecisionIdStateKey = "adaptiveDecisionId"
+private const val AdaptiveSupportCycleIdStateKey = "adaptiveSupportCycleId"
+private const val AdaptiveSupportCycleMaxDurationStateKey = "adaptiveSupportCycleMaxDurationMillis"
+
+private fun supportCycleGameLaunchContext(
+    backStackEntry: androidx.navigation.NavBackStackEntry,
+    gameType: com.impulsive.app.backend.domain.model.score.ScoreGameType,
+): RecoveryGameLaunchContext = supportCycleGameLaunchContext(
+    cycleId = backStackEntry.savedStateHandle.get(AdaptiveSupportCycleIdStateKey),
+    decisionId = backStackEntry.savedStateHandle.get(AdaptiveDecisionIdStateKey),
+    maxDurationMillis = backStackEntry.savedStateHandle.get(AdaptiveSupportCycleMaxDurationStateKey),
+    gameType = gameType,
+)
+
+internal fun supportCycleGameLaunchContext(
+    cycleId: String?,
+    decisionId: String?,
+    maxDurationMillis: Long?,
+    gameType: com.impulsive.app.backend.domain.model.score.ScoreGameType,
+): RecoveryGameLaunchContext {
+    val safeCycleId = cycleId.orEmpty()
+    val safeDecisionId = decisionId.orEmpty()
+    val safeMaxDurationMillis = maxDurationMillis ?: 0L
+    val hasNoSupportCycleState =
+        safeCycleId.isBlank() && safeDecisionId.isBlank() && safeMaxDurationMillis == 0L
+    return if (!hasNoSupportCycleState) {
+        require(
+            safeCycleId.isNotBlank() &&
+                safeDecisionId.isNotBlank() &&
+                safeMaxDurationMillis > 0L,
+        ) {
+            "Incomplete support-cycle launch context"
+        }
+        RecoveryGameLaunchContext.SupportCycle(
+            cycleId = safeCycleId,
+            decisionId = safeDecisionId,
+            gameType = gameType,
+            maxDurationMillis = safeMaxDurationMillis,
+        )
+    } else {
+        RecoveryGameLaunchContext.Standalone
+    }
+}
 
 @Composable
 private fun ImpulsiveLoadingSurface(
@@ -2864,7 +3553,28 @@ internal fun blockRequestDestinationRoute(request: BlockRequest): String =
         BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
         BlockLaunchTarget.AdaptiveMoment ->
             request.adaptiveDecisionId
-                ?.let(AppRoutes::adaptiveMoment)
+                ?.let { decisionId ->
+                    AppRoutes.adaptiveMoment(
+                        decisionId = decisionId,
+                        triggeringPackageName = request.sourcePackageName,
+                    )
+                }
+                ?: AppRoutes.impulsiveBlock(
+                    request.sourcePackageName,
+                    request.sourceLabel,
+                )
+        /*
+         * A protected interruption without a usable decision must not fall back
+         * to the questionnaire; the block screen is the safe destination.
+         */
+        BlockLaunchTarget.ProtectedMoment ->
+            request.adaptiveDecisionId
+                ?.let { decisionId ->
+                    AppRoutes.protectedMoment(
+                        decisionId = decisionId,
+                        triggeringPackageName = request.sourcePackageName,
+                    )
+                }
                 ?: AppRoutes.impulsiveBlock(
                     request.sourcePackageName,
                     request.sourceLabel,
@@ -2882,10 +3592,25 @@ internal fun blockRequestDestinationRoutePattern(request: BlockRequest): String 
     when (request.launchTarget) {
         BlockLaunchTarget.FocusRecovery -> AppRoutes.FocusRecovery
         BlockLaunchTarget.AdaptiveMoment -> AppRoutes.AdaptiveMoment
+        BlockLaunchTarget.ProtectedMoment -> AppRoutes.ProtectedMoment
         BlockLaunchTarget.RandomRecoveryGame -> AppRoutes.RandomRecoveryGame
         BlockLaunchTarget.ReadingReset -> AppRoutes.ResetReadFallbackTask
         BlockLaunchTarget.BlockScreen -> AppRoutes.ImpulsiveBlock
     }
+
+/**
+ * Task-mode game routes a protected Support Cycle can already be running in.
+ */
+/** Matches the protection bridge so the hand-off does not flash. */
+private val ProtectedMomentBootstrapBackground = Color(0xFF120E18)
+
+private val ProtectedMomentGameRoutePatterns = setOf(
+    AppRoutes.BlockCascadeTask,
+    AppRoutes.SkylineResetTask,
+    AppRoutes.RhythmTilesTask,
+    AppRoutes.SnakeGameTask,
+    AppRoutes.LegacyReflexGameTask,
+)
 
 internal fun blockRequestDestinationMatches(
     currentRoutePattern: String?,
@@ -2898,6 +3623,18 @@ internal fun blockRequestDestinationMatches(
         BlockLaunchTarget.AdaptiveMoment ->
             currentRoutePattern == AppRoutes.AdaptiveMoment &&
                 currentAdaptiveDecisionId == request.adaptiveDecisionId
+
+        /*
+         * A duplicate protected intent must not interrupt a Support Cycle that
+         * is already running: the bootstrap route and the game it launched both
+         * count as already satisfying this request.
+         */
+        BlockLaunchTarget.ProtectedMoment ->
+            (
+                currentRoutePattern == AppRoutes.ProtectedMoment &&
+                    currentAdaptiveDecisionId == request.adaptiveDecisionId
+                ) ||
+                currentRoutePattern in ProtectedMomentGameRoutePatterns
 
         BlockLaunchTarget.RandomRecoveryGame ->
             currentRoutePattern == AppRoutes.RandomRecoveryGame &&
@@ -4214,8 +4951,13 @@ private fun recoveryGameRoute(
         if (asTask) AppRoutes.SkylineResetTask else AppRoutes.SkylineResetGame
     com.impulsive.app.backend.domain.model.score.ScoreGameType.RhythmTiles ->
         if (asTask) AppRoutes.RhythmTilesTask else AppRoutes.RhythmTilesGame
+    com.impulsive.app.backend.domain.model.score.ScoreGameType.Snake ->
+        if (asTask) AppRoutes.SnakeGameTask else AppRoutes.SnakeGame
+    // Legacy: only for a restored pre-cutover Reflex step.
+    com.impulsive.app.backend.domain.model.score.ScoreGameType.ReflexOverride ->
+        if (asTask) AppRoutes.LegacyReflexGameTask else AppRoutes.LegacyReflexGame
     else ->
-        if (asTask) AppRoutes.ReflexGameTask else AppRoutes.ReflexGame
+        error("Unsupported recovery game route: ${game.id}")
 }
 
 private suspend fun selectAndRecordGuidedGame(
@@ -4258,26 +5000,71 @@ private fun rememberPlayAnotherGame(
     val servedGamesRepository = remember(context) {
         com.impulsive.app.backend.data.repository.ServedGamesRepository(context)
     }
+    val supportCycleHandOff = remember(context) {
+        com.impulsive.app.backend.session.game.RecoveryGameSupportCycleHandOff(
+            com.impulsive.app.backend.session.adaptive.AdaptiveSupportCycleDependencies
+                .coordinator(context),
+        )
+    }
+    val handOffInFlight = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
     val sessions by scoreRepository.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
     val urgeEvents by urgeEventRepository.events.collectAsStateWithLifecycle(initialValue = emptyList())
     val recentlyServed by servedGamesRepository.served.collectAsStateWithLifecycle(initialValue = emptyList())
-    return {
-        val pool = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.candidates
-            .filter { it != current }
-        var chosen = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.selectNextGame(
+    return playAnother@{
+        val currentEntry = navController.currentBackStackEntry ?: return@playAnother
+        val currentLaunch = runCatching {
+            supportCycleGameLaunchContext(currentEntry, current)
+        }.getOrElse {
+            navController.exitRecoveryFlowSafely()
+            return@playAnother
+        }
+        val chosen = com.impulsive.app.backend.domain.usecase.GameSelectionEngine.selectNextGame(
             sessions = sessions,
             urgeEvents = urgeEvents,
             recentlyServed = recentlyServed,
+            excludedGames = setOf(current),
         )
-        if (chosen == current) {
-            chosen = pool.random()
+        if (currentLaunch === RecoveryGameLaunchContext.Standalone) {
+            if (asTask) {
+                scope.launch { servedGamesRepository.recordServed(chosen) }
+            }
+            navController.navigate(recoveryGameRoute(chosen, asTask)) {
+                launchSingleTop = true
+                popUpTo(recoveryGameRoute(current, asTask)) { inclusive = true }
+            }
+            return@playAnother
         }
-        if (asTask) {
-            scope.launch { servedGamesRepository.recordServed(chosen) }
-        }
-        navController.navigate(recoveryGameRoute(chosen, asTask)) {
-            launchSingleTop = true
-            popUpTo(recoveryGameRoute(current, asTask)) { inclusive = true }
+        if (!handOffInFlight.compareAndSet(false, true)) return@playAnother
+        scope.launch {
+            try {
+                when (val result = supportCycleHandOff.prepareNext(currentLaunch, chosen)) {
+                    is com.impulsive.app.backend.session.game.RecoveryGameHandOffResult.Ready -> {
+                        val launch = result.launch
+                        check(launch.gameType == chosen)
+                        servedGamesRepository.recordServed(chosen)
+                        navController.navigate(recoveryGameRoute(launch.gameType, asTask = true)) {
+                            launchSingleTop = true
+                            popUpTo(recoveryGameRoute(current, asTask = true)) { inclusive = true }
+                        }
+                        navController.currentBackStackEntry?.savedStateHandle?.apply {
+                            set(AdaptiveDecisionIdStateKey, launch.decisionId)
+                            set(AdaptiveSupportCycleIdStateKey, launch.cycleId)
+                            set(
+                                AdaptiveSupportCycleMaxDurationStateKey,
+                                launch.maxDurationMillis,
+                            )
+                        }
+                    }
+
+                    is com.impulsive.app.backend.session.game.RecoveryGameHandOffResult.Standalone ->
+                        error("Support-cycle hand-off unexpectedly became standalone")
+
+                    com.impulsive.app.backend.session.game.RecoveryGameHandOffResult.Unavailable ->
+                        navController.exitRecoveryFlowSafely()
+                }
+            } finally {
+                handOffInFlight.set(false)
+            }
         }
     }
 }

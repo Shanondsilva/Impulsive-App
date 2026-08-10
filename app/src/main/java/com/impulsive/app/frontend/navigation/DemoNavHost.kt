@@ -11,7 +11,7 @@ import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
 import com.impulsive.app.backend.domain.model.journal.JournalNoteType
 import com.impulsive.app.frontend.screens.dashboard.HomeScreen
 import com.impulsive.app.frontend.screens.games.BlockCascadeScreen
-import com.impulsive.app.frontend.screens.games.ReflexGameScreen
+import com.impulsive.app.frontend.screens.games.SnakeGameScreen
 import com.impulsive.app.frontend.screens.games.RecoveryGamesScreen
 import com.impulsive.app.frontend.screens.intro.IntroScreen
 import com.impulsive.app.frontend.screens.journal.JournalEditorScreen
@@ -32,8 +32,8 @@ object DemoRoutes {
     const val Settings = "settings"
     const val TaskToComplete = "task_to_complete"
     const val RecoveryGames = "recovery_games"
-    const val ReflexGame = "reflex_game"
-    const val ReflexGameTask = "reflex_game_task"
+    const val SnakeGame = "snake_game"
+    const val SnakeGameTask = "snake_game_task"
     const val BlockCascade = "block_cascade"
     const val BlockCascadeTask = "block_cascade_task"
     const val ResetReadTask = "reset_read_task"
@@ -86,8 +86,8 @@ fun DemoNavHost(
                 onOpenJournal = {
                     navController.navigate(DemoRoutes.JournalList)
                 },
-                onOpenReflexOverrideTask = {
-                    navController.navigate(DemoRoutes.ReflexGameTask)
+                onOpenSnakeTask = {
+                    navController.navigate(DemoRoutes.SnakeGameTask)
                 },
                 onOpenBlockCascadeTask = {
                     navController.navigate(DemoRoutes.BlockCascadeTask)
@@ -182,8 +182,8 @@ fun DemoNavHost(
         composable(DemoRoutes.TaskToComplete) {
             TaskToCompleteScreen(
                 onBack = { navController.popBackStack() },
-                onOpenReflexOverrideTask = {
-                    navController.navigate(DemoRoutes.ReflexGameTask)
+                onOpenSnakeTask = {
+                    navController.navigate(DemoRoutes.SnakeGameTask)
                 },
                 onOpenBlockCascadeTask = {
                     navController.navigate(DemoRoutes.BlockCascadeTask)
@@ -197,20 +197,20 @@ fun DemoNavHost(
         composable(DemoRoutes.RecoveryGames) {
             RecoveryGamesScreen(
                 onBack = { navController.popBackStack() },
-                onOpenReflexOverride = { navController.navigate(DemoRoutes.ReflexGame) },
+                onOpenSnake = { navController.navigate(DemoRoutes.SnakeGame) },
                 onOpenBlockCascade = { navController.navigate(DemoRoutes.BlockCascade) },
             )
         }
 
-        composable(DemoRoutes.ReflexGame) {
-            ReflexGameScreen(
+        composable(DemoRoutes.SnakeGame) {
+            SnakeGameScreen(
                 onExit = { navController.popBackStack() },
                 launchSource = ReflexGameLaunchSource.RECOVERY_GAME,
             )
         }
 
-        composable(DemoRoutes.ReflexGameTask) {
-            ReflexGameScreen(
+        composable(DemoRoutes.SnakeGameTask) {
+            SnakeGameScreen(
                 onExit = { navController.popBackStack() },
                 launchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
             )

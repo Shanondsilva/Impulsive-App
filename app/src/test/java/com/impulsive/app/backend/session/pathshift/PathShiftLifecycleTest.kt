@@ -2,7 +2,6 @@ package com.impulsive.app.backend.session.pathshift
 
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveAssignment
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveDecision
-import com.impulsive.app.backend.domain.model.adaptive.AdaptivePreferences
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveReasonCode
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveSourceKind
 import com.impulsive.app.backend.domain.model.adaptive.AssignmentMode
@@ -20,7 +19,6 @@ import com.impulsive.app.backend.domain.pathshift.PathShiftEvidenceStrength
 import com.impulsive.app.backend.domain.pathshift.PathShiftForecastPolicy
 import com.impulsive.app.backend.domain.pathshift.PathShiftReviewCounts
 import com.impulsive.app.backend.domain.repository.adaptive.AdaptiveDecisionRepository
-import com.impulsive.app.backend.domain.repository.adaptive.AdaptivePreferenceRepository
 import com.impulsive.app.backend.domain.repository.adaptive.MomentPlanRepository
 import com.impulsive.app.backend.domain.repository.adaptive.MomentPlanSaveResult
 import com.impulsive.app.backend.domain.repository.pathshift.PathShiftCycleRepository
@@ -45,13 +43,6 @@ class PathShiftLifecycleTest {
         LocalTime.NOON,
         zone,
     )
-
-    @Test
-    fun `create requires explicit opt in`() = runBlocking {
-        val harness = harness(enabled = false)
-        assertEquals(PathShiftCreateResult.Disabled, harness.coordinator.createCycle())
-        assertTrue(harness.cycles.values.isEmpty())
-    }
 
     @Test
     fun `insufficient history does not persist or schedule`() = runBlocking {
@@ -211,14 +202,10 @@ class PathShiftLifecycleTest {
     }
 
     private fun harness(
-        enabled: Boolean = true,
         decisions: List<AdaptiveDecision> = roots(),
     ): Harness {
         val cycles = FakeCycleRepository()
         val decisionRepo = FakeDecisionRepository(decisions.toMutableList())
-        val preferences = FakePreferenceRepository(
-            AdaptivePreferences(pathShiftEnabled = enabled),
-        )
         val plan = revised(
             MomentPlan(
                 planId = "plan-1",
@@ -240,7 +227,6 @@ class PathShiftLifecycleTest {
         val coordinator = PathShiftCoordinator(
             cycles = cycles,
             decisions = decisionRepo,
-            preferences = preferences,
             plans = plans,
             forecastPolicy = PathShiftForecastPolicy(),
             scheduler = scheduler,
@@ -463,20 +449,6 @@ private class FakeCycleRepository : PathShiftCycleRepository {
         values[id] = updated
         activeFlow.value = updated.takeIf { it.status == PathShiftCycleStatus.Active }
         return true
-    }
-}
-
-private class FakePreferenceRepository(
-    private var value: AdaptivePreferences,
-) : AdaptivePreferenceRepository {
-    override fun observe(): Flow<AdaptivePreferences> = flowOf(value)
-    override suspend fun get(): AdaptivePreferences = value
-    override suspend fun insertDefaults(updatedAtMillis: Long) = Unit
-    override suspend fun update(preferences: AdaptivePreferences, updatedAtMillis: Long) {
-        value = preferences
-    }
-    override suspend fun resetDefaults(updatedAtMillis: Long) {
-        value = AdaptivePreferences()
     }
 }
 

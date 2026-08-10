@@ -355,6 +355,7 @@ interface AdaptiveDecisionDao {
         endedAtMillis: Long,
     ): List<AdaptiveDecisionEntity>
 
+
     @Query(
         """
         SELECT *

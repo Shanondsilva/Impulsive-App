@@ -67,9 +67,35 @@ class AdaptiveFollowUpSupport(
         UUID.randomUUID().toString()
     },
 ) {
+    /**
+     * Creates a follow-up decision for one explicit user request.
+     *
+     * Each call uses a fresh attempt identity, so two separate explicit requests
+     * legitimately produce two separate follow-up decisions.
+     */
     suspend fun chooseAnother(
         request: AdaptiveFollowUpRequest,
+    ): AdaptiveFollowUpResult = chooseAnotherWithAttemptIdentity(
+        request = request,
+        attemptIdentity = attemptIdSource.newId(),
+    )
+
+    /**
+     * Follow-up creation under a caller-supplied attempt identity.
+     *
+     * Passing a deterministic identity makes the operation idempotent: the
+     * identity is hashed into the incident token, and an incident token that
+     * already has a decision is recognised as a duplicate rather than creating
+     * a second follow-up. This is what makes a cross-store retry safe after
+     * process death.
+     */
+    internal suspend fun chooseAnotherWithAttemptIdentity(
+        request: AdaptiveFollowUpRequest,
+        attemptIdentity: String,
     ): AdaptiveFollowUpResult {
+        require(attemptIdentity.isNotBlank()) {
+            "Follow-up attempt identity must not be blank."
+        }
         try {
             val previous = decisions.getById(request.previousDecisionId)
                 ?: return AdaptiveFollowUpResult.PersistenceFailure
@@ -97,7 +123,7 @@ class AdaptiveFollowUpSupport(
                 ?: return AdaptiveFollowUpResult.PersistenceFailure
             val incidentToken = AdaptiveFollowUpIncidentTokenFactory.create(
                 previousDecisionId = previous.decisionId,
-                attemptIdentity = attemptIdSource.newId(),
+                attemptIdentity = attemptIdentity,
             )
             val coordination = coordinator.coordinate(
                 AdaptiveProtectionIncidentRequest(
@@ -124,10 +150,23 @@ class AdaptiveFollowUpSupport(
                     null
                 }
 
-            // Explicitly selected options remain available even when personal
-            // suggestion preferences are off; those preferences control suggestions.
+            /*
+             * Explicitly selected options remain available even when personal
+             * suggestion preferences are off; those preferences control suggestions.
+             *
+             * This is a precondition rather than a state change, so a decision
+             * that already lists the intervention satisfies it. Recognising that
+             * is what lets a deterministic retry reach the idempotent lifecycle
+             * steps below instead of failing on an already-progressed follow-up.
+             */
             if (!decisions.addEligibleInterventions(followUpId, setOf(request.intervention))) {
-                return AdaptiveFollowUpResult.PersistenceFailure
+                val alreadyEligible = decisions.getById(followUpId)
+                    ?.assignment
+                    ?.eligibleInterventions
+                    ?.contains(request.intervention) == true
+                if (!alreadyEligible) {
+                    return AdaptiveFollowUpResult.PersistenceFailure
+                }
             }
             when (lifecycle.markPresented(followUpId, actionAtMillis)) {
                 AdaptiveLifecycleResult.Applied,

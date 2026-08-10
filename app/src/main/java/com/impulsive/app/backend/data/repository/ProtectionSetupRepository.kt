@@ -4,6 +4,7 @@ import android.content.Context
 import com.impulsive.app.backend.data.local.preferences.ProtectionSetupPreferencesDataSource
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupItem
 import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
+import com.impulsive.app.backend.domain.model.protection.WebsiteProtectionDisclosurePolicy
 import kotlinx.coroutines.flow.Flow
 
 class ProtectionSetupRepository(
@@ -33,8 +34,21 @@ class ProtectionSetupRepository(
         dataSource.setProtectionMonitorTransitionCompleted(completed)
     }
 
-    suspend fun setWebsiteProtectionEnabled(enabled: Boolean) {
-        dataSource.setWebsiteProtectionEnabled(enabled)
+    suspend fun setWebsiteProtectionEnabled(
+        enabled:
+            Boolean,
+    ): Boolean =
+        dataSource
+            .setWebsiteProtectionEnabled(
+                enabled,
+            )
+
+    suspend fun acceptCurrentWebsiteProtectionDisclosure() {
+        dataSource
+            .setWebsiteProtectionDisclosureConsentVersion(
+                WebsiteProtectionDisclosurePolicy
+                    .CurrentVersion,
+            )
     }
 
     suspend fun setWebsiteProtectionAlwaysOn(enabled: Boolean) {

@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.repository.adaptive.RoomAdaptiveDecisionRepository
-import com.impulsive.app.backend.data.repository.adaptive.RoomAdaptivePreferenceRepository
 import com.impulsive.app.backend.data.repository.adaptive.RoomMomentPlanRepository
 import com.impulsive.app.backend.data.repository.pathshift.RoomPathShiftCycleRepository
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveSourceKind
@@ -45,8 +44,6 @@ data class PathShiftUiState(
 
     val homeSummary: String
         get() = when (experience) {
-            PathShiftExperienceState.Disabled ->
-                "Turn on private on-device estimates."
             PathShiftExperienceState.InsufficientHistory ->
                 "Impulsive is still gathering enough private history for a cautious estimate."
             PathShiftExperienceState.ForecastReady ->
@@ -68,8 +65,6 @@ class PathShiftViewModel(application: Application) : AndroidViewModel(applicatio
     private val database = AppDatabase.getInstance(application)
     private val cycles = RoomPathShiftCycleRepository(database.pathShiftCycleDao())
     private val decisions = RoomAdaptiveDecisionRepository(database.adaptiveDecisionDao())
-    private val preferences =
-        RoomAdaptivePreferenceRepository(database.adaptivePreferenceDao())
     private val plans = RoomMomentPlanRepository(database.momentPlanDao())
     private val coordinator = PathShiftDependencies.coordinator(application)
     private val policy = PathShiftForecastPolicy()
@@ -92,7 +87,6 @@ class PathShiftViewModel(application: Application) : AndroidViewModel(applicatio
             is PathShiftCreateResult.Unavailable -> "Not enough history yet."
             is PathShiftCreateResult.SchedulingFailure ->
                 "Your PathShift was saved and will be recovered automatically."
-            PathShiftCreateResult.Disabled -> "Turn on Future Path first."
             PathShiftCreateResult.PersistenceFailure ->
                 "Your PathShift could not be created. Please try again."
         }
@@ -166,8 +160,6 @@ class PathShiftViewModel(application: Application) : AndroidViewModel(applicatio
 
     private suspend fun load(message: String? = _state.value.message) {
         try {
-            preferences.insertDefaults(System.currentTimeMillis())
-            val preference = preferences.get()
             val active = cycles.getActive()
             val latestFinalised = cycles.observeLatestFinalised(1).first().firstOrNull()
             val enabledPlans = plans.observeEnabled().first()
@@ -179,15 +171,6 @@ class PathShiftViewModel(application: Application) : AndroidViewModel(applicatio
             } == true
             val now = System.currentTimeMillis()
 
-            if (!preference.pathShiftEnabled) {
-                _state.value = PathShiftUiState(
-                    loading = false,
-                    experience = PathShiftExperienceState.Disabled,
-                    enabledPlans = enabledPlans,
-                    message = message,
-                )
-                return
-            }
             if (active != null) {
                 _state.value = PathShiftUiState(
                     loading = false,

@@ -3,6 +3,8 @@ package com.impulsive.app.backend.data.repository
 import android.app.Activity
 import android.content.Context
 import com.google.firebase.FirebaseApp
+import com.impulsive.app.backend.data.local.preferences.AdaptiveSupportCyclePreferencesDataSource
+import com.impulsive.app.backend.data.local.preferences.SafeBrowsePassEntitlementDataSource
 import com.impulsive.app.backend.domain.model.auth.AuthProvider
 import com.impulsive.app.backend.domain.model.auth.AuthUser
 import kotlinx.coroutines.flow.Flow
@@ -14,12 +16,14 @@ object AuthRepositoryFactory {
         return if (FirebaseApp.getApps(context).isNotEmpty()) {
             FirebaseAuthRepository(context)
         } else {
-            GuestOnlyAuthRepository()
+            GuestOnlyAuthRepository(context.applicationContext)
         }
     }
 }
 
-private class GuestOnlyAuthRepository : AuthRepository {
+private class GuestOnlyAuthRepository(
+    private val appContext: Context,
+) : AuthRepository {
     private val currentUserState = MutableStateFlow<AuthUser?>(null)
 
     override val currentUser: Flow<AuthUser?> = currentUserState
@@ -57,6 +61,8 @@ private class GuestOnlyAuthRepository : AuthRepository {
     }
 
     override suspend fun continueAsGuest(): AuthResult {
+        clearSafeBrowsePassCache()
+
         val guest = AuthUser(
             uid = "guest-" + UUID.randomUUID().toString(),
             displayName = null,
@@ -74,6 +80,12 @@ private class GuestOnlyAuthRepository : AuthRepository {
     override fun abandonAccountSwitch() = Unit
 
     override suspend fun signOut() {
+        AdaptiveSupportCyclePreferencesDataSource
+            .getInstance(appContext)
+            .clearAll()
+
+        clearSafeBrowsePassCache()
+
         currentUserState.value = null
     }
 
@@ -88,7 +100,10 @@ private class GuestOnlyAuthRepository : AuthRepository {
     override suspend fun hasValidSession(): Boolean = currentUserState.value != null
 
     override suspend fun deleteAccount(): AccountDeletionResult {
+        clearSafeBrowsePassCache()
+
         currentUserState.value = null
+
         return AccountDeletionResult.Success
     }
 
@@ -97,8 +112,19 @@ private class GuestOnlyAuthRepository : AuthRepository {
         provider: AuthProvider,
         password: String?,
     ): AccountDeletionResult {
+        clearSafeBrowsePassCache()
+
         currentUserState.value = null
+
         return AccountDeletionResult.Success
+    }
+
+    private suspend fun clearSafeBrowsePassCache() {
+        runCatching {
+            SafeBrowsePassEntitlementDataSource(
+                appContext,
+            ).clear()
+        }
     }
 
     private companion object {

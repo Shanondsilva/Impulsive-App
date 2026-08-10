@@ -35,35 +35,88 @@ class PersonalSupportInformationArchitectureSourceTest {
     )
 
     @Test
-    fun mainPersonalSupportGroupHasSixIntendedDestinations() {
+    fun mainPersonalSupportGroupHasTwoCoreDestinationsAndConditionalAdPrivacyChoices() {
         assertEquals(
-            6,
+            2,
             Regex("""SettingsRow\(""").findAll(mainPersonalSupportGroup).count(),
         )
-        assertTrue(mainPersonalSupportGroup.contains("stringResource(R.string.personal_support_plans)"))
-        assertTrue(mainPersonalSupportGroup.contains("stringResource(R.string.tips_title)"))
-        assertTrue(mainPersonalSupportGroup.contains("\"Future Path\""))
         assertTrue(mainPersonalSupportGroup.contains("\"What Works for Me\""))
-        assertTrue(mainPersonalSupportGroup.contains("\"Suggestion preferences\""))
         assertTrue(mainPersonalSupportGroup.contains("\"Privacy and data\""))
+        assertTrue(mainPersonalSupportGroup.contains("SafeBrowseAdPrivacyChoicesRow()"))
+        assertFalse(mainPersonalSupportGroup.contains("stringResource(R.string.personal_support_plans)"))
+        assertFalse(mainPersonalSupportGroup.contains("stringResource(R.string.tips_title)"))
+        assertFalse(mainPersonalSupportGroup.contains("\"Future Path\""))
+        assertFalse(mainPersonalSupportGroup.contains("\"Suggestion preferences\""))
+        assertFalse(mainPersonalSupportGroup.contains("\"Safe Browse Pass\""))
+        assertFalse(mainPersonalSupportGroup.contains("onOpenPlans"))
+        assertFalse(mainPersonalSupportGroup.contains("onOpenTips"))
+        assertFalse(mainPersonalSupportGroup.contains("onOpenSuggestionPreferences"))
+        assertFalse(mainPersonalSupportGroup.contains("onOpenSafeBrowsePass"))
         assertFalse(mainPersonalSupportGroup.contains("\"How suggestions work\""))
         assertFalse(mainPersonalSupportGroup.contains("\"Reset personal learning\""))
         assertFalse(mainPersonalSupportGroup.contains("\"Delete all Moment data\""))
     }
 
     @Test
-    fun futurePathRemainsDirectlyToggleableWithCorrectDisclosure() {
+    fun futurePathIsRemovedFromSettingsWithoutToggleOrDisableDialog() {
         assertEquals(
-            1,
-            Regex("""SettingsSwitch\(""").findAll(mainPersonalSupportGroup).count(),
+            0,
+            Regex(
+                """SettingsSwitch\(""",
+            )
+                .findAll(
+                    mainPersonalSupportGroup,
+                )
+                .count(),
         )
-        assertTrue(mainPersonalSupportGroup.contains("pathShiftConsentVisible = true"))
-        assertTrue(mainPersonalSupportGroup.contains("pathShiftDisableVisible = true"))
-        assertTrue(mainPersonalSupportGroup.contains("pathShiftEnabled = true"))
-        assertTrue(mainPersonalSupportGroup.contains("pathShiftEnabled = false"))
-        assertTrue(mainPersonalSupportGroup.contains("Turn On Future Path"))
-        assertTrue(mainPersonalSupportGroup.contains("Not Now"))
-        assertTrue(mainPersonalSupportGroup.contains("camera, microphone or location"))
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "\"Future Path\"",
+            ),
+        )
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "\"Always on\"",
+            ),
+        )
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "Uses encrypted on-device history for cautious estimates.",
+            ),
+        )
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "pathShiftConsentVisible",
+            ),
+        )
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "pathShiftDisableVisible",
+            ),
+        )
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "Turn On Future Path",
+            ),
+        )
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "Turn Off Future Path",
+            ),
+        )
+
+        assertFalse(
+            mainPersonalSupportGroup.contains(
+                "pathShiftEnabled = false",
+            ),
+        )
     }
 
     @Test
@@ -111,11 +164,12 @@ class PersonalSupportInformationArchitectureSourceTest {
     }
 
     @Test
-    fun personalSupportSubscreensAreReachedThroughExistingAppLockGuard() {
-        assertTrue(settingsCall.contains("onOpenSuggestionPreferences = {"))
+    fun remainingPersonalSupportSubscreensAreReachedThroughExistingAppLockGuard() {
+        assertFalse(settingsCall.contains("onOpenSuggestionPreferences = {"))
         assertTrue(settingsCall.contains("onOpenPrivacyAndData = {"))
+        assertTrue(settingsCall.contains("onOpenWhatWorksForMe = {"))
         assertTrue(settings.contains("appLockGuard.run("))
-        assertTrue(settings.contains("action = onOpenSuggestionPreferences"))
+        assertTrue(settings.contains("action = onOpenWhatWorksForMe"))
         assertTrue(settings.contains("action = onOpenPrivacyAndData"))
         assertTrue(navigation.contains("launchSingleTop = true"))
         assertTrue(navigation.contains("navController.safePopBackStack()"))

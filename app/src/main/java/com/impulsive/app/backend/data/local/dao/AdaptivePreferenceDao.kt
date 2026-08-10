@@ -39,24 +39,74 @@ abstract class AdaptivePreferenceDao {
         preferences: AdaptivePreferenceEntity,
     )
 
-    suspend fun insertDefaults(updatedAtMillis: Long): Long =
-        insertRaw(AdaptivePreferenceEntity(updatedAtMillis = updatedAtMillis))
-
-    suspend fun update(preferences: AdaptivePreferenceEntity) {
-        require(preferences.id == AdaptivePreferenceEntity.SingleRowId) {
-            "Adaptive preferences must use the single settings row."
-        }
-        replaceRaw(preferences)
-    }
-
-    suspend fun resetDefaults(updatedAtMillis: Long) =
-        replaceRaw(AdaptivePreferenceEntity(updatedAtMillis = updatedAtMillis))
-
     @Insert(onConflict = OnConflictStrategy.ABORT)
-    abstract suspend fun insertForRestore(
+    protected abstract suspend fun insertForRestoreRaw(
         preferences: AdaptivePreferenceEntity,
     )
+
+    suspend fun insertDefaults(
+        updatedAtMillis: Long,
+    ): Long =
+        insertRaw(
+            AdaptivePreferenceEntity(
+                updatedAtMillis =
+                    updatedAtMillis,
+            ),
+        )
+
+    suspend fun update(
+        preferences: AdaptivePreferenceEntity,
+    ) {
+        require(
+            preferences.id ==
+                AdaptivePreferenceEntity.SingleRowId,
+        ) {
+            "Adaptive preferences must use the single settings row."
+        }
+
+        replaceRaw(
+            preferences.withFuturePathAlwaysOn(),
+        )
+    }
+
+    suspend fun resetDefaults(
+        updatedAtMillis: Long,
+    ) {
+        replaceRaw(
+            AdaptivePreferenceEntity(
+                updatedAtMillis =
+                    updatedAtMillis,
+            ),
+        )
+    }
+
+    suspend fun insertForRestore(
+        preferences: AdaptivePreferenceEntity,
+    ) {
+        require(
+            preferences.id ==
+                AdaptivePreferenceEntity.SingleRowId,
+        ) {
+            "Adaptive preferences must use the single settings row."
+        }
+
+        insertForRestoreRaw(
+            preferences.withFuturePathAlwaysOn(),
+        )
+    }
 
     @Query("DELETE FROM adaptive_preferences")
     abstract suspend fun clearAll(): Int
 }
+
+private fun AdaptivePreferenceEntity
+    .withFuturePathAlwaysOn():
+    AdaptivePreferenceEntity =
+    if (pathShiftEnabled) {
+        this
+    } else {
+        copy(
+            pathShiftEnabled =
+                true,
+        )
+    }

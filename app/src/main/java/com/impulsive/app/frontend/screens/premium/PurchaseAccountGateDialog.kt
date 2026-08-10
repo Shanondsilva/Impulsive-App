@@ -25,6 +25,7 @@ import com.impulsive.app.backend.domain.model.auth.PurchaseAccountGatePhase
 
 @Composable
 internal fun PurchaseAccountGateDialog(
+    productName: String = "Plus",
     phase: PurchaseAccountGatePhase,
     authErrorMessage: String?,
     pendingConflict: AuthResult.AccountConflict?,
@@ -127,9 +128,9 @@ internal fun PurchaseAccountGateDialog(
 
                     else -> {
                         Text(
-                            "Your Plus subscription is linked to your Impulsive account. " +
-                                "Connect Google, Facebook, or email before subscribing so you " +
-                                "can restore Plus after reinstalling the app or changing devices. " +
+                            "Your $productName purchase is linked to your Impulsive account. " +
+                                "Connect Google, Facebook, or email before purchasing so you can " +
+                                "restore $productName after reinstalling the app or changing devices. " +
                                 "Your recovery data stays on this device.",
                         )
 

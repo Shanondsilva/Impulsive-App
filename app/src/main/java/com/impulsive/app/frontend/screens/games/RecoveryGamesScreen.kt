@@ -118,7 +118,7 @@ private data class RecoveryGameCardModel(
 @Composable
 fun RecoveryGamesScreen(
     onBack: () -> Unit,
-    onOpenReflexOverride: () -> Unit,
+    onOpenSnake: () -> Unit,
     onOpenBlockCascade: () -> Unit,
     onOpenSkylineReset: () -> Unit = {},
     onOpenRhythmTiles: () -> Unit = {},
@@ -202,16 +202,16 @@ fun RecoveryGamesScreen(
 
     val games = listOf(
         RecoveryGameCardModel(
-            title = "Reflex Override",
-            description = "Break autopilot with a fast control challenge.",
-            infoDescription = "A fast reaction game that helps you snap out of autopilot. Tap the right targets, avoid mistakes, and bring your attention back under control.",
+            title = "Snake",
+            description = "Guide the snake, collect fruit, and stay with one moving goal.",
+            infoDescription = "Guide a moving snake around the board, collect fruit, and keep your attention on one simple goal. The walls wrap, so leaving one edge brings you back from the opposite side.",
             duration = "90 sec",
-            chip = "Fast control",
+            chip = "Steady focus",
             icon = Icons.Filled.SportsEsports,
             iconBackground = ImpulsivePsychological.copy(alpha = 0.68f),
-            gameTypeId = "REFLEX_OVERRIDE",
+            gameTypeId = "SNAKE",
             winPoints = GameStoreCatalog.TwoWinStreakControlPoints,
-            onOpen = onOpenReflexOverride,
+            onOpen = onOpenSnake,
         ),
         RecoveryGameCardModel(
             title = "Block Cascade",

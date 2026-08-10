@@ -11,7 +11,7 @@ import java.time.temporal.ChronoUnit
 private const val RecentSessionLimit = 10
 
 private val DefaultScoreGameOrder = listOf(
-    ScoreGameType.ReflexOverride,
+    ScoreGameType.Snake,
     ScoreGameType.BlockCascade,
     ScoreGameType.UrgeSurvival,
     ScoreGameType.FluidRegulation,
@@ -38,6 +38,7 @@ enum class ScoreGameType(
     BreathControl("BREATH_CONTROL", "Breath Control"),
     RageDischarge("RAGE_DISCHARGE", "Rage Discharge"),
     RhythmTiles("RHYTHM_TILES", "Rhythm Tiles"),
+    Snake("SNAKE", "Snake"),
     FocusSession("FOCUS_SESSION", "Focus session"),
     Unknown("UNKNOWN", "Pivot Game");
 
@@ -126,7 +127,7 @@ data class ScoreSessionRecord(
         get() {
             val basePoints = (score.coerceAtLeast(0) / 10)
             val outcomeBonus = when (outcome) {
-                ScoreSessionOutcome.WalkedAway -> 80
+                ScoreSessionOutcome.WalkedAway -> SAFE_EXIT_CONTROL_POINT_BONUS
                 ScoreSessionOutcome.ContinuedWithIntention -> 35
                 ScoreSessionOutcome.Completed -> 25
                 ScoreSessionOutcome.Replayed -> 10
@@ -183,6 +184,9 @@ data class ScoreDashboardState(
         )
     },
     val recentSessions: List<ScoreTimelineItem> = emptyList(),
+    val recentSafeExits:
+        List<SafeExitTimelineItem> =
+        emptyList(),
 ) {
     val levelProgress: Float
         get() = if (pointsNeededForNextLevel <= 0) {
@@ -207,6 +211,9 @@ fun buildScoreDashboardState(
     urgeEvents: List<UrgeEventRecord> = emptyList(),
     windowOutcomes: List<WindowOutcomeRecord> = emptyList(),
     taperHistory: List<TaperHistoryEntry> = emptyList(),
+    safeExitProgress:
+        SafeExitProgressSnapshot =
+        SafeExitProgressSnapshot(),
 ): ScoreDashboardState {
     val visibleGameTypes = recoveryGameTypes
         .distinct()
@@ -222,8 +229,53 @@ fun buildScoreDashboardState(
     val filteredActivities = activitySessions.filter { it.completedAt.isInRange(selectedRange, now) }
     val validSessions = filtered.filter { it.validCompletion }
     val personalBests = buildPersonalBests(gameSessions, visibleGameTypes)
-    val safeExitCount = filtered.count { it.outcome == ScoreSessionOutcome.WalkedAway }
-    val totalControlPoints = filteredActivities.sumOf { it.controlPoints }
+    val validPivotWalkAwaySourceKeys =
+        filtered
+            .asSequence()
+            .filter {
+                it.validCompletion &&
+                    it.outcome ==
+                    ScoreSessionOutcome.WalkedAway
+            }
+            .mapNotNull(
+                PivotGameSafeExitIdentity::
+                    sourceKey,
+            )
+            .toSet()
+
+    val legacyPivotFallbackCount =
+        validPivotWalkAwaySourceKeys
+            .count {
+                it !in
+                    safeExitProgress
+                        .persistedPivotSourceKeys
+            }
+
+    val safeExitCount =
+        (
+            safeExitProgress
+                .ledgerSafeExitCount
+                .toLong() +
+                legacyPivotFallbackCount
+                    .toLong()
+        )
+            .coerceAtMost(
+                Int.MAX_VALUE
+                    .toLong(),
+            )
+            .toInt()
+    val totalControlPoints =
+        (
+            filteredActivities
+                .sumOf {
+                    it.controlPoints
+                } +
+                safeExitProgress
+                    .additionalControlPoints
+            )
+            .coerceAtLeast(
+                0,
+            )
     val bestGame = validSessions.maxByOrNull { it.score }?.gameType?.displayName ?: "None yet"
     val urgeDrops = filtered.mapNotNull { it.urgeDrop }
     val averageUrgeDrop = urgeDrops.takeIf { it.isNotEmpty() }?.average()?.toFloat()
@@ -272,6 +324,9 @@ fun buildScoreDashboardState(
                     completedAt = it.completedAt,
                 )
             },
+        recentSafeExits =
+            safeExitProgress
+                .recentSafeExits,
     )
 }
 

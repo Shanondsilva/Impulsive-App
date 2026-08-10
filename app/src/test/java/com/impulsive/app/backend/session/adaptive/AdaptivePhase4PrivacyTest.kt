@@ -72,9 +72,10 @@ class AdaptivePhase4PrivacyTest {
     }
 
     @Test
-    fun noUnencryptedDataStoreIsIntroduced() {
-        assertFalse(sessionSource.contains("DataStore"))
+    fun onlyDedicatedNoBackupSupportCycleDataStoreIsReferenced() {
+        assertTrue(sessionSource.contains("DataStoreAdaptiveSupportCycleRepository"))
         assertFalse(sessionSource.contains("preferencesDataStore"))
+        assertFalse(sessionSource.contains("context.dataStore"))
     }
 
     @Test

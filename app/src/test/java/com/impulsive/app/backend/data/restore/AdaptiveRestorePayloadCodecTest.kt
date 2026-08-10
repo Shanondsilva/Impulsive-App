@@ -38,6 +38,15 @@ class AdaptiveRestorePayloadCodecTest {
         assertEquals(RehearsalId, restored.rehearsals.single().rehearsalId)
         assertEquals(4, encoded.getInt("formatVersion"))
         assertFalse(encoded.toString().contains("private-incident-token"))
+        assertTrue(
+            encoded
+                .getJSONObject(
+                    "preferences",
+                )
+                .getBoolean(
+                    "pathShiftEnabled",
+                ),
+        )
     }
 
     @Test
@@ -164,8 +173,109 @@ class AdaptiveRestorePayloadCodecTest {
 
             assertTrue(restored.protectionCoachSuggestions.isEmpty())
             assertFalse(restored.protectionMonitorTransitionCompleted)
-            assertEquals(version == 3, restored.preferences.pathShiftEnabled)
+            assertTrue(
+                restored.preferences.pathShiftEnabled,
+            )
         }
+    }
+
+    @Test
+    fun falseAndMissingLegacyFuturePathPreferencesRestoreEnabled() {
+        val falsePreferencePayload =
+            AdaptiveRestorePayloadCodec
+                .encode(
+                    plans =
+                        emptyList(),
+                    preferences =
+                        AdaptivePreferenceEntity(),
+                    decisions =
+                        emptyList(),
+                    rehearsals =
+                        emptyList(),
+                )
+                .apply {
+                    getJSONObject(
+                        "preferences",
+                    )
+                        .put(
+                            "pathShiftEnabled",
+                            false,
+                        )
+                }
+
+        val restoredFalse =
+            AdaptiveRestorePayloadCodec
+                .decodeIfPresent(
+                    JSONObject()
+                        .put(
+                            AdaptiveRestorePayloadCodec.JsonKey,
+                            falsePreferencePayload,
+                        ),
+                    2_000L,
+                )!!
+
+        assertTrue(
+            restoredFalse
+                .preferences
+                .pathShiftEnabled,
+        )
+
+        val legacyPayload =
+            AdaptiveRestorePayloadCodec
+                .encode(
+                    plans =
+                        emptyList(),
+                    preferences =
+                        AdaptivePreferenceEntity(),
+                    decisions =
+                        emptyList(),
+                    rehearsals =
+                        emptyList(),
+                )
+                .apply {
+                    put(
+                        "formatVersion",
+                        2,
+                    )
+                    remove(
+                        "pathShiftCycles",
+                    )
+                    remove(
+                        "protectionCoachSuggestions",
+                    )
+                    remove(
+                        "protectionMonitorTransitionCompleted",
+                    )
+                    remove(
+                        "suggestedSetupReviewed",
+                    )
+                    remove(
+                        "onboardingColdStartPriorUsed",
+                    )
+                    getJSONObject(
+                        "preferences",
+                    )
+                        .remove(
+                            "pathShiftEnabled",
+                        )
+                }
+
+        val restoredLegacy =
+            AdaptiveRestorePayloadCodec
+                .decodeIfPresent(
+                    JSONObject()
+                        .put(
+                            AdaptiveRestorePayloadCodec.JsonKey,
+                            legacyPayload,
+                        ),
+                    2_000L,
+                )!!
+
+        assertTrue(
+            restoredLegacy
+                .preferences
+                .pathShiftEnabled,
+        )
     }
 
     @Test

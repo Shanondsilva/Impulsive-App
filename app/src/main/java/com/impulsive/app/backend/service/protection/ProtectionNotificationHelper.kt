@@ -113,10 +113,14 @@ class ProtectionNotificationHelper(
         }
     }
 
-    fun createMonitoringNotification(
+    internal fun createMonitoringNotification(
         session: FocusSessionState? = null,
         now: LocalDateTime = LocalDateTime.now(),
         hideSensitive: Boolean = false,
+        // Ignored while a Focus session owns the notification. Defaults to the
+        // neutral mode so no caller can accidentally claim protection is on.
+        monitoringMode: ProtectionMonitoringNotificationMode =
+            ProtectionMonitoringNotificationMode.Checking,
     ): Notification {
         val builder = NotificationCompat.Builder(context, MonitoringChannelId)
             .setSmallIcon(R.drawable.ic_notification)
@@ -195,9 +199,34 @@ class ProtectionNotificationHelper(
                         .setChronometerCountDown(false)
                         .build()
                 } else {
+                    /*
+                     * APP-015: describe only what is operational. Claiming
+                     * protection is on while Usage Access is revoked is the
+                     * defect this replaces.
+                     */
+                    val titleRes = when (monitoringMode) {
+                        ProtectionMonitoringNotificationMode.Checking ->
+                            R.string.notif_monitoring_checking_title
+                        ProtectionMonitoringNotificationMode.WebsiteProtection ->
+                            R.string.notif_monitoring_website_title
+                        ProtectionMonitoringNotificationMode.AppProtection,
+                        ProtectionMonitoringNotificationMode.AppAndWebsiteProtection,
+                        -> R.string.notif_monitoring_title
+                    }
+                    val bodyRes = when (monitoringMode) {
+                        ProtectionMonitoringNotificationMode.Checking ->
+                            R.string.notif_monitoring_checking_body
+                        ProtectionMonitoringNotificationMode.WebsiteProtection ->
+                            R.string.notif_monitoring_website_body
+                        ProtectionMonitoringNotificationMode.AppProtection ->
+                            R.string.notif_monitoring_body
+                        ProtectionMonitoringNotificationMode.AppAndWebsiteProtection ->
+                            R.string.notif_monitoring_app_and_website_body
+                    }
+
                     builder
-                        .setContentTitle(context.getString(R.string.notif_monitoring_title))
-                        .setContentText(context.getString(R.string.notif_monitoring_body))
+                        .setContentTitle(context.getString(titleRes))
+                        .setContentText(context.getString(bodyRes))
                         .setShowWhen(false)
                         .setUsesChronometer(false)
                         .setChronometerCountDown(false)
@@ -262,34 +291,10 @@ class ProtectionNotificationHelper(
         }.getOrDefault(true)
     }
 
-    fun showOneMinuteAccessCountdown(
-        sourceLabel: String,
-        remainingSeconds: Int,
-        hideSensitive: Boolean = false,
-    ) {
-        val title = "45-second access"
-        val text = if (hideSensitive) {
-            "Locks again in $remainingSeconds seconds."
-        } else {
-            "$sourceLabel locks again in $remainingSeconds seconds."
-        }
-        val notification = NotificationCompat.Builder(context, MonitoringChannelId)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setContentIntent(homePendingIntent(OneMinuteAccessNotificationId))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-        submitStandardNotification(OneMinuteAccessNotificationId, notification)
-    }
-
-    fun cancelOneMinuteAccessCountdown() {
-        ProtectionNotificationGate.cancelQueued(OneMinuteAccessNotificationId)
+    fun cancelLegacyTemporaryAccessNotification() {
+        ProtectionNotificationGate.cancelQueued(LegacyTemporaryAccessNotificationId)
         runCatching {
-            NotificationManagerCompat.from(context).cancel(OneMinuteAccessNotificationId)
+            NotificationManagerCompat.from(context).cancel(LegacyTemporaryAccessNotificationId)
         }
     }
 
@@ -939,7 +944,7 @@ class ProtectionNotificationHelper(
         const val ReleaseWindowPausedNotificationId = 4203
         const val ProtectionResumedNotificationId = 4204
         const val VpnNotificationId = 4206
-        const val OneMinuteAccessNotificationId = 4208
+        private const val LegacyTemporaryAccessNotificationId = 4208
         const val UsageAccessLostNotificationId = 4209
         const val VpnConsentLostNotificationId = 4210
         const val ProtectionRecoveryNotificationId = 4211

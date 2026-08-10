@@ -68,11 +68,16 @@ class ImpulsiveVpnStopSourceTest {
                 viewModel.indexOf("fun setWebsiteProtectionAlwaysOn"),
             )
 
-        assertTrue(method.indexOf("repository.setWebsiteProtectionEnabled(enabled)") >= 0)
-        assertTrue(
-            method.indexOf("repository.setWebsiteProtectionEnabled(enabled)") <
-                method.indexOf("ImpulsiveVpnController.stop"),
-        )
+        val repositoryCallIndex =
+            method.indexOf("repository")
+        val falseArgIndex =
+            method.indexOf("false,", repositoryCallIndex)
+        val vpnStopIndex =
+            method.indexOf("ImpulsiveVpnController")
+
+        assertTrue(repositoryCallIndex >= 0)
+        assertTrue(falseArgIndex in repositoryCallIndex until vpnStopIndex)
+        assertTrue(vpnStopIndex > falseArgIndex)
     }
 
     @Test

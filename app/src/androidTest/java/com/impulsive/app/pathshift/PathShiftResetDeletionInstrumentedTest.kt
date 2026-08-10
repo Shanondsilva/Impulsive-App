@@ -5,7 +5,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.impulsive.app.backend.data.local.database.AppDatabase
 import com.impulsive.app.backend.data.repository.adaptive.RoomAdaptiveDataRepository
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,8 +35,17 @@ class PathShiftResetDeletionInstrumentedTest {
         cycles.insertOnce(pathShiftCycleEntity())
         data.clearAllAdaptiveData()
         assertNull(cycles.getActive())
-        assertEquals(null, preferences.get())
-        preferences.insertDefaults(0L)
-        Unit
+
+        val resetPreferences =
+            preferences.get()
+
+        assertTrue(
+            resetPreferences != null,
+        )
+
+        assertTrue(
+            resetPreferences!!
+                .pathShiftEnabled,
+        )
     }
 }

@@ -169,10 +169,10 @@ private val VisiblePsychologyTasks = listOf(
         iconBackground = ImpulsivePsychological.copy(alpha = 0.66f),
     ),
     PsychologyTask(
-        taskType = PsychologyTaskType.ReflexOverride,
-        title = "Reflex Override",
-        description = "Break autopilot with a fast reaction challenge.",
-        chip = "Fast control",
+        taskType = PsychologyTaskType.Snake,
+        title = "Snake",
+        description = "Guide the snake, collect fruit, and stay with one moving goal.",
+        chip = "Steady focus",
         icon = Icons.Filled.SportsEsports,
         iconBackground = ImpulsivePsychological.copy(alpha = 0.58f),
     ),
@@ -189,7 +189,7 @@ private val VisiblePsychologyTasks = listOf(
 @Composable
 fun TaskToCompleteScreen(
     onBack: () -> Unit,
-    onOpenReflexOverrideTask: () -> Unit = {},
+    onOpenSnakeTask: () -> Unit = {},
     onOpenBlockCascadeTask: () -> Unit = {},
     onOpenSkylineResetTask: () -> Unit = {},
     onOpenRhythmTilesTask: () -> Unit = {},
@@ -291,7 +291,10 @@ fun TaskToCompleteScreen(
                     colors = colors,
                     onStartTask = {
                         when (task.taskType) {
-                            PsychologyTaskType.ReflexOverride -> onOpenReflexOverrideTask()
+                            PsychologyTaskType.Snake -> onOpenSnakeTask()
+                            // Legacy selections route to the active game; the
+                            // screen still completes PsychologyTaskType.Snake.
+                            PsychologyTaskType.ReflexOverride -> onOpenSnakeTask()
                             PsychologyTaskType.BlockCascade -> onOpenBlockCascadeTask()
                             PsychologyTaskType.SkylineReset -> onOpenSkylineResetTask()
                             PsychologyTaskType.RhythmTiles -> onOpenRhythmTilesTask()

@@ -250,7 +250,15 @@ class AdaptivePersistenceInstrumentedTest {
         RoomAdaptiveDataRepository(database).clearAllAdaptiveData()
         assertEquals(0, decisionDao.count())
         assertEquals(0, planDao.count())
-        assertNull(preferenceDao.get())
+        assertNotNull(
+            preferenceDao.get(),
+        )
+
+        assertTrue(
+            preferenceDao
+                .get()!!
+                .pathShiftEnabled,
+        )
     }
 
     @Test
@@ -267,6 +275,9 @@ class AdaptivePersistenceInstrumentedTest {
         assertTrue(defaults?.momentPlanSuggestionsEnabled ?: false)
         assertTrue(defaults?.randomisedExplorationEnabled ?: false)
         assertTrue(defaults?.privateScreenProtectionEnabled ?: false)
+        assertTrue(
+            defaults?.pathShiftEnabled ?: false,
+        )
 
         dao.update(
             AdaptivePreferenceEntity(
@@ -276,49 +287,89 @@ class AdaptivePersistenceInstrumentedTest {
                 momentPlanSuggestionsEnabled = false,
              randomisedExplorationEnabled = false,
              privateScreenProtectionEnabled = false,
+             pathShiftEnabled = false,
              updatedAtMillis = 5_000L,
             ),
         )
         assertFalse(dao.get()?.personalSuggestionsEnabled ?: true)
         assertFalse(dao.get()?.privateScreenProtectionEnabled ?: true)
+        assertTrue(
+            dao.get()?.pathShiftEnabled ?: false,
+        )
 
         dao.resetDefaults(updatedAtMillis = 6_000L)
         val reset = dao.get()
         assertTrue(reset?.personalSuggestionsEnabled ?: false)
         assertTrue(reset?.randomisedExplorationEnabled ?: false)
         assertTrue(reset?.privateScreenProtectionEnabled ?: false)
+        assertTrue(
+            reset?.pathShiftEnabled ?: false,
+        )
         assertEquals(6_000L, reset?.updatedAtMillis)
     }
 
     @Test
-    fun sqlCipherBackedRoomDatabaseOpensAtSchemaEleven() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val databaseName = "adaptive-sqlcipher-${System.nanoTime()}.db"
-        SqlCipherDatabaseMigrator.ensureSqlCipherLoaded()
-        val encrypted = Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            databaseName,
-        )
-            .openHelperFactory(
-                SupportOpenHelperFactory(
-                    ByteArray(32) { index -> (index + 1).toByte() },
-                ),
-            )
-            .build()
+    fun sqlCipherBackedRoomDatabaseOpensAtSchemaFourteen() = runBlocking {
+        val context =
+            ApplicationProvider
+                .getApplicationContext<Context>()
+        val databaseName =
+            "adaptive-sqlcipher-${System.nanoTime()}.db"
+
+        SqlCipherDatabaseMigrator
+            .ensureSqlCipherLoaded()
+
+        val encrypted =
+            Room
+                .databaseBuilder(
+                    context,
+                    AppDatabase::class.java,
+                    databaseName,
+                )
+                .openHelperFactory(
+                    SupportOpenHelperFactory(
+                        ByteArray(32) { index ->
+                            (index + 1).toByte()
+                        },
+                    ),
+                )
+                .build()
 
         try {
-            encrypted.adaptivePreferenceDao().insertDefaults(
-                updatedAtMillis = 1_000L,
+            encrypted
+                .adaptivePreferenceDao()
+                .insertDefaults(
+                    updatedAtMillis = 1_000L,
+                )
+
+            assertEquals(
+                1,
+                encrypted
+                    .adaptivePreferenceDao()
+                    .get()
+                    ?.id,
             )
-            assertEquals(1, encrypted.adaptivePreferenceDao().get()?.id)
-            encrypted.openHelper.readableDatabase.query("PRAGMA user_version").use { cursor ->
-                cursor.moveToFirst()
-            assertEquals(11, cursor.getInt(0))
-            }
+
+            encrypted
+                .openHelper
+                .readableDatabase
+                .query(
+                    "PRAGMA user_version",
+                )
+                .use { cursor ->
+                    assertTrue(
+                        cursor.moveToFirst(),
+                    )
+                    assertEquals(
+                        14,
+                        cursor.getInt(0),
+                    )
+                }
         } finally {
             encrypted.close()
-            context.deleteDatabase(databaseName)
+            context.deleteDatabase(
+                databaseName,
+            )
         }
     }
 

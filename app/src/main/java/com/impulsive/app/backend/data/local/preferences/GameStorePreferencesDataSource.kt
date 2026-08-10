@@ -1,6 +1,8 @@
 package com.impulsive.app.backend.data.local.preferences
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -16,8 +18,10 @@ private val Context.gameStoreDataStore by preferencesDataStore(name = "game_stor
 
 data class GameAccessState(val access: GameAccess, val playsLeft: Int)
 
-class GameStorePreferencesDataSource(context: Context) {
-    private val store = context.applicationContext.gameStoreDataStore
+class GameStorePreferencesDataSource internal constructor(
+    private val store: DataStore<Preferences>,
+) {
+    constructor(context: Context) : this(context.applicationContext.gameStoreDataStore)
 
     val spendablePoints: Flow<Int> = store.data.map { it[SpendableKey] ?: 0 }
     val lifetimePoints: Flow<Int> = store.data.map { it[LifetimeKey] ?: 0 }
@@ -97,6 +101,103 @@ class GameStorePreferencesDataSource(context: Context) {
         return awarded
     }
 
+    /**
+     * Records one play exactly once for a stable score session.
+     *
+     * A game result can survive process death and be replayed into this store,
+     * so the receipt, the win-streak award and any rental consumption all happen
+     * inside a single edit. That makes it impossible to award points without
+     * persisting the receipt, or vice versa.
+     *
+     * @return true when this call applied the play, false when the session was
+     * already recorded or the game is unknown.
+     */
+    suspend fun recordPlayOnce(
+        gameId: String,
+        sessionId: Long,
+        won: Boolean,
+        pointsPerTwoWinStreak: Int,
+    ): Boolean {
+        require(sessionId > 0L) { "sessionId must be positive" }
+        require(pointsPerTwoWinStreak >= 0) { "pointsPerTwoWinStreak must not be negative" }
+
+        val game = GameStoreCatalog.byId(gameId) ?: return false
+        val token = normalizePlayReceiptToken("$gameId:$sessionId") ?: return false
+
+        var applied = false
+
+        store.edit { prefs ->
+            val receipts = decodePlayReceipts(prefs[PlayReceiptKey].orEmpty())
+
+            if (token in receipts) return@edit
+
+            if (!won) {
+                prefs[GlobalWinStreakKey] = 0
+            } else {
+                val nextStreak = (prefs[GlobalWinStreakKey] ?: 0) + 1
+
+                if (nextStreak >= 2) {
+                    prefs[GlobalWinStreakKey] = 0
+                    prefs[SpendableKey] = (prefs[SpendableKey] ?: 0) + pointsPerTwoWinStreak
+                    prefs[LifetimeKey] = (prefs[LifetimeKey] ?: 0) + pointsPerTwoWinStreak
+
+                    val ledger = decodeLedger(prefs[LedgerKey].orEmpty()).toMutableMap()
+                    val today = LocalDate.now()
+                    ledger[today] = (ledger[today] ?: 0) + pointsPerTwoWinStreak
+                    prefs[LedgerKey] = encodeLedger(ledger)
+                } else {
+                    prefs[GlobalWinStreakKey] = nextStreak
+                }
+            }
+
+            val accessMap = decodeAccess(prefs[AccessKey].orEmpty()).toMutableMap()
+            val current = accessMap[gameId]
+                ?: GameAccessState(
+                    if (game.defaultOwned) GameAccess.OWNED else GameAccess.LOCKED,
+                    0,
+                )
+
+            if (current.access == GameAccess.RENTED) {
+                val remaining = (current.playsLeft - 1).coerceAtLeast(0)
+                accessMap[gameId] = if (remaining <= 0) {
+                    GameAccessState(GameAccess.LOCKED, 0)
+                } else {
+                    GameAccessState(GameAccess.RENTED, remaining)
+                }
+                prefs[AccessKey] = encodeAccess(accessMap)
+            }
+
+            prefs[PlayReceiptKey] = encodePlayReceipts(
+                (receipts + token).takeLast(MaximumPlayReceiptCount),
+            )
+
+            applied = true
+        }
+
+        return applied
+    }
+
+    /**
+     * Whether this session's play receipt already exists.
+     *
+     * Read-only: it awards nothing, consumes nothing and creates no receipt. It
+     * exists so a `false` from [recordPlayOnce] can be disambiguated between
+     * "already recorded" and "not recorded".
+     */
+    suspend fun isPlayRecorded(
+        gameId: String,
+        sessionId: Long,
+    ): Boolean {
+        require(sessionId > 0L) { "sessionId must be positive" }
+
+        if (GameStoreCatalog.byId(gameId) == null) return false
+
+        val token = normalizePlayReceiptToken("$gameId:$sessionId") ?: return false
+        val preferences = store.data.first()
+
+        return token in decodePlayReceipts(preferences[PlayReceiptKey].orEmpty())
+    }
+
     suspend fun trySpend(points: Int): Boolean {
         var ok = false
         store.edit { prefs ->
@@ -164,12 +265,41 @@ class GameStorePreferencesDataSource(context: Context) {
             }.toMap()
         }
 
+    /** Rejects blank or oversized tokens rather than persisting junk. */
+    private fun normalizePlayReceiptToken(token: String): String? {
+        val trimmed = token.trim()
+
+        if (trimmed.isBlank()) return null
+        if (trimmed.length > MaximumPlayReceiptTokenLength) return null
+        if (trimmed.contains(ReceiptSeparator)) return null
+
+        return trimmed
+    }
+
+    private fun decodePlayReceipts(stored: String): List<String> =
+        if (stored.isBlank()) {
+            emptyList()
+        } else {
+            stored.split(ReceiptSeparator)
+                .mapNotNull { normalizePlayReceiptToken(it) }
+                .distinct()
+        }
+
+    private fun encodePlayReceipts(receipts: List<String>): String =
+        receipts.distinct().joinToString(ReceiptSeparator)
+
     private companion object {
+        /** Not present in any game or session identifier. */
+        const val ReceiptSeparator = ""
+        const val MaximumPlayReceiptCount = 200
+        const val MaximumPlayReceiptTokenLength = 160
+
         val SpendableKey = intPreferencesKey("spendable_points")
         val LifetimeKey = intPreferencesKey("lifetime_points")
         val LedgerKey = stringPreferencesKey("daily_earned_ledger")
         val AccessKey = stringPreferencesKey("game_access")
         val WeeklyKey = stringPreferencesKey("weekly_award_days")
         val GlobalWinStreakKey = intPreferencesKey("global_game_win_streak")
+        val PlayReceiptKey = stringPreferencesKey("game_play_receipts")
     }
 }

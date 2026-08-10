@@ -14,6 +14,8 @@ import com.impulsive.app.backend.domain.model.adaptive.AdaptiveSourceKind
 import com.impulsive.app.backend.domain.model.adaptive.AssignmentMode
 import com.impulsive.app.backend.domain.model.adaptive.EngagementOutcome
 import com.impulsive.app.backend.domain.model.adaptive.FeedbackCode
+import com.impulsive.app.backend.domain.model.adaptive.FamiliarStepEvidenceRecord
+import com.impulsive.app.backend.domain.model.adaptive.FamiliarStepRouteIdentity
 import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
 import com.impulsive.app.backend.domain.model.adaptive.MomentCue
 import com.impulsive.app.backend.domain.model.adaptive.MomentIntensity
@@ -172,6 +174,42 @@ internal fun AdaptiveDecisionEntity.toOutcomeRecord(): AdaptiveOutcomeRecord =
         observationFinalisedAtMillis = observationFinalisedAtMillis,
     )
 
+internal fun AdaptiveDecisionEntity.toFamiliarStepEvidenceRecord(): FamiliarStepEvidenceRecord? {
+    val intervention = actualIntervention?.let {
+        enumValue<InterventionFamily>(it, "actualIntervention")
+    } ?: return null
+    val protocolId = actualProtocolId?.takeIf { it.isNotBlank() } ?: return null
+    val protocolVersion = actualProtocolVersion?.takeIf { it > 0 } ?: return null
+    val finalisedAt = observationFinalisedAtMillis ?: return null
+    val planId = momentPlanId.takeIf { intervention == InterventionFamily.MomentPlan }
+    val planRevision = actualPlanContentRevisionId
+        .takeIf { intervention == InterventionFamily.MomentPlan }
+    if (intervention == InterventionFamily.MomentPlan && (planId == null || planRevision == null)) {
+        return null
+    }
+    return FamiliarStepEvidenceRecord(
+        decisionId = decisionId,
+        routeIdentity = FamiliarStepRouteIdentity(
+            intervention = intervention,
+            protocolId = protocolId,
+            protocolVersion = protocolVersion,
+            momentPlanId = planId,
+            momentPlanContentRevisionId = planRevision,
+        ),
+        momentCue = momentCue?.let { enumValue<MomentCue>(it, "momentCue") },
+        feedbackCode = enumValue<FeedbackCode>(feedbackCode, "feedbackCode"),
+        engagementOutcome = when {
+            completedAtMillis != null -> EngagementOutcome.Completed
+            dismissedAtMillis != null -> EngagementOutcome.Dismissed
+            startedAtMillis != null -> EngagementOutcome.StartedNotCompleted
+            else -> EngagementOutcome.NotStarted
+        },
+        repeatObservation = repeatDetectedWithin20Minutes.toRepeatObservation(),
+        decisionAtMillis = createdAtMillis,
+        finalisedAtMillis = finalisedAt,
+    )
+}
+
 internal fun MomentPlan.toEntity(): MomentPlanEntity {
     val issues = AdaptiveModelValidator.validate(this)
     require(issues.isEmpty()) {
@@ -223,7 +261,7 @@ internal fun AdaptivePreferences.toEntity(
     randomisedExplorationEnabled = randomisedExplorationEnabled,
     privateScreenProtectionEnabled = privateScreenProtectionEnabled,
     historyRetentionPolicy = historyRetentionPolicy.name,
-    pathShiftEnabled = pathShiftEnabled,
+    pathShiftEnabled = true,
     updatedAtMillis = updatedAtMillis,
 )
 
@@ -242,7 +280,7 @@ internal fun AdaptivePreferenceEntity.toDomain(): AdaptivePreferences {
             historyRetentionPolicy,
             "adaptive history retention policy",
         ),
-        pathShiftEnabled = pathShiftEnabled,
+        pathShiftEnabled = true,
     )
 }
 

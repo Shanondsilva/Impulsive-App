@@ -4,6 +4,7 @@ import com.impulsive.app.backend.domain.model.adaptive.AdaptiveDecision
 import com.impulsive.app.backend.domain.model.adaptive.AdaptiveOutcomeRecord
 import com.impulsive.app.backend.domain.model.adaptive.AdaptivePreferences
 import com.impulsive.app.backend.domain.model.adaptive.FeedbackCode
+import com.impulsive.app.backend.domain.model.adaptive.FamiliarStepEvidenceRecord
 import com.impulsive.app.backend.domain.model.adaptive.InterventionFamily
 import com.impulsive.app.backend.domain.model.adaptive.MomentCue
 import com.impulsive.app.backend.domain.model.adaptive.MomentPlan
@@ -157,6 +158,7 @@ interface AdaptiveDecisionRepository {
         nowMillis: Long,
     ): AdaptiveDecision?
 
+
     suspend fun getOpenObservationDeadlines(
         nowMillis: Long,
         limit: Int,
@@ -181,6 +183,9 @@ interface AdaptiveDecisionRepository {
         kotlinx.coroutines.flow.flowOf(emptyList())
 
     suspend fun getRecentFinalised(limit: Int): List<AdaptiveOutcomeRecord>
+
+    suspend fun getRecentFamiliarStepEvidence(limit: Int): List<FamiliarStepEvidenceRecord> =
+        emptyList()
 
     suspend fun getFinalisedByActualIntervention(
         intervention: InterventionFamily,

@@ -34,7 +34,7 @@ class ProtectionWatchdogWorker(
         val protectionConfigured =
             setup.configurationDrivenAppProtectionConsented &&
                 setup.selectedBlockedAppPackageNames.isNotEmpty() ||
-                setup.websiteProtectionEnabled
+                setup.websiteProtectionRuntimeEnabled
 
         if (!protectionConfigured) {
             ProtectionServiceOperationalStateStore

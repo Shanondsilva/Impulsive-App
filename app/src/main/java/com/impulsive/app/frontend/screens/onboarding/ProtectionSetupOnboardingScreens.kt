@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -189,7 +190,11 @@ fun ProtectionSetupOnboardingScreen(
                 body = "Allows the pause screen to appear on top of a protected app. Android calls this Display over other apps.",
                 completed = state.isComplete(ProtectionSetupItem.InterruptionPermission),
                 skipped = ProtectionSetupItem.InterruptionPermission in state.skippedSetupItems,
-                actionLabel = "Allow",
+                actionLabel = if (state.isComplete(ProtectionSetupItem.InterruptionPermission)) {
+                    "Review settings"
+                } else {
+                    "Allow"
+                },
                 onAction = onOpenInterruptionPermission,
                 onSkip = { onSkipItem(ProtectionSetupItem.InterruptionPermission) },
             )
@@ -199,7 +204,11 @@ fun ProtectionSetupOnboardingScreen(
                 body = "Helps Impulsive keep protection running in the background. Android manages this through Battery optimization.",
                 completed = state.isComplete(ProtectionSetupItem.BackgroundActivity),
                 skipped = ProtectionSetupItem.BackgroundActivity in state.skippedSetupItems,
-                actionLabel = "Allow",
+                actionLabel = if (state.isComplete(ProtectionSetupItem.BackgroundActivity)) {
+                    "Review settings"
+                } else {
+                    "Allow"
+                },
                 onAction = onOpenBackgroundActivityPermission,
                 onSkip = { onSkipItem(ProtectionSetupItem.BackgroundActivity) },
             )
@@ -209,7 +218,11 @@ fun ProtectionSetupOnboardingScreen(
                 body = "If the pause screen can't show, Impulsive sends a notification so you can still open your reset.",
                 completed = state.isComplete(ProtectionSetupItem.Notifications),
                 skipped = ProtectionSetupItem.Notifications in state.skippedSetupItems,
-                actionLabel = "Allow",
+                actionLabel = if (state.isComplete(ProtectionSetupItem.Notifications)) {
+                    "Review settings"
+                } else {
+                    "Allow"
+                },
                 onAction = onOpenNotificationPermission,
                 onSkip = { onSkipItem(ProtectionSetupItem.Notifications) },
             )
@@ -266,6 +279,8 @@ private fun ProtectionSetupCard(
         skipped -> ProtectionSkipped
         else -> ProtectionMutedText
     }
+    val showAction = actionLabel != null && onAction != null
+    val showSkip = !completed
 
     Column(
         modifier = Modifier
@@ -332,31 +347,33 @@ private fun ProtectionSetupCard(
             }
         }
 
-        if (!completed) {
+        if (showAction || showSkip) {
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (actionLabel != null && onAction != null) {
+                if (showAction) {
                     ProtectionSmallButton(
-                        label = actionLabel,
-                        onClick = onAction,
+                        label = requireNotNull(actionLabel),
+                        onClick = requireNotNull(onAction),
                         modifier = Modifier.weight(1f),
                     )
                 }
-                TextButton(
-                    onClick = onSkip,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        text = "Do this later",
-                        color = ProtectionAccentText,
-                        fontSize = 13.sp,
-                        lineHeight = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                if (showSkip) {
+                    TextButton(
+                        onClick = onSkip,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = "Do this later",
+                            color = ProtectionAccentText,
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
         }
@@ -426,7 +443,7 @@ private fun ProtectionSmallButton(
             haptics.light()
             onClick()
         },
-        modifier = modifier.height(42.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         shape = RoundedCornerShape(21.dp),
         border = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
             BorderStroke(1.dp, ImpulsivePsychological)

@@ -15,6 +15,7 @@ class AdaptiveResetCoordinator(
     private val logger: AdaptiveSafeLogger = AndroidAdaptiveSafeLogger,
     private val retentionWork: AdaptiveRetentionResetWork =
         AdaptiveRetentionResetWork { true },
+    private val clearActiveSupportCycleState: suspend () -> Boolean = { true },
     private val clearPendingRuntimeState: () -> Unit =
         AdaptiveRetentionRuntimeState::clearAllAdaptiveReferences,
 ) {
@@ -33,7 +34,11 @@ class AdaptiveResetCoordinator(
         deleteAllMomentData: Boolean,
         clear: suspend () -> Unit,
     ): AdaptiveLifecycleResult = try {
-        if (!scheduler.cancelAll() || !retentionWork.cancel(deleteAllMomentData)) {
+        if (
+            !scheduler.cancelAll() ||
+            !retentionWork.cancel(deleteAllMomentData) ||
+            !clearActiveSupportCycleState()
+        ) {
             return AdaptiveLifecycleResult.SchedulingFailure
         }
         clear()

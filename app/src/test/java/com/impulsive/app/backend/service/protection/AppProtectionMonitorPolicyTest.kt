@@ -1,6 +1,7 @@
 package com.impulsive.app.backend.service.protection
 
-import com.impulsive.app.backend.data.local.preferences.WebsiteProtectionIncidentPhase
+import com.impulsive.app.backend.domain.model.protection.ProtectionSetupState
+import com.impulsive.app.backend.domain.model.protection.WebsiteProtectionDisclosurePolicy
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -97,12 +98,6 @@ class AppProtectionMonitorPolicyTest {
     }
 
     @Test
-    fun `friction and cooldown phases can start website interruption`() {
-        assertTrue(canStartWebsiteInterruption(WebsiteProtectionIncidentPhase.Friction))
-        assertTrue(canStartWebsiteInterruption(WebsiteProtectionIncidentPhase.Cooldown))
-    }
-
-    @Test
     fun `confirmed website fallback remains eligible without activity lease input`() {
         assertTrue(
             eligibleWebsiteFallback(),
@@ -124,6 +119,55 @@ class AppProtectionMonitorPolicyTest {
         )
         assertFalse(eligibleWebsiteFallback(overlayShowing = true))
         assertFalse(eligibleWebsiteFallback(terminatingActionSelected = true))
+    }
+
+    @Test
+    fun `raw enabled with version 0 consent yields runtime disabled`() {
+        val state =
+            ProtectionSetupState(
+                websiteProtectionEnabled = true,
+                websiteProtectionDisclosureConsentVersion = 0,
+            )
+
+        assertFalse(state.websiteProtectionRuntimeEnabled)
+    }
+
+    @Test
+    fun `raw enabled with current disclosure consent yields runtime enabled`() {
+        val state =
+            ProtectionSetupState(
+                websiteProtectionEnabled = true,
+                websiteProtectionDisclosureConsentVersion =
+                    WebsiteProtectionDisclosurePolicy.CurrentVersion,
+            )
+
+        assertTrue(state.websiteProtectionRuntimeEnabled)
+    }
+
+    @Test
+    fun `App Protection monitoring eligibility is independent of Website Protection disclosure`() {
+        assertTrue(
+            shouldMonitorProtectedApps(
+                appProtectionEnabled = true,
+                selectedPackages = selectedPackages,
+                usageAccessGranted = true,
+            ),
+        )
+
+        val runtimeDisabledWebsiteProtection =
+            ProtectionSetupState(
+                websiteProtectionEnabled = true,
+                websiteProtectionDisclosureConsentVersion = 0,
+            )
+
+        assertFalse(runtimeDisabledWebsiteProtection.websiteProtectionRuntimeEnabled)
+        assertTrue(
+            shouldMonitorProtectedApps(
+                appProtectionEnabled = true,
+                selectedPackages = selectedPackages,
+                usageAccessGranted = true,
+            ),
+        )
     }
 
     private fun eligibleWebsiteFallback(

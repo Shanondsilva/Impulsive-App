@@ -20,6 +20,7 @@
     <include domain="file" path="datastore/reflex_game_history.preferences_pb" requireFlags="clientSideEncryption" />
     <include domain="file" path="datastore/reset_read_progress.preferences_pb" requireFlags="clientSideEncryption" />
     <include domain="file" path="datastore/rhythm_tiles_history.preferences_pb" requireFlags="clientSideEncryption" />
+    <include domain="file" path="datastore/snake_game_history.preferences_pb" requireFlags="clientSideEncryption" />
     <include domain="file" path="datastore/score_sessions.preferences_pb" requireFlags="clientSideEncryption" />
     <include domain="file" path="datastore/served_games.preferences_pb" requireFlags="clientSideEncryption" />
     <include domain="file" path="datastore/taper_preferences.preferences_pb" requireFlags="clientSideEncryption" />

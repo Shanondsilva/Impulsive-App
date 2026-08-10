@@ -3,8 +3,9 @@ package com.impulsive.app.frontend.screens.games
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,7 +52,14 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -65,6 +73,7 @@ import com.impulsive.app.backend.domain.game.BlockCascadeMinimumMoves
 import com.impulsive.app.backend.domain.game.BlockCascadeRows
 import com.impulsive.app.backend.domain.game.BlockCascadeRoundSeconds
 import com.impulsive.app.backend.domain.game.ReflexGameLaunchSource
+import com.impulsive.app.backend.domain.game.RecoveryGameLaunchContext
 import com.impulsive.app.backend.domain.model.release.calculateReleasePlan
 import com.impulsive.app.backend.domain.model.release.minuteOfDayToLocalTime
 import com.impulsive.app.backend.domain.model.tasks.PsychologyTaskType
@@ -100,6 +109,7 @@ fun BlockCascadeScreen(
     onAdaptiveCompleted: (() -> Unit)? = null,
     onAdaptiveExit: ((completed: Boolean) -> Unit)? = null,
     launchSource: ReflexGameLaunchSource = ReflexGameLaunchSource.TASK_TO_COMPLETE,
+    gameLaunchContext: RecoveryGameLaunchContext = RecoveryGameLaunchContext.Standalone,
     onboardingViewModel: OnboardingViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     taskRewardViewModel: TaskRewardViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     viewModel: BlockCascadeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -111,6 +121,9 @@ fun BlockCascadeScreen(
     val taskCompletionResult by taskRewardViewModel.lastCompletionResult.collectAsStateWithLifecycle()
     val appSettingsState by appSettingsViewModel.state.collectAsStateWithLifecycle()
     val sounds = rememberImpulsiveSounds(appSettingsState.soundEffectsEnabled)
+    LaunchedEffect(gameLaunchContext) {
+        if (!viewModel.configureLaunchContext(gameLaunchContext)) onExit()
+    }
     LaunchedEffect(uiState.linesCleared) {
         if (uiState.linesCleared > 0) {
             sounds.cascadeClear()
@@ -171,6 +184,7 @@ fun BlockCascadeScreen(
             score = uiState.linesCleared,
             durationSec = uiState.secondsPlayed,
             validCompletion = validCompletion,
+            completionToken = viewModel.taskRewardCompletionToken(),
         )
     }
 
@@ -190,7 +204,9 @@ fun BlockCascadeScreen(
         if (uiState.completed) {
             taskRewardViewModel.clearLastCompletionResult()
         }
-        onAdaptiveExit?.invoke(uiState.completed) ?: onExit()
+        viewModel.finishSupportCycleAfterChoice {
+            onAdaptiveExit?.invoke(uiState.completed) ?: onExit()
+        }
     }
 
     BackHandler {
@@ -216,7 +232,6 @@ fun BlockCascadeScreen(
     LaunchedEffect(uiState.view, uiState.completed, uiState.failed) {
         if (uiState.view == BlockCascadeView.Result) {
             logCompletion(validCompletion = uiState.completed)
-            if (uiState.completed) onAdaptiveCompleted?.invoke()
         }
     }
 
@@ -275,7 +290,7 @@ fun BlockCascadeScreen(
                 onStart = viewModel::start,
                 onUrgeBeforeSelected = viewModel::setUrgeBefore,
             )
-            BlockCascadeView.Playing -> PlayingPanel(
+            BlockCascadeView.Playing -> BlockCascadePlayingPanel(
                 uiState = uiState,
                 onMoveLeft = viewModel::moveLeft,
                 onMoveRight = viewModel::moveRight,
@@ -293,12 +308,14 @@ fun BlockCascadeScreen(
                 taskLaunch = taskLaunch,
                 onDone = ::exitSafely,
                 onPlayAgain = {
-                    viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
-                    taskRewardViewModel.clearLastCompletionResult()
-                    rewardLogged = false
-                    viewModel.start()
+                    viewModel.replayWithRemainingBudget {
+                        viewModel.recordCurrentResult(ScoreSessionOutcome.Replayed)
+                        taskRewardViewModel.clearLastCompletionResult()
+                        rewardLogged = false
+                        viewModel.start()
+                    }
                 },
-                onPlayAnother = onPlayAnother,
+                onPlayAnother = { viewModel.continueWithAnotherGame(onPlayAnother) },
             )
         }
     }
@@ -355,7 +372,7 @@ private fun ReadyPanel(
 }
 
 @Composable
-private fun PlayingPanel(
+internal fun BlockCascadePlayingPanel(
     uiState: BlockCascadeUiState,
     onMoveLeft: () -> Unit,
     onMoveRight: () -> Unit,
@@ -367,21 +384,66 @@ private fun PlayingPanel(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ProgressHud(uiState = uiState)
-        BlockCascadeBoardCanvas(
-            gameState = uiState.gameState,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        if (offset.x < size.width / 2f) {
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) {
+                        return@onPreviewKeyEvent false
+                    }
+
+                    when (event.key) {
+                        Key.DirectionLeft -> {
                             onMoveLeft()
-                        } else {
-                            onMoveRight()
+                            true
                         }
+
+                        Key.DirectionRight -> {
+                            onMoveRight()
+                            true
+                        }
+
+                        Key.DirectionUp -> {
+                            onRotate()
+                            true
+                        }
+
+                        Key.DirectionDown -> {
+                            onSoftDrop()
+                            true
+                        }
+
+                        else -> false
                     }
                 },
-        )
+        ) {
+            BlockCascadeBoardCanvas(
+                gameState = uiState.gameState,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            /*
+             * Transparent halves over the same region the raw tap used, so
+             * touch geometry is unchanged but each side is a named control.
+             */
+            Row(modifier = Modifier.fillMaxSize()) {
+                BlockBoardTapRegion(
+                    label = "Move left",
+                    onClick = onMoveLeft,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
+                BlockBoardTapRegion(
+                    label = "Move right",
+                    onClick = onMoveRight,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -400,6 +462,30 @@ private fun PlayingPanel(
             )
         }
     }
+}
+
+/** A transparent, named interaction layer over the already-drawn board. */
+@Composable
+private fun BlockBoardTapRegion(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Box(
+        modifier = modifier
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClickLabel = label,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics {
+                contentDescription = label
+            },
+    )
 }
 
 @Composable
@@ -556,15 +642,21 @@ private fun ControlButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember(text) { MutableInteractionSource() }
+
     Surface(
         color = ImpulsiveSurface,
         shape = RoundedCornerShape(26.dp),
         tonalElevation = 2.dp,
         modifier = modifier
             .height(58.dp)
-            .pointerInput(onClick) {
-                detectTapGestures(onTap = { onClick() })
-            },
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClickLabel = text,
+                role = Role.Button,
+                onClick = onClick,
+            ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 18.dp),
